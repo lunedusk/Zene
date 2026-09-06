@@ -20,7 +20,14 @@ export class DependencyLoader {
         }
 
         log.info(`[${pluginId}] Installing ${names.length} npm dependencies in sandbox...`);
-        await this.runNpmInstall(pluginDir, pluginId, merged);
+        const packagePath = path.join(pluginDir, 'package.json');
+        const hasPackageJson = await fs.access(packagePath).then(() => true).catch(() => false);
+        if (!hasPackageJson) await fs.writeFile(packagePath, JSON.stringify({ private: true }, null, 2));
+        try {
+            await this.runNpmInstall(pluginDir, pluginId, merged);
+        } finally {
+            if (!hasPackageJson) await fs.rm(packagePath, { force: true });
+        }
         log.info(`[${pluginId}] Dependencies successfully sandboxed.`);
     }
 
@@ -82,8 +89,11 @@ export class DependencyLoader {
         const specs = Object.entries(deps).map(([name, range]) => `${name}@${range}`);
         const args = [
             'install',
+            '--prefix',
+            targetDir,
             ...specs,
             '--no-save',
+            '--package-lock=false',
             '--no-audit',
             '--no-fund',
             '--prefer-offline',
@@ -91,7 +101,7 @@ export class DependencyLoader {
 
         return new Promise((resolve, reject) => {
             const child = spawn('npm', args, {
-                cwd: targetDir,
+                cwd: process.cwd(),
                 stdio: 'ignore',
                 shell: process.platform === 'win32',
                 detached: process.platform !== 'win32',

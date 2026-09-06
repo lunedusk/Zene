@@ -17,6 +17,7 @@ import { PackageManager } from '#core/helpers/integrity/manifest.js';
 import { SemVer } from '#core/utils/semver.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { NodeVersion } from '#core/utils/nodever.js';
+import { resolvePluginPublicKey } from '#core/helpers/integrity/publicKey.js';
 import { CommandLoader } from './commands.js';
 import { MiddlewareLoader } from './middlewares.js';
 import { freezeCommandStructure } from './commandRegistry.js';
@@ -139,18 +140,12 @@ export class PluginManager extends EventEmitter {
     private async discoverPlugins(): Promise<Map<string, DiscoveredPlugin>> {
         const discovered = new Map<string, DiscoveredPlugin>();
         
-        const publicKeyB64 = secrets.getOptional('PublicKey');
         const allowUncertified = secrets.getBoolean('allowUnCertifiedPlugins', false);
         const whitelistedStr = secrets.getOptional('whitelistedPlugins');
         
         const whitelistedSet = new Set(
             whitelistedStr ? whitelistedStr.split(',').map(s => s.trim()).filter(Boolean) : []
         );
-
-        if (!publicKeyB64 && !allowUncertified && whitelistedSet.size === 0) {
-            log.warn('No PublicKey in Vault and uncertified plugins are disabled. Discovery aborted.');
-            return discovered;
-        }
 
         try {
             const entries = await fs.readdir(this.pluginsDir, { withFileTypes: true });
@@ -169,17 +164,17 @@ export class PluginManager extends EventEmitter {
                     const hasNvx = await fs.access(nvxPath).then(() => true).catch(() => false);
 
                     if (hasNvx) {
-                        if (!publicKeyB64) {
-                            log.warn(`[${entry.name}] Plugin contains manifest.nvx, but no PublicKey is available to verify it.`);
-                        } else {
-                            try {
-                                manifest = await PackageManager.unpackAndVerify(pluginDir, publicKeyB64, 'manifest.nvx');
-                                integrityPassed = true;
-                                this.integrityById.set(manifest.id, 'signed');
-                            } catch (verifyError: unknown) {
-                                const err = verifyError as Error;
-                                log.warn(`[${entry.name}] INTEGRITY FAILURE: ${err.message}`);
-                            }
+                        try {
+                            manifest = await PackageManager.unpackAndVerify(
+                                pluginDir,
+                                resolvePluginPublicKey(entry.name),
+                                'manifest.nvx',
+                            );
+                            integrityPassed = true;
+                            this.integrityById.set(manifest.id, 'signed');
+                        } catch (verifyError: unknown) {
+                            const err = verifyError as Error;
+                            log.warn(`[${entry.name}] INTEGRITY FAILURE: ${err.message}`);
                         }
                     }
 
