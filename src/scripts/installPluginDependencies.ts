@@ -5,7 +5,13 @@ import { promisify } from 'node:util';
 import { resolvePluginPublicKey } from '#core/helpers/integrity/publicKey.js';
 import { readSignedManifestMetadata } from '#core/helpers/integrity/signedMetadata.js';
 
-process.loadEnvFile?.();
+try {
+    process.loadEnvFile?.();
+} catch (error: unknown) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+        throw error;
+    }
+}
 
 const execFileAsync = promisify(execFile);
 const projectRoot = path.resolve(import.meta.dirname, '../..');
