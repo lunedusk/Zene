@@ -1,6 +1,6 @@
 # Zene
 
-**v0.5.5** — modular Discord application framework in TypeScript (pure ESM, Node ≥ 20, discord.js v14).
+**v0.5.6** — modular Discord application framework in TypeScript (pure ESM, Node ≥ 20, discord.js v14).
 
 Built for production bots: plugin sandboxing, integrity checks, polyglot storage, ranked permissions, optional multi-machine sharding, and a full HTTP/dashboard surface.
 

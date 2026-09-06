@@ -203,3 +203,8 @@ Skill.md
 !.github/scripts/bump-doc-versions.js
 make-takeback.cjs
 apps/**/*
+AGENT_REFERENCE.md
+AGENTS.md
+src/plugins/security/**/*
+database/**/*
+types/**/*
