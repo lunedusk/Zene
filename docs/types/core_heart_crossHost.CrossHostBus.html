@@ -13,7 +13,7 @@
 <h1>Type Alias CrossHostBus</h1></div>
 <div class="tsd-signature"><span class="tsd-signature-keyword">type</span> <span class="tsd-kind-type-alias">CrossHostBus</span> <span class="tsd-signature-symbol">=</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-call-signature" href="#isavailable-1">isAvailable</a><span class="tsd-signature-symbol">()</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#machineid-1">machineId</a><span class="tsd-signature-symbol">()</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#off-1">off</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">channel</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">handler</span><span class="tsd-signature-symbol">:</span> <a href="core_heart_crossHost.PluginBusHandler.html" class="tsd-signature-type tsd-kind-type-alias">PluginBusHandler</a><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#on-1">on</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">channel</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">handler</span><span class="tsd-signature-symbol">:</span> <a href="core_heart_crossHost.PluginBusHandler.html" class="tsd-signature-type tsd-kind-type-alias">PluginBusHandler</a><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#peers-1">peers</a><span class="tsd-signature-symbol">()</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-keyword">readonly</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#request-1">request</a><span class="tsd-signature-symbol">(</span><br/>        <span class="tsd-kind-parameter">target</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span><br/>        <span class="tsd-kind-parameter">channel</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span><br/>        <span class="tsd-kind-parameter">payload</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">unknown</span><span class="tsd-signature-symbol">,</span><br/>        <span class="tsd-kind-parameter">timeoutMs</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">unknown</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#send-1">send</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">target</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">channel</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">payload</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">unknown</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#shutdownworker-1">shutdownWorker</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">machineId</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">reason</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/f4a899d7a39f93167e2df2ddc6fe48d8a65fc561/src/core/heart/crossHost.ts#L10">core/heart/crossHost.ts:10</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/18865af36f4a683e7d7ad4a47286dafb66c08903/src/core/heart/crossHost.ts#L10">core/heart/crossHost.ts:10</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -41,7 +41,7 @@
 <div class="tsd-description">
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">boolean</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/f4a899d7a39f93167e2df2ddc6fe48d8a65fc561/src/core/heart/crossHost.ts#L11">core/heart/crossHost.ts:11</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/18865af36f4a683e7d7ad4a47286dafb66c08903/src/core/heart/crossHost.ts#L11">core/heart/crossHost.ts:11</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="machineid"><span>machine<wbr/>Id</span><a href="#machineid" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -50,7 +50,7 @@
 <div class="tsd-description">
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/f4a899d7a39f93167e2df2ddc6fe48d8a65fc561/src/core/heart/crossHost.ts#L12">core/heart/crossHost.ts:12</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/18865af36f4a683e7d7ad4a47286dafb66c08903/src/core/heart/crossHost.ts#L12">core/heart/crossHost.ts:12</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="off"><span>off</span><a href="#off" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -64,7 +64,7 @@
 <li><span><span class="tsd-kind-parameter">handler</span>: <a href="core_heart_crossHost.PluginBusHandler.html" class="tsd-signature-type tsd-kind-type-alias">PluginBusHandler</a></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/f4a899d7a39f93167e2df2ddc6fe48d8a65fc561/src/core/heart/crossHost.ts#L22">core/heart/crossHost.ts:22</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/18865af36f4a683e7d7ad4a47286dafb66c08903/src/core/heart/crossHost.ts#L22">core/heart/crossHost.ts:22</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="on"><span>on</span><a href="#on" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -78,7 +78,7 @@
 <li><span><span class="tsd-kind-parameter">handler</span>: <a href="core_heart_crossHost.PluginBusHandler.html" class="tsd-signature-type tsd-kind-type-alias">PluginBusHandler</a></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/f4a899d7a39f93167e2df2ddc6fe48d8a65fc561/src/core/heart/crossHost.ts#L21">core/heart/crossHost.ts:21</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/18865af36f4a683e7d7ad4a47286dafb66c08903/src/core/heart/crossHost.ts#L21">core/heart/crossHost.ts:21</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="peers"><span>peers</span><a href="#peers" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -87,7 +87,7 @@
 <div class="tsd-description">
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-keyword">readonly</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/f4a899d7a39f93167e2df2ddc6fe48d8a65fc561/src/core/heart/crossHost.ts#L13">core/heart/crossHost.ts:13</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/18865af36f4a683e7d7ad4a47286dafb66c08903/src/core/heart/crossHost.ts#L13">core/heart/crossHost.ts:13</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="request"><span>request</span><a href="#request" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -103,7 +103,7 @@
 <li><span><code class="tsd-tag">Optional</code><span class="tsd-kind-parameter">timeoutMs</span>: <span class="tsd-signature-type">number</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">unknown</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/f4a899d7a39f93167e2df2ddc6fe48d8a65fc561/src/core/heart/crossHost.ts#L15">core/heart/crossHost.ts:15</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/18865af36f4a683e7d7ad4a47286dafb66c08903/src/core/heart/crossHost.ts#L15">core/heart/crossHost.ts:15</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="send"><span>send</span><a href="#send" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -118,7 +118,7 @@
 <li><span><span class="tsd-kind-parameter">payload</span>: <span class="tsd-signature-type">unknown</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/f4a899d7a39f93167e2df2ddc6fe48d8a65fc561/src/core/heart/crossHost.ts#L14">core/heart/crossHost.ts:14</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/18865af36f4a683e7d7ad4a47286dafb66c08903/src/core/heart/crossHost.ts#L14">core/heart/crossHost.ts:14</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="shutdownworker"><span>shutdown<wbr/>Worker</span><a href="#shutdownworker" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -132,7 +132,7 @@
 <li><span><code class="tsd-tag">Optional</code><span class="tsd-kind-parameter">reason</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/f4a899d7a39f93167e2df2ddc6fe48d8a65fc561/src/core/heart/crossHost.ts#L23">core/heart/crossHost.ts:23</a></li></ul></aside></div></li></ul></section></section></details></div>
+<li>Defined in <a href="https://github.com/lunedusk/Zene/blob/18865af36f4a683e7d7ad4a47286dafb66c08903/src/core/heart/crossHost.ts#L23">core/heart/crossHost.ts:23</a></li></ul></aside></div></li></ul></section></section></details></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
