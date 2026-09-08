@@ -234,7 +234,7 @@ this.heart.system.eventBus.on('crosshost.assignment.applied', (p) => { /* ... */
 
 `@lunedusk/gateway-multiplex` is a **Cross-Host-only** optional raw-gateway package (gateway v10, identify buckets, resume). Load only via `#core/crosshost/gateway/multiplexLoader.js` — never from standalone or classic sharded paths.
 
-Install/build: `npm run install-packages` (builds `packages/gateway-multiplex` and links `file:packages/gateway-multiplex`). Runtime Cross-Host workers use **discord.js** `Client`s via `DiscordShardAdapter`; multiplex is optional and does **not** replace `discord.js`. The tree `packages/discord.js-14.27.0` is vendored reference source only.
+Install/build: `npm run install-packages` (builds `packages/gateway-multiplex` and links `file:packages/gateway-multiplex`). Runtime Cross-Host workers use **discord.js** `Client`s via `DiscordShardAdapter`; multiplex is optional and does **not** replace `discord.js`.
 
 
 ### Guild affinity

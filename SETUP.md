@@ -105,7 +105,6 @@ Root `package.json` already depends on `"@lunedusk/gateway-multiplex": "file:pac
 |------|------|
 | `node_modules/discord.js` (or `discord.js` dep) | **Required** for all modes (normal, classic sharded, Cross-Host workers via `DiscordShardAdapter`) |
 | `packages/gateway-multiplex` | Optional raw gateway; load only when `CROSS_HOST=true` via `#core/crosshost/gateway/multiplexLoader.js` |
-| `packages/discord.js-14.27.0` | Vendored discord.js source for reference / future patches — **do not** install as the app runtime client unless you intentionally switch the root dependency |
 
 Keep **both**: stock `discord.js` for the bot; multiplex as a separate local package when experimenting with raw gateway multiplexing.
 
