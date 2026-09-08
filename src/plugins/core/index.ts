@@ -233,31 +233,36 @@ export default class Core extends BasePlugin {
         featureRequirements.register({
             id: 'core.moderation.ban',
             pluginId: 'core',
-            description: 'Ban / unban members',
+            description: 'Ban and unban members in configured guilds',
+            intents: ['GuildMembers'],
             permissions: [PermissionFlagsBits.BanMembers],
         });
         featureRequirements.register({
             id: 'core.moderation.kick',
             pluginId: 'core',
-            description: 'Kick members',
+            description: 'Kick members from configured guilds',
+            intents: ['GuildMembers'],
             permissions: [PermissionFlagsBits.KickMembers],
         });
         featureRequirements.register({
             id: 'core.moderation.timeout',
             pluginId: 'core',
-            description: 'Timeout members',
+            description: 'Timeout members or remove an existing timeout',
+            intents: ['GuildMembers'],
             permissions: [PermissionFlagsBits.ModerateMembers],
         });
         featureRequirements.register({
             id: 'core.moderation.roles',
             pluginId: 'core',
-            description: 'Add / remove roles',
+            description: 'Add or remove roles on members',
+            intents: ['GuildMembers'],
             permissions: [PermissionFlagsBits.ManageRoles],
         });
         featureRequirements.register({
             id: 'core.moderation.nick',
             pluginId: 'core',
-            description: 'Change / revert nicknames',
+            description: 'Set or clear member nicknames',
+            intents: ['GuildMembers'],
             permissions: [PermissionFlagsBits.ManageNicknames],
         });
         featureRequirements.register({

@@ -18,7 +18,7 @@ cp .env.example .env   # if present; otherwise create .env
 |----------|---------|
 | `DiscordToken` | Bot token (stays in `process.env`; not scrubbed) |
 | `BotOwnerIds` | Comma-separated Discord user IDs with synthetic `bot.owner` |
-| `Database` | JSON map of alias → `{ uri, engine? }` (optional; sqlite + NovaDB defaults exist) |
+| `Database` | JSON map of alias → `{ uri, engine? }` (optional; sqlite + SurrealDB defaults exist) |
 | `TokenMasterSecret` | ≥32 chars if using the token plugin |
 
 Placeholders such as `${env:DiscordToken}` or `${rand:hex:32}` may appear in env values and in `configuration/*.json5`. See [PLACEHOLDERS.md](PLACEHOLDERS.md).
@@ -37,6 +37,12 @@ On first boot:
 3. Config/lang load: expand → Zod/rules → dual raw/runtime registries  
 4. Databases, permissions, Discord login, plugin boot  
 
+## Build output
+
+`npm run build` compiles TypeScript to the **repo root** (and plugin trees) according to `tsconfig.json` — runtime entry is `node --import ./core/dependency/index.mjs ./index.js` (see `package.json` `start`). Do not assume a separate `dist/` root unless `tsconfig` is changed.
+
+Defaults for env keys live in `src/core/defaults.ts` (single source of truth). Boot order is owned by `src/core/bootstrap/pipeline.ts`.
+
 ## Configuration files
 
 - Plugin defaults: `plugins/<id>/data/configuration/config.json5`  
@@ -51,7 +57,6 @@ Never commit expanded secrets. Disk always keeps `${env:…}` / `${secret:…}` 
 - [PLACEHOLDERS.md](PLACEHOLDERS.md)  
 - [ENV Reference.md](ENV%20Reference.md)  
 - [Database.md](Database.md)  
-- [NovaDB.md](NovaDB.md)  
 - [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md)
 
 ## SecretManager and process.env

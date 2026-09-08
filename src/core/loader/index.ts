@@ -3,7 +3,6 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
-import type { Dirent } from 'node:fs';
 import { type Client } from 'discord.js';
 import {
     shouldDisablePluginForConfig,
@@ -13,11 +12,6 @@ import {
 import { getLogger } from '#core/utils/logger.js';
 import { HeartFactory } from '#core/heart/index.js';
 import { BasePlugin, PluginState, type PluginManifest } from '#core/bases/Plugin.js';
-import { PackageManager } from '#core/helpers/integrity/manifest.js';
-import { SemVer } from '#core/utils/semver.js';
-import { secrets } from '#core/helpers/secretManager.js';
-import { NodeVersion } from '#core/utils/nodever.js';
-import { resolvePluginPublicKey } from '#core/helpers/integrity/publicKey.js';
 import { CommandLoader } from './commands.js';
 import { MiddlewareLoader } from './middlewares.js';
 import { freezeCommandStructure } from './commandRegistry.js';
@@ -29,33 +23,25 @@ import { langLoader } from './lang.js';
 import { RouteLoader } from './routes.js';
 import { HandlerLoader } from './handler.js';
 import { handlerRegistry } from '#core/manager/handler/registry.js';
-import { int, number } from 'zod';
+import { discoverPlugins, sortDependencies } from './discovery.js';
+import {
+    PluginBootStatus,
+    type DiscoveredPlugin,
+    type IntegrityStatus,
+    type PreloadedPlugin,
+} from './types.js';
+
+export { PluginBootStatus } from './types.js';
+export type { DiscoveredPlugin, PreloadedPlugin, IntegrityStatus } from './types.js';
 
 const log = getLogger('PluginManager');
-
-interface DiscoveredPlugin {
-    dir: string;
-    manifest: PluginManifest;
-}
-
-interface PreloadedPlugin extends DiscoveredPlugin {
-    PluginClass: new () => BasePlugin;
-}
-
-export enum PluginBootStatus {
-    Pending = 'PENDING',
-    Preloaded = 'PRELOADED',
-    Success = 'SUCCESS',
-    Failed = 'FAILED',
-    Skipped = 'SKIPPED'
-}
 
 export class PluginManager extends EventEmitter {
     private readonly pluginsDir: string;
     public readonly registry = new Map<string, BasePlugin>();
     private preloadedPlugins: PreloadedPlugin[] = [];
     private readonly bootStatuses = new Map<string, PluginBootStatus>();
-    private readonly integrityById = new Map<string, 'signed' | 'unsigned' | 'failed' | 'bypassed'>();
+    private readonly integrityById = new Map<string, IntegrityStatus>();
     private readonly pluginDirs = new Map<string, string>();
 
     private readonly LIFECYCLE_TIMEOUT_MS = 15000;
@@ -89,196 +75,29 @@ export class PluginManager extends EventEmitter {
         return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutHandle));
     }
 
-    private sortDependencies(plugins: Map<string, DiscoveredPlugin>): DiscoveredPlugin[] {
-        const sorted: DiscoveredPlugin[] = [];
-        const visited = new Set<string>();
-        const visiting = new Set<string>();
-
-        const visit = (pluginId: string, requiredBy?: string) => {
-            if (visiting.has(pluginId)) {
-                throw new Error(`Circular dependency detected: '${pluginId}' -> '${requiredBy}'`);
-            }
-            if (visited.has(pluginId)) return;
-
-            visiting.add(pluginId);
-
-            const plugin = plugins.get(pluginId);
-            if (!plugin) {
-                throw new Error(`Missing required dependency: '${pluginId}' (Required by '${requiredBy}')`);
-            }
-
-            if (plugin.manifest.dependencies) {
-                for (const depId of plugin.manifest.dependencies) {
-                    visit(depId, pluginId);
-                }
-            }
-
-            visiting.delete(pluginId);
-            visited.add(pluginId);
-            sorted.push(plugin);
-        };
-
-        const orderedKeys = [...plugins.keys()].sort((a, b) => {
-            const pa = plugins.get(a)!.manifest.priority ?? 0;
-            const pb = plugins.get(b)!.manifest.priority ?? 0;
-            return pa - pb;
-        });
-
-        for (const pluginId of orderedKeys) {
-            try {
-                visit(pluginId);
-            } catch (error: unknown) {
-                const err = error instanceof Error ? error : new Error(String(error));
-                log.error(`Dependency resolution failed for '${pluginId}': ${err.message}. Plugin will not load.`);
-                plugins.delete(pluginId);
-            }
+    private async runDiscovery(): Promise<Map<string, DiscoveredPlugin>> {
+        const result = await discoverPlugins(this.pluginsDir, this.coreVersion);
+        for (const [id, status] of result.integrityById) {
+            this.integrityById.set(id, status);
         }
-
-        return sorted;
+        for (const [id, dir] of result.pluginDirs) {
+            this.pluginDirs.set(id, dir);
+        }
+        for (const [id, status] of result.bootStatuses) {
+            this.bootStatuses.set(id, status);
+        }
+        return result.discovered;
     }
 
-    private async discoverPlugins(): Promise<Map<string, DiscoveredPlugin>> {
-        const discovered = new Map<string, DiscoveredPlugin>();
-        
-        const allowUncertified = secrets.getBoolean('allowUnCertifiedPlugins', false);
-        const whitelistedStr = secrets.getOptional('whitelistedPlugins');
-        
-        const whitelistedSet = new Set(
-            whitelistedStr ? whitelistedStr.split(',').map(s => s.trim()).filter(Boolean) : []
-        );
-
-        try {
-            const entries = await fs.readdir(this.pluginsDir, { withFileTypes: true });
-            
-            await Promise.all(entries.map(async (entry: Dirent) => {
-                if (!entry.isDirectory()) return;
-
-                const pluginDir = path.join(this.pluginsDir, entry.name);
-                const nvxPath = path.join(pluginDir, 'manifest.nvx');
-                const jsonPath = path.join(pluginDir, 'manifest.json');
-
-                try {
-                    let manifest: PluginManifest | null = null;
-                    let integrityPassed = false;
-                    
-                    const hasNvx = await fs.access(nvxPath).then(() => true).catch(() => false);
-
-                    if (hasNvx) {
-                        try {
-                            manifest = await PackageManager.unpackAndVerify(
-                                pluginDir,
-                                resolvePluginPublicKey(entry.name),
-                                'manifest.nvx',
-                            );
-                            integrityPassed = true;
-                            this.integrityById.set(manifest.id, 'signed');
-                        } catch (verifyError: unknown) {
-                            const err = verifyError as Error;
-                            log.warn(`[${entry.name}] INTEGRITY FAILURE: ${err.message}`);
-                        }
-                    }
-
-                    if (!integrityPassed) {
-                        const isWhitelisted = whitelistedSet.has(entry.name);
-                        
-                        if (!allowUncertified && !isWhitelisted) {
-                            log.error(`[${entry.name}] Rejected: Integrity check failed/missing, and unsigned plugins are disabled.`);
-                            return; 
-                        }
-
-                        log.warn(`[${entry.name}] BYPASS ACTIVE: Loading plugin via manifest.json without cryptographic guarantees.`);
-                        
-                        const jsonRaw = await fs.readFile(jsonPath, 'utf-8').catch(() => {
-                            throw new Error('Missing manifest.json fallback. Cannot load bypassed plugin.');
-                        });
-                        
-                        const parsed: unknown = JSON.parse(jsonRaw);
-                        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-                            throw new Error('Invalid manifest.json: Expected a JSON object.');
-                        }
-                        const raw = parsed as Record<string, unknown>;
-                        const nodeDepsRaw = raw.node_dependencies ?? raw.nodeDependencies;
-                        let nodeDependencies: Record<string, string> | undefined;
-                        if (typeof nodeDepsRaw === 'object' && nodeDepsRaw !== null && !Array.isArray(nodeDepsRaw)) {
-                            const map: Record<string, string> = {};
-                            for (const [k, v] of Object.entries(nodeDepsRaw as Record<string, unknown>)) {
-                                if (typeof k === 'string' && k.trim() && typeof v === 'string' && v.trim()) {
-                                    map[k.trim()] = v.trim();
-                                }
-                            }
-                            if (Object.keys(map).length > 0) nodeDependencies = map;
-                        }
-                        manifest = {
-                            id: typeof raw.id === 'string' ? raw.id : '',
-                            name: typeof raw.name === 'string' ? raw.name : '',
-                            version: typeof raw.version === 'string' ? raw.version : '',
-                            description: typeof raw.description === 'string' ? raw.description : undefined,
-                            author: typeof raw.author === 'string' ? raw.author : undefined,
-                            dependencies: Array.isArray(raw.dependencies)
-                                ? raw.dependencies.filter((d): d is string => typeof d === 'string')
-                                : undefined,
-                            zene_version: (typeof raw.zene_version === 'string' || Array.isArray(raw.zene_version))
-                                ? (raw.zene_version as string | string[])
-                                : undefined,
-                            node_version: typeof raw.node_version === 'string' ? raw.node_version : undefined,
-                            priority: typeof raw.priority === 'number' ? raw.priority : undefined,
-                            nodeDependencies,
-                        };
-                        if (manifest.id) this.integrityById.set(manifest.id, 'bypassed');
-
-                        if (!manifest.id || !manifest.name || !manifest.version) {
-                            throw new Error('Invalid manifest.json: Missing required fields (id, name, version).');
-                        }
-                    }
-
-                    if (manifest!.zene_version) {
-                        let zeneOk = false;
-                        try {
-                            zeneOk = SemVer.satisfies(this.coreVersion, manifest!.zene_version as string | string[]);
-                        } catch {
-                            zeneOk = false;
-                        }
-                        if (!zeneOk) {
-                            log.warn(`[${manifest!.id}] Incompatible Core Version. Plugin requires ${JSON.stringify(manifest!.zene_version)}, but core is v${this.coreVersion}. Skipping.`);
-                            return;
-                        }
-                    }
-                    if (manifest!.node_version && !NodeVersion.satisfies(manifest!.node_version)) {
-                        const currentNode = NodeVersion.current().toString();
-                        log.warn(
-                            `[${manifest!.id}] Incompatible Node.js version. ` +
-                            `Plugin requires ${manifest!.node_version}, but runtime is v${currentNode}. Skipping.`,
-                        );
-                        return;
-                    }
-
-                    discovered.set(manifest!.id, { dir: pluginDir, manifest: manifest! });
-                    this.pluginDirs.set(manifest!.id, pluginDir);
-                    this.bootStatuses.set(manifest!.id, PluginBootStatus.Pending);
-                    
-                } catch (error: unknown) {
-                    const err = error as Error;
-                    log.error(`[${entry.name}] CRITICAL LOAD ERROR: ${err.message}`);
-                }
-            }));
-        } catch (error: unknown) {
-            const err = error as NodeJS.ErrnoException;
-            if (err.code === 'ENOENT') log.info('No plugins directory found. Skipping load.');
-            else throw error;
-        }
-
-        return discovered;
-    }
-    
     public async preloadAll(): Promise<void> {
         log.info('Initiating Plugin Preload Sequence...');
         
         await this.initCoreVersion();
 
-        const discoveredMap = await this.discoverPlugins();
+        const discoveredMap = await this.runDiscovery();
         if (discoveredMap.size === 0) return;
 
-        const sortedPlugins = this.sortDependencies(discoveredMap);
+        const sortedPlugins = sortDependencies(discoveredMap);
         log.info(`Resolved dependency graph for ${sortedPlugins.length} authorized plugins.`);
 
         for (const plugin of sortedPlugins) {
@@ -539,7 +358,7 @@ export class PluginManager extends EventEmitter {
                     if (!disabled) throw new Error(`Failed to gracefully disable plugin: ${pluginId}`);
                 }
 
-                const discoveredMap = await this.discoverPlugins();
+                const discoveredMap = await this.runDiscovery();
                 const plugin = discoveredMap.get(pluginId);
                 
                 if (!plugin) throw new Error(`Plugin [${pluginId}] not found on disk or failed integrity checks.`);

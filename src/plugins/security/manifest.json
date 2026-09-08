@@ -1,0 +1,16 @@
+{
+    "id": "security",
+    "name": "Security",
+    "version": "1.6.0",
+    "description": "Server-specific moderation, AutoMod, anti-nuke, verification, and raid protection.",
+    "author": "Lunedusk",
+    "dependencies": ["core", "permissions"],
+    "zene_version": ">=0.5.4",
+    "node_version": ">=20",
+    "priority": 20,
+    "emoji": "🛡️",
+    "node_dependencies": {
+        "hash-wasm": "^4.12.0",
+        "canvas": "^3.1.0"
+    }
+}

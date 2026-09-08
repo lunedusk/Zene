@@ -1,5 +1,6 @@
-export const BUILTIN_PUBLIC_KEY =
-    'MCowBQYDK2VwAyEAxGjGVv/sK86Px3N7hLY1x1QxS5bugvrqPlo8MW95BwQ=';
+import { BUILTIN_PUBLIC_KEY } from '#core/defaults.js';
+
+export { BUILTIN_PUBLIC_KEY };
 
 function readPluginPublicKeys(): Record<string, string> {
     const raw = process.env.PluginPublicKeys;
@@ -23,7 +24,9 @@ function readPluginPublicKeys(): Record<string, string> {
 
 export function resolvePluginPublicKey(pluginId?: string): string {
     const pluginKeys = readPluginPublicKeys();
-    return (pluginId && (pluginKeys[pluginId] || pluginKeys['*'])) ||
+    return (
+        (pluginId && (pluginKeys[pluginId] || pluginKeys['*'])) ||
         process.env.PublicKey?.trim() ||
-        BUILTIN_PUBLIC_KEY;
+        BUILTIN_PUBLIC_KEY
+    );
 }

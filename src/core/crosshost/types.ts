@@ -126,7 +126,7 @@ export interface CrossHostEnv {
     readonly loadWeights: LoadWeights;
     readonly manualShards: Readonly<Record<string, readonly number[]>>;
     readonly indexEnabled: boolean;
-    readonly indexBackend: 'redis' | 'postgres';
+    readonly indexBackend: 'redis';
     readonly indexRetentionDays: number;
     readonly apiGatewayEnabled: boolean;
     readonly apiProxyTimeoutMs: number;

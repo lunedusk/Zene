@@ -1,4 +1,5 @@
 import { getLogger } from '#core/utils/logger.js';
+import { defaultBoolean, defaultString, hasDefault } from '#core/defaults.js';
 
 const log = getLogger('SecretManager');
 
@@ -50,8 +51,12 @@ export class SecretManager {
 
     public getOptional(key: string, fallback?: string): string | undefined {
         const value = process.env[key];
-        if (value === undefined || value === '') return fallback;
-        return value;
+        if (value !== undefined && value !== '') return value;
+        // Explicit second argument always wins (including '').
+        if (arguments.length >= 2) return fallback;
+        // Auto-fallback from defaults registry when key is registered.
+        if (hasDefault(key)) return defaultString(key);
+        return undefined;
     }
 
     public assimilateEnv(_pattern: RegExp = SecretManager.DEFAULT_SENSITIVE_PATTERN): void {
@@ -73,17 +78,21 @@ export class SecretManager {
     }
 
     public getBoolean(key: string, fallback = false): boolean {
-        const val = this.getOptional(key);
+        const raw = process.env[key];
+        const envEmpty = raw === undefined || raw === '';
 
-        if (val === undefined || val === null) return fallback;
-        if (typeof val === 'boolean') return val;
-
-        if (typeof val === 'string') {
-            const normalized = val.trim().toLowerCase();
-            return normalized === 'true' || normalized === '1' || normalized === 'yes';
+        if (!envEmpty) {
+            if (typeof raw === 'string') {
+                const normalized = raw.trim().toLowerCase();
+                return normalized === 'true' || normalized === '1' || normalized === 'yes';
+            }
+            return false;
         }
 
-        return false;
+        // Env unset: prefer registry, then call-site fallback.
+        const fromRegistry = defaultBoolean(key);
+        if (fromRegistry !== undefined) return fromRegistry;
+        return fallback;
     }
 
     public lock(): void {

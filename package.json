@@ -7,8 +7,7 @@
   "imports": {
     "#core/*": "./core/*",
     "#plugins/*": "./plugins/*",
-    "#scripts/*": "./scripts/*",
-    "#database/*": "./database/*"
+    "#scripts/*": "./scripts/*"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -54,6 +53,8 @@
     "pg": "^8.20.0",
     "prom-client": "^15.1.3",
     "reflect-metadata": "^0.2.2",
+    "surrealdb": "^2.0.8",
+    "@surrealdb/node": "^3.0.3",
     "swagger-jsdoc": "^6.2.8",
     "typeorm": "^1.1.1",
     "winston": "^3.12.0",

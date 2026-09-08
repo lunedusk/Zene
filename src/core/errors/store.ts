@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
+import type { Surreal } from 'surrealdb';
 import { getLogger } from '#core/utils/logger.js';
 import { secrets } from '#core/helpers/secretManager.js';
-import { resolveBackend, type BackendChoice } from '#core/database/backendSelector.js';
-import { openSqlAdapter, type SqlAdapter } from '#core/database/sqlAdapter.js';
+import { surrealDB } from '#core/database/index.js';
 import type {
     ErrorContext,
     ErrorContextValue,
@@ -12,6 +12,7 @@ import type {
 } from './types.js';
 
 const log = getLogger('ErrorStore');
+const TABLE = 'error_occurrences';
 
 const ALLOWED_CONTEXT_KEYS = new Set([
     'count',
@@ -65,25 +66,23 @@ function newId(): string {
     return randomBytes(16).toString('hex');
 }
 
-export function resolveErrorBackend(): BackendChoice {
-    return resolveBackend({
-        configSection: 'errors',
-        envEngineKey: 'ErrorsEngine',
-        envAliasKey: 'ErrorsDbAlias',
-        defaultAlias: 'main',
-    });
+function getDb(): Surreal {
+    return surrealDB.get('main');
 }
 
-let cachedAdapter: SqlAdapter | null = null;
-let cachedKey = '';
+function unwrapList(result: unknown): Record<string, unknown>[] {
+    if (!Array.isArray(result) || result.length === 0) return [];
+    const first = result[0];
+    if (Array.isArray(first)) {
+        return first.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object');
+    }
+    if (first && typeof first === 'object') return [first as Record<string, unknown>];
+    return [];
+}
 
-function getAdapter(): SqlAdapter {
-    const choice = resolveErrorBackend();
-    const key = `${choice.engine}:${choice.alias}`;
-    if (cachedAdapter && cachedKey === key) return cachedAdapter;
-    cachedAdapter = openSqlAdapter(choice);
-    cachedKey = key;
-    return cachedAdapter;
+function unwrapOne(result: unknown): Record<string, unknown> | null {
+    const list = unwrapList(result);
+    return list[0] ?? null;
 }
 
 function rowToOccurrence(row: Record<string, unknown>): ErrorOccurrence {
@@ -111,7 +110,7 @@ function rowToOccurrence(row: Record<string, unknown>): ErrorOccurrence {
             ? severityRaw
             : 'error';
     return {
-        id: String(row.id ?? ''),
+        id: String(row.id ?? row.key ?? ''),
         code: String(row.code ?? ''),
         category: String(row.category ?? 'unknown'),
         severity,
@@ -125,96 +124,48 @@ function rowToOccurrence(row: Record<string, unknown>): ErrorOccurrence {
 
 export async function upsertErrorOccurrence(input: ErrorOccurrenceInput): Promise<ErrorOccurrence | null> {
     try {
-        const adapter = getAdapter();
+        const db = getDb();
         const now = Math.floor(Date.now() / 1000);
         const windowSec = coalesceWindowSec();
         const windowStart = now - windowSec;
         const context = sanitizeContext(input.context);
-        const contextJson = JSON.stringify(context);
         const code = input.code.slice(0, 128);
         const category = String(input.category).slice(0, 64);
         const severity = input.severity;
         const message = input.message.slice(0, 512);
 
-        if (adapter.engine === 'mongo') {
-            const col = adapter.mongoCollection('error_occurrences');
-            const existing = await col.find({
-                code,
-                lastSeen: { $gte: windowStart },
-            });
-            existing.sort((a, b) => Number(b.lastSeen ?? 0) - Number(a.lastSeen ?? 0));
-            const hit = existing[0];
-            if (hit) {
-                const id = String(hit.id ?? '');
-                const count = Number(hit.count ?? 1) + 1;
-                await col.updateOne(
-                    { id },
-                    {
-                        $set: {
-                            count,
-                            lastSeen: now,
-                            message,
-                            context,
-                            severity,
-                            category,
-                        },
-                    },
-                );
-                return {
-                    id,
-                    code,
-                    category,
-                    severity,
+        const existingResult = await db.query(
+            `SELECT * FROM type::table($table)
+             WHERE code = $code AND lastSeen >= $windowStart
+             ORDER BY lastSeen DESC
+             LIMIT 1`,
+            { table: TABLE, code, windowStart },
+        );
+        const hit = unwrapOne(existingResult);
+
+        if (hit) {
+            const id = String(hit.id ?? hit.key ?? '');
+            const count = Number(hit.count ?? 1) + 1;
+            const firstSeen = Number(hit.firstSeen ?? now);
+            await db.query(
+                `UPDATE type::thing($table, $key) SET
+                    count = $count,
+                    lastSeen = $now,
+                    message = $message,
+                    context = $context,
+                    severity = $severity,
+                    category = $category
+                 RETURN NONE`,
+                {
+                    table: TABLE,
+                    key: id,
+                    count,
+                    now,
                     message,
                     context,
-                    count,
-                    firstSeen: Number(hit.firstSeen ?? now),
-                    lastSeen: now,
-                };
-            }
-            const id = newId();
-            const record: ErrorOccurrence = {
-                id,
-                code,
-                category,
-                severity,
-                message,
-                context,
-                count: 1,
-                firstSeen: now,
-                lastSeen: now,
-            };
-            await col.insertOne({
-                id: record.id,
-                code: record.code,
-                category: record.category,
-                severity: record.severity,
-                message: record.message,
-                context: record.context,
-                count: record.count,
-                firstSeen: record.firstSeen,
-                lastSeen: record.lastSeen,
-            });
-            return record;
-        }
-
-        const existing = await adapter.get(
-            `SELECT id, code, category, severity, message, context, count, first_seen, last_seen
-             FROM error_occurrences
-             WHERE code = ? AND last_seen >= ?
-             ORDER BY last_seen DESC
-             LIMIT 1`,
-            [code, windowStart],
-        );
-
-        if (existing) {
-            const id = String(existing.id ?? '');
-            const count = Number(existing.count ?? 1) + 1;
-            await adapter.run(
-                `UPDATE error_occurrences
-                 SET count = ?, last_seen = ?, message = ?, context = ?, severity = ?, category = ?
-                 WHERE id = ?`,
-                [count, now, message, contextJson, severity, category, id],
+                    severity,
+                    category,
+                },
             );
             return {
                 id,
@@ -224,19 +175,13 @@ export async function upsertErrorOccurrence(input: ErrorOccurrenceInput): Promis
                 message,
                 context,
                 count,
-                firstSeen: Number(existing.first_seen ?? now),
+                firstSeen,
                 lastSeen: now,
             };
         }
 
         const id = newId();
-        await adapter.run(
-            `INSERT INTO error_occurrences
-                (id, code, category, severity, message, context, count, first_seen, last_seen)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [id, code, category, severity, message, contextJson, 1, now, now],
-        );
-        return {
+        const record: ErrorOccurrence = {
             id,
             code,
             category,
@@ -247,6 +192,23 @@ export async function upsertErrorOccurrence(input: ErrorOccurrenceInput): Promis
             firstSeen: now,
             lastSeen: now,
         };
+        await db.query('UPSERT type::thing($table, $key) CONTENT $data RETURN NONE', {
+            table: TABLE,
+            key: id,
+            data: {
+                key: id,
+                id: record.id,
+                code: record.code,
+                category: record.category,
+                severity: record.severity,
+                message: record.message,
+                context: record.context,
+                count: record.count,
+                firstSeen: record.firstSeen,
+                lastSeen: record.lastSeen,
+            },
+        });
+        return record;
     } catch (err: unknown) {
         const e = err instanceof Error ? err : new Error(String(err));
         log.error(`ErrorStore write failed (terminal, not re-entrant): ${e.message}`);
@@ -271,77 +233,51 @@ function clampLimit(limit: number | undefined): number {
 }
 
 export async function listErrorOccurrences(filter: ErrorListFilter = {}): Promise<ErrorOccurrence[]> {
-    const adapter = getAdapter();
+    const db = getDb();
     const limit = clampLimit(filter.limit);
-
-    if (adapter.engine === 'mongo') {
-        const q: Record<string, unknown> = {};
-        if (filter.code) q.code = filter.code;
-        if (filter.category) q.category = filter.category;
-        if (filter.severity) q.severity = filter.severity;
-        if (filter.from != null || filter.to != null) {
-            const range: Record<string, number> = {};
-            if (filter.from != null) range.$gte = filter.from;
-            if (filter.to != null) range.$lte = filter.to;
-            q.lastSeen = range;
-        }
-        const docs = await adapter.mongoCollection('error_occurrences').find(q);
-        docs.sort((a, b) => Number(b.lastSeen ?? 0) - Number(a.lastSeen ?? 0));
-        return docs.slice(0, limit).map((d) => rowToOccurrence(d as Record<string, unknown>));
-    }
-
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const vars: Record<string, unknown> = { table: TABLE, limit };
+
     if (filter.code) {
-        clauses.push('code = ?');
-        params.push(filter.code);
+        clauses.push('code = $code');
+        vars.code = filter.code;
     }
     if (filter.category) {
-        clauses.push('category = ?');
-        params.push(filter.category);
+        clauses.push('category = $category');
+        vars.category = filter.category;
     }
     if (filter.severity) {
-        clauses.push('severity = ?');
-        params.push(filter.severity);
+        clauses.push('severity = $severity');
+        vars.severity = filter.severity;
     }
     if (filter.from != null) {
-        clauses.push('last_seen >= ?');
-        params.push(filter.from);
+        clauses.push('lastSeen >= $from');
+        vars.from = filter.from;
     }
     if (filter.to != null) {
-        clauses.push('last_seen <= ?');
-        params.push(filter.to);
+        clauses.push('lastSeen <= $to');
+        vars.to = filter.to;
     }
+
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    params.push(limit);
-    const rows = await adapter.all(
-        `SELECT id, code, category, severity, message, context, count, first_seen, last_seen
-         FROM error_occurrences
-         ${where}
-         ORDER BY last_seen DESC
-         LIMIT ?`,
-        params,
+    const result = await db.query(
+        `SELECT * FROM type::table($table) ${where} ORDER BY lastSeen DESC LIMIT $limit`,
+        vars,
     );
-    return rows.map((r) => rowToOccurrence(r as Record<string, unknown>));
+    return unwrapList(result).map(rowToOccurrence);
 }
 
 export async function getErrorOccurrenceById(id: string): Promise<ErrorOccurrence | null> {
-    const adapter = getAdapter();
-    if (adapter.engine === 'mongo') {
-        const doc = await adapter.mongoCollection('error_occurrences').findOne({ id });
-        if (!doc) return null;
-        return rowToOccurrence(doc as Record<string, unknown>);
-    }
-    const row = await adapter.get(
-        `SELECT id, code, category, severity, message, context, count, first_seen, last_seen
-         FROM error_occurrences WHERE id = ? LIMIT 1`,
-        [id],
-    );
+    const db = getDb();
+    const result = await db.query('SELECT * FROM ONLY type::thing($table, $key)', {
+        table: TABLE,
+        key: id,
+    });
+    const row = unwrapOne(result);
     if (!row) return null;
-    return rowToOccurrence(row as Record<string, unknown>);
+    return rowToOccurrence(row);
 }
 
 export function resetErrorAdapterCache(): void {
-    cachedAdapter = null;
-    cachedKey = '';
+    // Surreal client is process-scoped via surrealDB registry.
 }

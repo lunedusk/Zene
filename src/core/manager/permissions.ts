@@ -4,6 +4,16 @@ import { audit } from '#core/audit/index.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { configManager } from '#core/manager/config.js';
 import {
+    OWNER_BIT,
+    BOT_PROTECTED_BIT,
+    SERVER_PROTECTED_BIT,
+    bitsIncludeOwner,
+    bitsIncludeBotProtected,
+    bitsIncludeServerProtected,
+    envOwnerIds,
+    isEnvOwner,
+} from '#core/manager/permissions/guards.js';
+import {
     PermissionError,
     BUILT_IN_BITS,
     type PermBitDoc,
@@ -45,31 +55,6 @@ function parseJsonArray(value: unknown): string[] {
     }
 }
 
-const OWNER_BIT = 'bot.owner';
-const BOT_PROTECTED_BIT = 'bot.protected';
-const SERVER_PROTECTED_BIT = 'server.protected';
-
-function bitsIncludeOwner(bits: string[] | undefined | null): boolean {
-    return Array.isArray(bits) && bits.includes(OWNER_BIT);
-}
-
-function bitsIncludeBotProtected(bits: string[] | undefined | null): boolean {
-    return Array.isArray(bits) && bits.includes(BOT_PROTECTED_BIT);
-}
-
-function bitsIncludeServerProtected(bits: string[] | undefined | null): boolean {
-    return Array.isArray(bits) && bits.includes(SERVER_PROTECTED_BIT);
-}
-
-function envOwnerIds(): string[] {
-    const raw = secrets.getOptional('BotOwnerIds', '') ?? '';
-    return raw.split(',').map((s) => s.trim()).filter(Boolean);
-}
-
-function isEnvOwner(userId: string | null | undefined): boolean {
-    if (!userId) return false;
-    return envOwnerIds().includes(userId);
-}
 
 function assertCanMutateOwnerBit(
     actorUserId: string | null | undefined,

@@ -14,7 +14,7 @@ Here is an example of a database config inside `.env` file for reference:
 
 ```env
 # --- Database Configuration ---
-Database={"main": {"uri": "novadb://local", "engine": "native-novadb"}, "cache": {"uri": "redis://localhost:6379", "engine": "redis", "poolSize": 5}}
+Database={"main": {"uri": "rocksdb://local", "engine": "surrealdb", "namespace": "main", "database": "main"}, "cache": {"uri": "redis://localhost:6379", "engine": "redis", "poolSize": 5}}
 ```
 
 ---
@@ -30,7 +30,7 @@ The `Database` JSON object uses a **Key-Value** structure.
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `uri` | string | **Yes** | The connection string for the database (e.g., `mongodb://localhost:27017/db`, `postgres://user:pass@localhost/db`). Note: For `native-novadb`, this is required but the physical path is automatically managed. |
+| `uri` | string | **Yes** | The connection string for the database (e.g., `mongodb://localhost:27017/db`, `postgres://user:pass@localhost/db`). Note: For embedded SurrealDB (`rocksdb://local`), the path is managed under `.data/database/surreal/…`. |
 | `engine` | string | Optional | Explicitly tells the manager which driver to use. If omitted, the system tries to guess based on the URI protocol (e.g., `redis://` defaults to Redis). See supported engines below. |
 | `poolSize` | number | Optional | The maximum number of simultaneous connections in the pool. **Default:** `10`. |
 | `maxRetries` | number | Optional | How many times to attempt reconnecting if the database is offline at startup. **Default:** `5`. |
@@ -40,22 +40,6 @@ The `Database` JSON object uses a **Key-Value** structure.
 ## 3. Supported Engines & Examples
 
 Our system supports **6 different database engines** natively. Here is how to configure each one.
-
-### 🌟 NovaDB (`native-novadb`)
-
-Our custom, high-performance, append-only local database.
-
-- **Path Management:** NovaDB automatically manages its own folder structure. Regardless of your URI, data is safely stored in `.data/database/{alias}/` relative to your project root.
-- **Fallback:** If you do not define a `"main"` database in your `.env`, the system will automatically provision a local NovaDB instance for you!
-
-```json
-{
-  "main": {
-    "uri": "novadb://local",
-    "engine": "native-novadb"
-  }
-}
-```
 
 ### 🍃 MongoDB (`mongo`)
 
@@ -126,6 +110,55 @@ If you prefer using an Object-Relational Mapper, this engine supports `postgres`
 }
 ```
 
+### 🌐 SurrealDB (`surrealdb`)
+
+Official SurrealDB SDK with both **remote** and **embedded** modes via `surrealdb` + `@surrealdb/node`.
+
+**Remote protocols:** `ws://`, `wss://`, `http://`, `https://`  
+**Embedded protocols:** `mem://` (in-memory), `rocksdb://` (persistent RocksDB), `surrealkv://` / `surrealkv+versioned://` (persistent SurrealKV)
+
+**Path rules for embedded storage:**
+- `rocksdb://local` (or empty path) resolves to `.data/database/surreal/rocksdb/{alias}/`
+- `surrealkv://local` resolves to `.data/database/surreal/surrealkv/{alias}/`
+- Explicit paths after the scheme are honoured as written (resolved absolute)
+
+**Optional auth / selection fields** on the config object (applied after connect when present):
+
+| Property | Description |
+|---|---|
+| `namespace` | Surreal namespace (`.use`) |
+| `database` | Surreal database (`.use`) |
+| `username` / `password` | Credentials for `.signin` |
+| `token` | Bearer token for `.authenticate` (alternative to username/password) |
+
+```json
+{
+  "main": {
+    "uri": "rocksdb://local",
+    "engine": "surrealdb",
+    "namespace": "main",
+    "database": "main"
+  },
+  "remote": {
+    "uri": "ws://127.0.0.1:8000",
+    "engine": "surrealdb",
+    "namespace": "app",
+    "database": "prod",
+    "username": "root",
+    "password": "secret"
+  }
+}
+```
+
+**Default fallback:** If no SurrealDB `"main"` instance exists after configured databases are initialized, the framework auto-provisions one at `.data/database/surreal/rocksdb/main` unless `DisableDefaultSurrealDB=true` or `CROSS_HOST=true` (embedded local-file engines are forbidden under Cross-Host).
+
+**Access in code:**
+
+```ts
+const db = this.heart.db.surreal.get('main');
+await db.query('CREATE person SET name = $name', { name: 'Tobie' });
+```
+
 ---
 
 ## 4. Advanced: Multiple Databases
@@ -135,7 +168,7 @@ You are not limited to just one database. Because the configuration is JSON, you
 **Example: NovaDB as Primary, Redis as Cache, and Postgres for Analytics:**
 
 ```env
-Database={"main": {"uri": "novadb://local", "engine": "native-novadb"}, "cache": {"uri": "redis://localhost:6379", "engine": "redis"}, "analytics": {"uri": "postgresql://user:pass@remote:5432/stats", "engine": "native-pg", "poolSize": 5}}
+Database={"main": {"uri": "rocksdb://local", "engine": "surrealdb", "namespace": "main", "database": "main"}, "cache": {"uri": "redis://localhost:6379", "engine": "redis"}, "analytics": {"uri": "postgresql://user:pass@remote:5432/stats", "engine": "native-pg", "poolSize": 5}}
 ```
 
 ### Accessing them in your code
@@ -143,15 +176,16 @@ Database={"main": {"uri": "novadb://local", "engine": "native-novadb"}, "cache":
 If you are using the `IHeart` domain system, accessing these databases is as simple as calling their alias:
 
 ```ts
-// Access your NovaDB
-const mainDb = heart.db.nova.get('main');
-
 // Access your Redis triad
 const cacheDb = heart.db.redis.get('cache');
 await cacheDb.main.set('key', 'value');
 
 // Access Postgres
 const pgPool = heart.db.postgres.get('analytics');
+
+// Access SurrealDB
+const surreal = heart.db.surreal.get('main');
+await surreal.query('INFO FOR DB');
 ```
 
 
@@ -213,7 +247,7 @@ Persistence for the web dashboard lives in the **`dash-data`** plugin (not the H
 | Handler `dash-data` / `store` | Inter-plugin API (`kv*`, `getLayout`, `getTheme`, bans, …) |
 | `dashboard/src/lib/db.ts` | Compatibility **re-export** of the store — existing `/api/dash/*` routes unchanged |
 
-Nova collections `dash_infractions`, `dash_audit_log`, `dash_command_counters` remain on NovaDB `main`.
+Document collections `dash_infractions`, `dash_audit_log`, `dash_command_counters` are stored on SurrealDB `main` (tables of the same name).
 
 ## Permission link tables
 

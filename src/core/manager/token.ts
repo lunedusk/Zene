@@ -1,4 +1,15 @@
-import { createHmac, timingSafeEqual, randomBytes } from "crypto";
+import { randomBytes } from "crypto";
+import {
+  b64Encode,
+  b64Decode,
+  hmacSign as sign,
+  packVersion,
+  safeEqual,
+  signingKey as deriveSigningKey,
+  deriveMasterKey,
+  assembleToken,
+  splitToken,
+} from "#core/manager/tokenCrypto.js";
 import type { Request, Response, NextFunction } from 'express';
 import { NovaError } from '#core/errors/NovaError.js';
 
@@ -415,30 +426,6 @@ export class DbTokenStore implements TokenStore {
 /** @deprecated Use DbTokenStore */
 export const SqliteTokenStore = DbTokenStore;
 
-function b64Encode(input: string): string {
-  return Buffer.from(input, "utf-8").toString("base64url");
-}
-
-function b64Decode(input: string): string {
-  return Buffer.from(input, "base64url").toString("utf-8");
-}
-
-function sign(data: string, secret: Buffer): string {
-  return createHmac("sha256", secret).update(data).digest("base64url");
-}
-
-function packVersion(globalVersion: number, deviceVersion: number): string {
-  return `${globalVersion}:${deviceVersion}`;
-}
-
-const SAFE_EQUAL_MIN_PAD = 64;
-
-function safeEqual(a: string, b: string): boolean {
-  const padLen = Math.max(a.length, b.length, SAFE_EQUAL_MIN_PAD);
-  const bufA = Buffer.from(a.padEnd(padLen, "\x00"), "utf-8");
-  const bufB = Buffer.from(b.padEnd(padLen, "\x00"), "utf-8");
-  return timingSafeEqual(bufA, bufB) && a.length === b.length;
-}
 
 export class TokenManager {
   private readonly masterKeyBuf: Buffer;
@@ -461,9 +448,7 @@ export class TokenManager {
       statusCode: 500,
     });
     }
-    this.masterKeyBuf = createHmac("sha256", "token-manager-v2")
-      .update(masterSecret)
-      .digest();
+    this.masterKeyBuf = deriveMasterKey(masterSecret);
 
     this.store           = store;
     this.ttlSeconds       = options.ttlSeconds    ?? 900;
@@ -476,9 +461,7 @@ export class TokenManager {
   }
 
   private signingKey(userId: string, tokenVersion: string): Buffer {
-    return createHmac("sha256", this.masterKeyBuf)
-      .update(`${userId}:${tokenVersion}`)
-      .digest();
+    return deriveSigningKey(this.masterKeyBuf, userId, tokenVersion);
   }
 
   private async emit(event: AuditEvent): Promise<void> {

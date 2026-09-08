@@ -90,7 +90,7 @@ project-root/
     "DefaultLocale": "en",
     "APIPort": 3000,
     "TZ": "UTC",
-    "Database": {"main": {"uri": "novadb://local", "engine": "native-novadb"}}
+    "Database": {"main": {"uri": "rocksdb://local", "engine": "surrealdb", "namespace": "main", "database": "main"}}
 }
 ```
 
@@ -140,7 +140,7 @@ Any environment variable documented in this reference can be placed in `common.j
     "hotReloadEnabled": false,
     "allowUnCertifiedPlugins": false,
     "Database": {
-        "main": { "uri": "novadb://local", "engine": "native-novadb" }
+        "main": { "uri": "rocksdb://local", "engine": "surrealdb", "namespace": "main", "database": "main" }
     },
     "PublicKey": "MCowBQYDK2VwAyEAxGjGVv/sK86Px3N7hLY1x1QxS5bugvrqPlo8MW95BwQ="
 }
@@ -642,7 +642,7 @@ A JSON object defining all database connections the bot should establish at star
 | | |
 |---|---|
 | **Required** | No |
-| **Default** | `{}` — an automatic `native-novadb` instance named `main` is provisioned as fallback |
+| **Default** | `{}` — automatic SurrealDB + SQLite `main` fallbacks when not configured (see DisableDefault*) |
 | **Safe to Change** | Yes (requires restart) |
 | **Breaking Risk** | **HIGH** — changing the alias of an existing database will cause plugins that reference the old alias to fail; changing the URI of a stateful database (NovaDB, SQLite, PostgreSQL) without migrating data first will result in data loss |
 | **Recommended Action** | Define all your databases here. Never change an alias after a plugin has written data to it. Test database changes against a backup first. |
@@ -661,24 +661,26 @@ Database={"alias": {"uri": "...", "engine": "...", "poolSize": 10, "maxRetries":
 | `engine` | string | No | Auto-detected from URI protocol | Database driver to use (see supported engines below) |
 | `poolSize` | number | No | `10` | Maximum simultaneous connections |
 | `maxRetries` | number | No | `5` (user-defined entries); `3` (auto-provisioned `main` NovaDB fallback) | Connection retry attempts on startup failure |
+| `namespace` | string | No | — | SurrealDB only: namespace for `.use()` after connect |
+| `database` | string | No | — | SurrealDB only: database for `.use()` after connect |
+| `username` | string | No | — | SurrealDB only: username for `.signin()` |
+| `password` | string | No | — | SurrealDB only: password for `.signin()` |
+| `token` | string | No | — | SurrealDB only: token for `.authenticate()` (alternative to username/password) |
 
 #### Supported Engines
 
 | Engine Key | Description | URI Format Example |
 |---|---|---|
-| `native-novadb` | Built-in embedded document store. Data stored in `.data/database/{alias}/`. No external server needed. | `novadb://local` |
 | `mongo` | MongoDB via Mongoose | `mongodb+srv://user:pass@host/db` |
 | `redis` | Redis — automatically creates **Main**, **Pub**, and **Sub** clients for this alias | `redis://127.0.0.1:6379` |
 | `native-pg` | PostgreSQL via the `pg` driver | `postgresql://user:pass@localhost:5432/db` |
 | `native-sqlite` | SQLite via `better-sqlite3`. WAL mode applied automatically. | `sqlite://./data/my.db` |
 | `typeorm` | TypeORM ORM — supports `postgres`, `mysql`, `mariadb`, `sqlite` | `mysql://user:pass@localhost:3306/db` |
+| `surrealdb` | SurrealDB (remote + embedded). Protocols: `ws`/`wss`/`http`/`https`/`mem`/`rocksdb`/`surrealkv`. Optional `namespace`, `database`, `username`, `password`, `token`. Embedded local paths under `.data/database/surreal/{engine}/{alias}/` when using `…://local`. | `rocksdb://local` or `ws://127.0.0.1:8000` |
 
 #### Accessing Databases in Plugin Code
 
 ```ts
-// NovaDB
-const db = await this.heart.db.nova.get('main').collection('users');
-
 // Redis
 const redis = this.heart.db.redis.get('cache');
 await redis.main.set('key', 'value');
@@ -695,37 +697,26 @@ const sqlite = this.heart.db.sqlite.get('localdb');
 
 // TypeORM
 const orm = this.heart.db.orm.get('main');
+
+// SurrealDB
+const surreal = this.heart.db.surreal.get('main');
+await surreal.query('INFO FOR DB');
 ```
 
 #### Multi-Database Example
 
 ```env
-Database={"main": {"uri": "novadb://local", "engine": "native-novadb"}, "cache": {"uri": "redis://localhost:6379", "engine": "redis"}, "analytics": {"uri": "postgresql://user:pass@host:5432/stats", "engine": "native-pg", "poolSize": 5}}
+Database={"main": {"uri": "rocksdb://local", "engine": "surrealdb", "namespace": "main", "database": "main"}, "cache": {"uri": "redis://localhost:6379", "engine": "redis"}, "analytics": {"uri": "postgresql://user:pass@host:5432/stats", "engine": "native-pg", "poolSize": 5}}
 ```
 
 > ⚠️ **Alias stability is critical.** Once a plugin stores data under an alias (e.g. `main`), renaming that alias orphans all existing data. Treat aliases as permanent identifiers.
 
 ```env
-Database={"main": {"uri": "novadb://local", "engine": "native-novadb"}}
+Database={"main": {"uri": "rocksdb://local", "engine": "surrealdb", "namespace": "main", "database": "main"}}
 ```
 
 ---
 
-### `DisableDefaultNovaDB`
-
-When `true`, suppresses the automatic provisioning of a fallback `main` NovaDB instance. Normally, if no `"main"` database is defined in `Database`, the framework creates one automatically.
-
-| | |
-|---|---|
-| **Required** | No |
-| **Default** | `false` |
-| **Safe to Change** | Yes (requires restart) |
-| **Breaking Risk** | **HIGH** — many core plugins depend on the `main` NovaDB instance. Disabling it without explicitly configuring an alternative `main` database will cause those plugins to fail at boot. |
-| **Recommended Action** | **Leave at `false` unless you have explicitly defined a `"main"` database in your `Database` config.** Only use this if you intentionally want no embedded database at all and all your plugins are written to use external databases exclusively. |
-
-```env
-DisableDefaultNovaDB=false
-```
 
 ---
 
@@ -743,6 +734,24 @@ When `true`, suppresses the automatic provisioning of a fallback `main` SQLite i
 
 ```env
 DisableDefaultSqlite=false
+```
+
+---
+
+### `DisableDefaultSurrealDB`
+
+When `true`, suppresses the automatic provisioning of a fallback `main` SurrealDB instance at `.data/database/surreal/rocksdb/main`. Normally, if no SurrealDB `"main"` database exists after all configured databases are initialized, the framework creates an embedded RocksDB-backed instance automatically.
+
+| | |
+|---|---|
+| **Required** | No |
+| **Default** | `false` |
+| **Safe to Change** | Yes (requires restart) |
+| **Breaking Risk** | Medium — only plugins that explicitly depend on `this.heart.db.surreal.get('main')` are affected. Core permission/token systems do not require SurrealDB. |
+| **Recommended Action** | **Leave at `false`** unless you intentionally want no default SurrealDB and will configure one explicitly (or not use SurrealDB at all). Embedded defaults are skipped automatically when `CROSS_HOST=true`. |
+
+```env
+DisableDefaultSurrealDB=false
 ```
 
 ---
@@ -1463,16 +1472,18 @@ APIPort=3000
 
 # ── DATABASE ─────────────────────────────────────────────────
 # JSON object: alias -> { uri, engine, poolSize?, maxRetries? }
-# Leave blank to auto-provision a local NovaDB instance named "main"
-Database={"main": {"uri": "novadb://local", "engine": "native-novadb"}}
+# Leave blank to auto-provision SurrealDB + SQLite main fallbacks
+Database={"main": {"uri": "rocksdb://local", "engine": "surrealdb", "namespace": "main", "database": "main"}}
 
 # Set to true ONLY if you have manually defined a "main" database above
 # and explicitly do not want the automatic fallback
-DisableDefaultNovaDB=false
-
 # Set to true ONLY if you have manually defined a "main" SQLite database
 # and do not want the automatic fallback
 DisableDefaultSqlite=false
+
+# Set to true ONLY if you do not want the automatic SurrealDB main fallback
+# at .data/database/surreal/rocksdb/main
+DisableDefaultSurrealDB=false
 
 # ── PLUGIN INTEGRITY ────────────────────────────────────────
 # Default is the Lunedusk developer key — leave unchanged to run official plugins
@@ -1559,9 +1570,9 @@ UpdaterHealthGraceMs=900000
 | `LogTZ` | No | `UTC` | Yes | None |
 | `APIPort` | No | `3000` | Yes | Low |
 | `ApiKey` | If API gateway env mode is enabled | *(none)* | Yes | **Critical** |
-| `Database` | No | `{}` + auto NovaDB | Yes | **High** |
-| `DisableDefaultNovaDB` | No | `false` | Yes | **High** |
+| `Database` | No | `{}` + auto Surreal/SQLite | Yes | **High** |
 | `DisableDefaultSqlite` | No | `false` | Yes | **High** |
+| `DisableDefaultSurrealDB` | No | `false` | Yes | Medium |
 | `PublicKey` | No | Lunedusk dev key | Only with `PrivateKey` | **High** |
 | `PrivateKey` | No | *(none)* | Only with `PublicKey` | Critical — keep secret |
 | `PluginPublicKeys` | No | `{}` | Yes | Medium |
@@ -1689,12 +1700,12 @@ Master switch and multi-machine control plane. When `CROSS_HOST` is true, the pr
 | Variable | Default | Notes |
 |---|---|---|
 | `CROSS_HOST_INDEX_ENABLED` | `false` | Optional secondary metadata index |
-| `CROSS_HOST_INDEX_BACKEND` | `redis` | `redis` or `postgres` |
+| `CROSS_HOST_INDEX_BACKEND` | `redis` | `redis` only |
 | `CROSS_HOST_INDEX_RETENTION_DAYS` | `14` | Index retention |
 | `CROSS_HOST_QUERY_TIMEOUT_MS` | `5000` | Per-worker query RPC timeout |
 | `CROSS_HOST_QUERY_CONCURRENCY` | `16` | Max parallel scatter-gather RPCs |
 
-Postgres index resolve: `Database.crosshost_index` (preferred) else postgres `Database.main`. If neither is available, index is disabled for the process (warning only).
+Index backend is Redis-only. Shared audit/error/dash document data use remote SurrealDB under Cross-Host.
 
 ### Redis
 
@@ -1707,7 +1718,7 @@ Cross-Host requires Redis. Resolution order:
 Example:
 
 ```
-Database={"crosshost":{"uri":"redis://127.0.0.1:6379","engine":"redis"},"main":{"uri":"novadb://local","engine":"native-novadb"}}
+Database={"crosshost":{"uri":"redis://127.0.0.1:6379","engine":"redis"},"main":{"uri":"wss://surreal.example.com","engine":"surrealdb","namespace":"main","database":"main"}}
 ```
 
 ### Safety

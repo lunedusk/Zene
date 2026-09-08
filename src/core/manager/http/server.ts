@@ -82,7 +82,7 @@ export class HttpServer {
     }
 
     public async start(
-        port: number = parseInt(secrets.getOptional('APIPort') || '3000'),
+        port: number = parseInt(secrets.getOptional('APIPort') || '3000', 10),
         host: string = secrets.getOptional('APIHost') || '0.0.0.0',
     ): Promise<void> {
         if (this.isRunning) return;

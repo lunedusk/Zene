@@ -167,11 +167,7 @@ export function loadCrossHostEnv(): CrossHostEnv {
         loadWeights: parseLoadWeights(),
         manualShards: parseManualShards(secrets.getOptional('CROSS_HOST_MANUAL_SHARDS')),
         indexEnabled: secrets.getBoolean('CROSS_HOST_INDEX_ENABLED', false),
-        indexBackend: (() => {
-            const raw = secrets.getOptional('CROSS_HOST_INDEX_BACKEND');
-            if (raw === 'postgres') return 'postgres';
-            return 'redis';
-        })(),
+        indexBackend: 'redis',
         apiGatewayEnabled: secrets.getBoolean('CROSS_HOST_API_GATEWAY_ENABLED', true),
         apiProxyTimeoutMs: parsePositiveInt(
             secrets.getOptional('CROSS_HOST_API_PROXY_TIMEOUT_MS'),
