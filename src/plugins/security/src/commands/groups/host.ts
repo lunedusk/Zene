@@ -1,7 +1,8 @@
-import type { ChatInputCommandInteraction } from 'discord.js';
+import type { ChatInputCommandInteraction, User } from 'discord.js';
 import type { IHeart } from '#core/heart/index.js';
 import type { CooldownOp } from '../../lib/cooldowns.js';
-import type { ActionBatchResult, GuildAuthzDecision } from '../../lib/types.js';
+import type { ActionBatchResult, GuildAuthzDecision, PunishOp } from '../../lib/types.js';
+import type { ProofMeta } from '../../lib/proof.js';
 
 /** Shared surface for security subcommand modules (bound to SecurityCommand instance). */
 export interface SecurityCmdHost {
@@ -19,8 +20,11 @@ export interface SecurityCmdHost {
     ): Promise<void>;
     replyActionResult(
         interaction: ChatInputCommandInteraction,
-        batch: ActionBatchResult,
-        successKey: string,
+        op: PunishOp,
+        target: User,
+        result: ActionBatchResult,
+        durationMs?: number,
+        proof?: ProofMeta | null,
     ): Promise<void>;
     requireBit(
         interaction: ChatInputCommandInteraction,

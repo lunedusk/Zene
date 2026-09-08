@@ -103,9 +103,7 @@ export async function handleAutoMod(host: SecurityCmdHost,
                 );
                 return;
             }
-            const store = host.heart.system.handler.$get<
-                import('../handlers/store.js').default
-            >('security', 'store');
+            const store = host.heart.system.handler.$get<SecurityStoreHandler>('security', 'store');
             if (!store) {
                 await host.replyText(interaction, host.t('commands.security.errors.automodUnavailable'));
                 return;

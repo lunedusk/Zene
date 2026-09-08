@@ -1,4 +1,4 @@
-import type { ChatInputCommandInteraction, Guild, User } from 'discord.js';
+import type { ChatInputCommandInteraction, Guild, GuildTextBasedChannel, User } from 'discord.js';
 import type { SecurityCmdHost } from './host.js';
 import type AntiNukeHandler from '../../handlers/antiNuke.js';
 import type AutoModHandler from '../../handlers/autoMod.js';

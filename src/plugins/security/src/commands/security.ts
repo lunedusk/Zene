@@ -724,29 +724,30 @@ export default class SecurityCommand extends BaseCommand {
             return;
         }
 
+        const host = this as unknown as SecurityCmdHost;
         const group = interaction.options.getSubcommandGroup(false);
         const sub = interaction.options.getSubcommand(true);
 
         if (group === 'punish') {
-            await handlePunish(this as SecurityCmdHost, interaction, sub as PunishOp);
+            await handlePunish(host, interaction, sub as PunishOp);
             return;
         }
         if (group === 'records') {
             switch (sub) {
                 case 'warn':
-                    await handleWarn(this as SecurityCmdHost, interaction);
+                    await handleWarn(host, interaction);
                     break;
                 case 'warns':
-                    await handleWarnsList(this as SecurityCmdHost, interaction);
+                    await handleWarnsList(host, interaction);
                     break;
                 case 'rmwarn':
-                    await handleRmWarn(this as SecurityCmdHost, interaction);
+                    await handleRmWarn(host, interaction);
                     break;
                 case 'note':
-                    await handleNote(this as SecurityCmdHost, interaction);
+                    await handleNote(host, interaction);
                     break;
                 case 'notes':
-                    await handleNotesList(this as SecurityCmdHost, interaction);
+                    await handleNotesList(host, interaction);
                     break;
                 default:
                     await this.replyText(interaction, this.t('commands.security.errors.unknownOp'));
@@ -756,19 +757,19 @@ export default class SecurityCommand extends BaseCommand {
         if (group === 'channel') {
             switch (sub) {
                 case 'purge':
-                    await handlePurge(this as SecurityCmdHost, interaction);
+                    await handlePurge(host, interaction);
                     break;
                 case 'snipe':
-                    await handleSnipe(this as SecurityCmdHost, interaction);
+                    await handleSnipe(host, interaction);
                     break;
                 case 'lock':
-                    await handleChannelLock(this as SecurityCmdHost, interaction, true);
+                    await handleChannelLock(host, interaction, true);
                     break;
                 case 'unlock':
-                    await handleChannelLock(this as SecurityCmdHost, interaction, false);
+                    await handleChannelLock(host, interaction, false);
                     break;
                 case 'slowmode':
-                    await handleSlowmode(this as SecurityCmdHost, interaction);
+                    await handleSlowmode(host, interaction);
                     break;
                 default:
                     await this.replyText(interaction, this.t('commands.security.errors.unknownOp'));
@@ -776,44 +777,45 @@ export default class SecurityCommand extends BaseCommand {
             return;
         }
         if (group === 'violations') {
-            await handleViolations(this as SecurityCmdHost, interaction, sub);
+            await handleViolations(host, interaction, sub);
             return;
         }
         if (group === 'lockdown') {
-            await handleLockdown(this as SecurityCmdHost, interaction, sub);
+            await handleLockdown(host, interaction, sub);
             return;
         }
         if (group === 'automod') {
-            await handleAutoMod(this as SecurityCmdHost, interaction, sub);
+            await handleAutoMod(host, interaction, sub);
             return;
         }
         if (group === 'antinuke') {
-            await handleAntiNuke(this as SecurityCmdHost, interaction, sub);
+            await handleAntiNuke(host, interaction, sub);
             return;
         }
         if (group === 'raid') {
-            await handleRaid(this as SecurityCmdHost, interaction, sub);
+            await handleRaid(host, interaction, sub);
             return;
         }
         if (group === 'verify') {
-            await handleVerify(this as SecurityCmdHost, interaction, sub);
+            await handleVerify(host, interaction, sub);
             return;
         }
 
         switch (sub) {
             case 'temprole':
-                await handleTempRole(this as SecurityCmdHost, interaction);
+                await handleTempRole(host, interaction);
                 break;
             case 'setup':
-                await handleSetup(this as SecurityCmdHost, interaction);
+                await handleSetup(host, interaction);
                 break;
             case 'status':
-                await handleStatus(this as SecurityCmdHost, interaction);
+                await handleStatus(host, interaction);
                 break;
             default:
                 await this.replyText(interaction, this.t('commands.security.errors.unknownOp'));
         }
     }
+
 
 
     // --- Phase 1 punish ---
