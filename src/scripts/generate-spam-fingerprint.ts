@@ -1,11 +1,3 @@
-/**
- * Generate known-spam fingerprint entries and merge into the security plugin data file.
- *
- * Usage:
- *   npx tsx src/scripts/generate-spam-fingerprint.ts --image ./spam.png --label "scam-banner"
- *   npx tsx src/scripts/generate-spam-fingerprint.ts --text "buy now crypto" --label "promo"
- *   npx tsx src/scripts/generate-spam-fingerprint.ts --image ./a.png --out src/plugins/security/data/spam-signatures.json
- */
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -43,12 +35,9 @@ function hexSlice(buf: Buffer, start: number, end: number): string {
 
 async function blake3Hex(data: Buffer): Promise<string> {
     try {
-        const mod = await import('blake3');
-        const out = mod.hash(data) as Uint8Array | Buffer | string;
-        if (typeof out === 'string') return out;
-        return Buffer.from(out).toString('hex');
+        const { blake3 } = await import('hash-wasm');
+        return await blake3(data);
     } catch {
-        // Fallback so the script still works without blake3 installed in tooling.
         return createHash('sha256').update(data).digest('hex');
     }
 }
