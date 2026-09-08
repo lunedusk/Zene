@@ -43,7 +43,7 @@ export abstract class BaseCommand {
         }
         await replyCv2Text(interaction, {
             content: msg,
-            emoji: '%%emoji_cross%%',
+            emoji: '❌',
             ephemeral: true,
             preferFollowUp: interaction.replied && !interaction.deferred,
         }).catch(() => undefined);
