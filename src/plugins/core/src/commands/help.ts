@@ -1,6 +1,6 @@
 import { BaseCommand, type CommandConfig } from '#core/bases/Command.js';
 import { SlashCommandBuilder, type ChatInputCommandInteraction, MessageFlags } from 'discord.js';
-import { buildComponentsV2, type Cv2LayoutSpec } from '#core/builders/index.js';
+import { buildComponentsV2, replyCv2Text, type Cv2LayoutSpec } from '#core/builders/index.js';
 import { HelpUtils } from '../utils/helpUtils.js';
 
 export default class HelpCommand extends BaseCommand {
@@ -78,7 +78,11 @@ export default class HelpCommand extends BaseCommand {
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
             this.log.error(`Help Command Exception: ${err.message}`);
-            await interaction.editReply({ content: '%%emoji_cross%% Failed to generate the directory.' });
+            await replyCv2Text(interaction, {
+                content: 'Failed to generate the directory.',
+                emoji: '❌',
+                ephemeral: true,
+            });
         }
     }
 }

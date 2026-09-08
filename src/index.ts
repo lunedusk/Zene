@@ -2,26 +2,10 @@ import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 
-if (!process.env.NODE_ENV || process.env.NODE_ENV.trim() === '') {
-    process.env.NODE_ENV = 'production';
-}
-
-if (!process.env.PublicKey || process.env.PublicKey.trim() === '') {
-    process.env.PublicKey = 'MCowBQYDK2VwAyEAxGjGVv/sK86Px3N7hLY1x1QxS5bugvrqPlo8MW95BwQ=';
-}
-
 import { secrets } from '#core/helpers/secretManager.js';
-import { common777 } from '#core/internal/common777.js';
 import { getLogger, flushLogs } from '#core/utils/logger.js';
-import { expandProcessEnv } from '#core/placeholder/index.js';
 import { materializeBootSharedRandEnv } from '#core/placeholder/sharedBootRand.js';
-
-function minimalBootstrap(): void {
-    secrets.assimilateEnv();
-    expandProcessEnv();
-    secrets.lock();
-    common777.bootstrap();
-}
+import { runBootPipeline } from '#core/bootstrap/pipeline.js';
 
 const isUpdaterOnly =
     process.argv.includes('--updater') ||
@@ -50,7 +34,7 @@ async function runUpdaterMode(): Promise<void> {
         )
         .catch(() => undefined);
     try {
-        minimalBootstrap();
+        runBootPipeline();
         const { runUpdater } = await import('#core/manager/updater/index.js');
         const force = process.argv.includes('--force');
         const dryRun = process.argv.includes('--dry-run') || process.argv.includes('--dryRun');
@@ -230,7 +214,7 @@ async function runBotMode(): Promise<void> {
 
                 if (this.isPrimaryShard) {
                     httpServer.init();
-                    await httpServer.start(parseInt(secrets.getOptional('APIPort') || '3000'));
+                    await httpServer.start(parseInt(secrets.getOptional('APIPort') || '3000', 10));
                 }
 
                 this.log.info('Booting Plugins...');
@@ -363,7 +347,7 @@ async function runBotMode(): Promise<void> {
     const isSpawnedWorker = process.env.SHARD_LIST !== undefined || typeof process.send === 'function';
 
     try {
-        minimalBootstrap();
+        runBootPipeline();
 
         if (!isSpawnedWorker) {
             try {

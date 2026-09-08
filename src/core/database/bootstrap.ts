@@ -1,9 +1,9 @@
-import { DatabaseManager, type DbConfig, novaDB } from '#core/database/index.js';
+import { DatabaseManager, type DbConfig, surrealDB } from '#core/database/index.js';
 import { secrets } from '../helpers/secretManager.js';
 import { getLogger } from '#core/utils/logger.js';
 import path from 'node:path';
 import fs from 'node:fs';
-import { sqliteDB } from '#core/database/sqlite.js';  
+import { sqliteDB } from '#core/database/sqlite.js';
 
 const log = getLogger('DatabaseBootstrap');
 
@@ -11,6 +11,12 @@ function parseIntOrNull(value: unknown): number | undefined {
     if (value === undefined || value === null || value === '') return undefined;
     const n = Number(value);
     return Number.isFinite(n) ? n : undefined;
+}
+
+function asOptionalString(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function loadDbConfigsFromEnv(): DbConfig[] {
@@ -31,21 +37,22 @@ function loadDbConfigsFromEnv(): DbConfig[] {
 
     const configs: DbConfig[] = [];
 
-    for (const [alias, value] of Object.entries(parsed as Record<string, any>)) {
+    for (const [alias, value] of Object.entries(parsed as Record<string, unknown>)) {
         if (!value || typeof value !== 'object') {
             log.warn(`Skipping Database[${alias}] because it is not an object.`);
             continue;
         }
 
-        const uri = value.uri as string | undefined;
+        const entry = value as Record<string, unknown>;
+        const uri = asOptionalString(entry.uri);
         if (!uri) {
             log.warn(`Skipping Database[${alias}] because "uri" is missing.`);
             continue;
         }
 
-        const engine = value.engine as DbConfig['engine'] | undefined;
-        const poolSize = parseIntOrNull(value.poolSize);
-        const maxRetries = parseIntOrNull(value.maxRetries);
+        const engine = asOptionalString(entry.engine) as DbConfig['engine'] | undefined;
+        const poolSize = parseIntOrNull(entry.poolSize);
+        const maxRetries = parseIntOrNull(entry.maxRetries);
 
         const cfg: DbConfig = {
             alias,
@@ -53,6 +60,11 @@ function loadDbConfigsFromEnv(): DbConfig[] {
             engine,
             poolSize,
             maxRetries,
+            namespace: asOptionalString(entry.namespace),
+            database: asOptionalString(entry.database),
+            username: asOptionalString(entry.username),
+            password: asOptionalString(entry.password),
+            token: asOptionalString(entry.token),
         };
 
         configs.push(cfg);
@@ -88,31 +100,6 @@ export async function initAllDatabases(): Promise<void> {
         }
     }
 
-    try {
-        const activeNovaDBs = await novaDB.pingAll();
-
-        if (!activeNovaDBs['main']) {
-            const disableDefaultNovaDB = secrets.getBoolean('DisableDefaultNovaDB', false);
-
-            if (disableDefaultNovaDB) {
-                log.warn('DisableDefaultNovaDB is set to true. Skipping Default "main" NovaDB Instance, this may cause core plugins to fail, it is recommended to configure a "main" NovaDB instance in the Database env variable or turn DisableDefaultNovaDB to false or null.');
-            } else {
-                await DatabaseManager.init({
-                    alias: 'main',
-                    uri: 'novadb://local',
-                    engine: 'native-novadb',
-                    maxRetries: 3
-                });
-
-                log.info('Default "main" NovaDB instance fallback completed successfully.');
-            }
-        }
-    } catch (error) {
-        const err = error as Error;
-        log.error(`CRITICAL: Failed to provision default fallback NovaDB: ${err.message}`, { stack: err.stack });
-        throw err;
-    }
-
     const hasSqliteMain = (() => {
         try { sqliteDB.get('main'); return true; } catch { return false; }
     })();
@@ -140,4 +127,47 @@ export async function initAllDatabases(): Promise<void> {
         }
     }
 
+    const hasSurrealMain = (() => {
+        try {
+            surrealDB.get('main');
+            return true;
+        } catch {
+            return false;
+        }
+    })();
+
+    if (!hasSurrealMain) {
+        const crossHost = secrets.getBoolean('CROSS_HOST', false);
+        const disableDefaultSurrealDB = secrets.getBoolean('DisableDefaultSurrealDB', false);
+
+        if (crossHost) {
+            log.info(
+                'CROSS_HOST is enabled: skipping default "main" SurrealDB instance (embedded local-file engines are forbidden for multi-host).',
+            );
+        } else if (disableDefaultSurrealDB) {
+            log.warn(
+                'DisableDefaultSurrealDB is set to true. Skipping default "main" SurrealDB instance.',
+            );
+        } else {
+            try {
+                await DatabaseManager.init({
+                    alias: 'main',
+                    uri: 'rocksdb://local',
+                    engine: 'surrealdb',
+                    maxRetries: 3,
+                    namespace: 'main',
+                    database: 'main',
+                });
+                log.info(
+                    'Default "main" SurrealDB instance provisioned at .data/database/surreal/rocksdb/main',
+                );
+            } catch (error) {
+                const err = error as Error;
+                log.error(
+                    `Failed to provision default "main" SurrealDB: ${err.message}`,
+                    { stack: err.stack },
+                );
+            }
+        }
+    }
 }

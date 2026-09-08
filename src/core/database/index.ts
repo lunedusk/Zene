@@ -5,18 +5,33 @@ import { ormDB } from './typeorm.js';
 import { mongoDB } from './mongo.js';
 import { pgDB } from './postgres.js';
 import { sqliteDB } from './sqlite.js';
-import { novaDB } from './nova.js';
+import {
+    surrealDB,
+    extractUriProtocol,
+    isSurrealProtocol,
+    isSurrealEmbeddedProtocol,
+    type SurrealConnectOptions,
+} from './surreal.js';
 
 const log = getLogger('DBManager');
 
 export interface DbConfig {
     alias: string;
     uri: string;
-    engine?: 'native-pg' | 'native-sqlite' | 'native-novadb' | 'typeorm' | 'redis' | 'mongo'; 
+    engine?: 'native-pg' | 'native-sqlite' | 'typeorm' | 'redis' | 'mongo' | 'surrealdb';
     entities?: any[];
     poolSize?: number;
     maxRetries?: number;
-    novaConfig?: any;
+    /** SurrealDB: namespace selected after connect */
+    namespace?: string;
+    /** SurrealDB: database selected after connect */
+    database?: string;
+    /** SurrealDB: root/namespace/database username for signin */
+    username?: string;
+    /** SurrealDB: password for signin */
+    password?: string;
+    /** SurrealDB: bearer/token auth (alternative to username/password) */
+    token?: string;
 }
 
 export class DatabaseManager {
@@ -40,15 +55,22 @@ export class DatabaseManager {
         const hasEntities = config.entities && config.entities.length > 0;
 
         await this.withRetry(async () => {
-            const url = new URL(config.uri);
-            const protocol = url.protocol.replace(':', '');
+            // Prefer scheme extraction that tolerates embedded paths (rocksdb://./data/…)
+            let protocol = extractUriProtocol(config.uri);
+            if (!protocol) {
+                try {
+                    protocol = new URL(config.uri).protocol.replace(':', '');
+                } catch {
+                    protocol = '';
+                }
+            }
 
             if (config.engine === 'native-pg' || protocol === 'postgres-native') {
                 await pgDB.connect(config.alias, config.uri, poolSize);
                 return;
             }
 
-            const isNativeSqlite = config.engine === 'native-sqlite' || 
+            const isNativeSqlite = config.engine === 'native-sqlite' ||
                 (protocol === 'sqlite' && !hasEntities && config.engine !== 'typeorm');
             if (isNativeSqlite) {
                 if (secrets.getBoolean('CROSS_HOST', false)) {
@@ -60,9 +82,25 @@ export class DatabaseManager {
                 return;
             }
 
-            const isNativeNova = config.engine === 'native-novadb' || protocol === 'novadb';
-            if (isNativeNova) {
-                await novaDB.connect(config.alias, config.uri, config.novaConfig);
+            const isSurreal =
+                config.engine === 'surrealdb' || isSurrealProtocol(protocol);
+            if (isSurreal) {
+                if (
+                    isSurrealEmbeddedProtocol(protocol) &&
+                    secrets.getBoolean('CROSS_HOST', false)
+                ) {
+                    throw new Error(
+                        `CROSS_HOST forbids embedded SurrealDB engines. Database[${config.alias}] protocol=${protocol || 'embedded'}.`,
+                    );
+                }
+                const surrealOpts: SurrealConnectOptions = {
+                    namespace: config.namespace,
+                    database: config.database,
+                    username: config.username,
+                    password: config.password,
+                    token: config.token,
+                };
+                await surrealDB.connect(config.alias, config.uri, surrealOpts);
                 return;
             }
 
@@ -106,7 +144,7 @@ export class DatabaseManager {
         Object.assign(status, await mongoDB.pingAll());
         Object.assign(status, await ormDB.pingAll());
         Object.assign(status, await sqliteDB.pingAll());
-        Object.assign(status, await novaDB.pingAll());
+        Object.assign(status, await surrealDB.pingAll());
 
         return status;
     }
@@ -120,7 +158,7 @@ export class DatabaseManager {
                 mongoDB.disconnectAll(),
                 pgDB.disconnectAll(),
                 sqliteDB.disconnectAll(),
-                novaDB.disconnectAll()
+                surrealDB.disconnectAll(),
             ]);
             log.info('All databases closed safely.');
             void import('#core/manager/event.js')
@@ -135,4 +173,4 @@ export class DatabaseManager {
         }
     }
 }
-export { redisDB, ormDB, mongoDB, pgDB, sqliteDB, novaDB };
+export { redisDB, ormDB, mongoDB, pgDB, sqliteDB, surrealDB };

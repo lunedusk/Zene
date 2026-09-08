@@ -24,6 +24,9 @@ import type {
     ApplyState
 } from './types.js';
 import { audit } from '#core/audit/index.js';
+import { loadUpdaterConfig, HARD_EXCLUDES } from './config.js';
+import { emptyPlan, printPlan } from './planner.js';
+import { ApplyEngine } from './applyEngine.js';
 
 const execFileAsync = promisify(execFile);
 const log = getLogger('Updater');
@@ -35,72 +38,6 @@ const STAGING_DIR = path.join(STATE_DIR, 'staging');
 const PENDING_HEALTH = path.join(STATE_DIR, 'pending-health.json');
 const APPLY_STATE = path.join(STATE_DIR, 'apply-state.json');
 const RECEIPTS_DIR = path.join(STATE_DIR, 'receipts');
-
-const HARD_EXCLUDES = new Set([
-    'node_modules',
-    '.git',
-    '.github',
-    '.data',
-    'logs',
-    'configuration',
-    '.env',
-    '.env.local',
-    '.env.development',
-    '.env.production',
-    '.DS_Store',
-    '.idea',
-    '.vscode',
-    'coverage',
-    '.turbo',
-    '.nx',
-    'common.json',
-]);
-
-function parsePluginPublicKeys(): Record<string, string> {
-    const raw = secrets.getOptional('PluginPublicKeys');
-    if (!raw) return {};
-    try {
-        const obj = JSON.parse(raw) as Record<string, string>;
-        const out: Record<string, string> = {};
-        for (const [k, v] of Object.entries(obj)) {
-            if (typeof v === 'string' && v.trim()) out[k.trim()] = v.trim();
-        }
-        return out;
-    } catch {
-        log.warn('PluginPublicKeys is not valid JSON – ignoring');
-        return {};
-    }
-}
-
-const BUILTIN_PUBLIC_KEY =
-    'MCowBQYDK2VwAyEAxGjGVv/sK86Px3N7hLY1x1QxS5bugvrqPlo8MW95BwQ=';
-
-function loadConfig(): UpdaterConfig {
-    return {
-        autoUpdater:    secrets.getBoolean('AutoUpdater', true),
-        repositoryUrl:  secrets.getOptional('RepositoryUrl') || null,
-        githubPat:      secrets.getOptional('GithubPat') || secrets.getOptional('GH_TOKEN') || null,
-        defaultRepo:    secrets.getOptional('UpdaterDefaultRepo') || 'lunedusk/Zene',
-        branch:         secrets.getOptional('UpdaterBranch') || 'main',
-        devBuilds:      secrets.getBoolean('DevBuilds', false),
-        safeUpdate:     secrets.getBoolean('SafeUpdate', true),
-        keepExtra:      secrets.getBoolean('UpdaterKeepExtra', true),
-        allowForce:     secrets.getBoolean('UpdaterAllowForce', false),
-        dryRun:         secrets.getBoolean('UpdaterDryRun', false),
-        maxBackups:     parseInt(secrets.getOptional('UpdaterMaxBackups') || '3', 10),
-        timeoutMs:      parseInt(secrets.getOptional('UpdaterTimeoutMs') || '300000', 10),
-        postUpdateCmd:  secrets.getOptional('UpdaterPostUpdateCmd') || null,
-        notifyChannel:  secrets.getOptional('UpdaterNotifyChannel') || null,
-        pluginManifest: secrets.getOptional('UpdaterPluginManifest') || 'manifest.json',
-        mode:           (secrets.getOptional('UpdaterMode') as 'standalone' | 'background') || 'standalone',
-        pluginPublicKeys: parsePluginPublicKeys(),
-        publicKey: secrets.getOptional('PublicKey') || process.env.PublicKey || BUILTIN_PUBLIC_KEY,
-        intervalMs:     parseInt(secrets.getOptional('UpdaterIntervalMs') || String(6 * 60 * 60 * 1000), 10),
-        backgroundApply: secrets.getBoolean('UpdaterBackgroundApply', false),
-        autoRollback:   secrets.getBoolean('UpdaterAutoRollback', true),
-        healthGraceMs:  parseInt(secrets.getOptional('UpdaterHealthGraceMs') || String(15 * 60 * 1000), 10)
-    };
-}
 
 function readPendingHealth(): PendingHealth | null {
     try {
@@ -152,7 +89,7 @@ export function markUpdaterHealthy(): void {
 }
 
 export function getUpdaterConfig(): UpdaterConfig {
-    return loadConfig();
+    return loadUpdaterConfig();
 }
 
 function receiptId(at: Date = new Date()): string {
@@ -443,7 +380,7 @@ export class Updater {
     private readonly gh: GitHubClient;
 
     constructor() {
-        this.config = loadConfig();
+        this.config = loadUpdaterConfig();
         this.gh = new GitHubClient(this.config.githubPat, Math.min(this.config.timeoutMs, 60_000));
     }
 
@@ -495,7 +432,7 @@ export class Updater {
                 'AutoUpdater=false – refusing automatic update ' +
                 '(--target / --downgrade / --install-plugin / --baseline-only still allowed)'
             );
-            return this.emptyPlan('AutoUpdater disabled', baselineOnly, installPlugin);
+            return emptyPlan('AutoUpdater disabled', baselineOnly, installPlugin);
         }
 
         if (this.config.autoRollback && !targetTag && !downgrade && !installPlugin && !baselineOnly) {
@@ -511,7 +448,7 @@ export class Updater {
                 ({ owner, repo } = GitHubClient.parseRepo(this.config.repositoryUrl));
             } catch (e) {
                 log.warn(`RepositoryUrl invalid – aborting: ${(e as Error).message}`);
-                return this.emptyPlan('Invalid RepositoryUrl', baselineOnly, installPlugin);
+                return emptyPlan('Invalid RepositoryUrl', baselineOnly, installPlugin);
             }
         } else {
             ({ owner, repo } = GitHubClient.parseRepo(this.config.defaultRepo));
@@ -531,11 +468,11 @@ export class Updater {
                 target = await this.gh.findNearestTag(owner, repo, currentSemVer);
             } catch (e) {
                 if (this.config.repositoryUrl) {
-                    return this.emptyPlan(`RepositoryUrl unreachable: ${(e as Error).message}`, true, installPlugin);
+                    return emptyPlan(`RepositoryUrl unreachable: ${(e as Error).message}`, true, installPlugin);
                 }
                 throw e;
             }
-            if (!target?.semver) return this.emptyPlan('No suitable tag', true, installPlugin);
+            if (!target?.semver) return emptyPlan('No suitable tag', true, installPlugin);
             const stagingRoot = await this.stageArchive(owner, repo, target.name);
             const remoteFiles = this.collectRemoteFiles(stagingRoot);
             return this.runBaselineOnly({
@@ -560,18 +497,18 @@ export class Updater {
                 const want = recommend || baseline?.previousTag || null;
                 if (!want) {
                     log.warn('Downgrade: no recommend and no previousTag – nothing to do');
-                    return this.emptyPlan('No downgrade target available', false, installPlugin);
+                    return emptyPlan('No downgrade target available', false, installPlugin);
                 }
                 coreTarget = await this.gh.getTagByName(owner, repo, want);
                 if (!coreTarget) {
                     log.warn(`Downgrade target tag not found: ${want}`);
-                    return this.emptyPlan(`Downgrade tag not found: ${want}`, false, installPlugin);
+                    return emptyPlan(`Downgrade tag not found: ${want}`, false, installPlugin);
                 }
                 log.info(`Downgrade target: ${coreTarget.name}`);
             } else if (targetTag) {
                 coreTarget = await this.gh.getTagByName(owner, repo, targetTag);
                 if (!coreTarget) {
-                    return this.emptyPlan(`Target tag not found: ${targetTag}`, false, installPlugin);
+                    return emptyPlan(`Target tag not found: ${targetTag}`, false, installPlugin);
                 }
                 log.info(`Explicit target: ${coreTarget.name}`);
             } else {
@@ -602,7 +539,7 @@ export class Updater {
             }
         } catch (e) {
             if (this.config.repositoryUrl) {
-                return this.emptyPlan(`RepositoryUrl unreachable: ${(e as Error).message}`, false, installPlugin);
+                return emptyPlan(`RepositoryUrl unreachable: ${(e as Error).message}`, false, installPlugin);
             }
             throw e;
         }
@@ -688,7 +625,7 @@ export class Updater {
                 d => d.action === 'update' || d.action === 'add' || d.action === 'remove'
             );
             if (toApply.length === 0) {
-                return this.emptyPlan('No suitable core tag and no plugin updates', false, null);
+                return emptyPlan('No suitable core tag and no plugin updates', false, null);
             }
             const plan: UpdatePlan = {
                 fromTag: baseline?.tag ?? null,
@@ -705,7 +642,7 @@ export class Updater {
                 baselineOnly: false,
                 installPlugin: null
             };
-            this.printPlan(plan);
+            printPlan(plan);
             if (dryRun) {
                 writeReceipt(plan, { durationMs: Date.now() - runStartedAt });
                 return plan;
@@ -814,7 +751,7 @@ export class Updater {
             baselineOnly: false,
             installPlugin: null
         };
-        this.printPlan(plan);
+        printPlan(plan);
 
         if (dryRun) {
             log.info('Dry-run – no changes written.');
@@ -1365,12 +1302,12 @@ export class Updater {
         const { pluginName, officialLines, dryRun, force } = ctx;
 
         if (!ctx.coreForCompat) {
-            return this.emptyPlan('Cannot resolve core version for plugin compatibility', false, pluginName);
+            return emptyPlan('Cannot resolve core version for plugin compatibility', false, pluginName);
         }
 
         if (!officialLines.some(l => l.id === pluginName)) {
             log.warn(`Plugin "${pluginName}" is not listed in the tag's plugins.txt`);
-            return this.emptyPlan(
+            return emptyPlan(
                 `Plugin "${pluginName}" not in tag plugins.txt – refusing install`,
                 false,
                 pluginName
@@ -1404,7 +1341,7 @@ export class Updater {
             baselineOnly: false,
             installPlugin: pluginName
         };
-        this.printPlan(plan);
+        printPlan(plan);
 
         if (!plan.allowed) {
             writeReceipt(plan, { durationMs: 0 });
@@ -1556,7 +1493,7 @@ export class Updater {
             baselineOnly: true,
             installPlugin: null
         };
-        this.printPlan(plan);
+        printPlan(plan);
         if (dryRun) {
             writeReceipt(plan, { durationMs: 0 });
             return plan;
@@ -1571,36 +1508,6 @@ export class Updater {
         log.info(`Baseline-only complete for tag ${target.name}`);
         writeReceipt(plan, { durationMs: 0 });
         return plan;
-    }
-
-    private emptyPlan(
-        reason: string,
-        baselineOnly = false,
-        installPlugin: string | null = null
-    ): UpdatePlan {
-        return {
-            fromTag: null, toTag: '', toCommit: '',
-            allowed: false, reason,
-            dirtyFiles: [], pluginDecisions: [],
-            filesToOverwrite: [], filesToAdd: [], filesToKeep: [],
-            dryRun: this.config.dryRun, baselineOnly, installPlugin
-        };
-    }
-
-    private printPlan(plan: UpdatePlan): void {
-        log.info('── Plan ─────────────────────────────────────');
-        log.info(`  Mode        : ${plan.baselineOnly ? 'baseline-only' : plan.installPlugin ? 'install-plugin' : 'update'}`);
-        log.info(`  From        : ${plan.fromTag ?? '(none)'}`);
-        log.info(`  To / Against: ${plan.toTag || '(n/a)'}`);
-        log.info(`  Reason      : ${plan.reason}`);
-        log.info(`  Core overwrite/add: ${plan.filesToOverwrite.length}/${plan.filesToAdd.length}`);
-        if (plan.pluginDecisions.length) {
-            log.info('  Plugins:');
-            for (const d of plan.pluginDecisions) {
-                log.info(`    [${d.action}] ${d.pluginId} – ${d.reason}${d.selectedPluginTag ? ` @ ${d.selectedPluginTag}` : ''}`);
-            }
-        }
-        log.info('────────────────────────────────────────────');
     }
 
     private async stageArchive(owner: string, repo: string, ref: string): Promise<string> {
@@ -1716,7 +1623,7 @@ export class Updater {
         const infos = listBackupInfos();
         const match = infos.find(b => b.id === backupId || b.dir === backupId || b.id.startsWith(backupId));
         if (!match) {
-            const plan = this.emptyPlan(`Backup not found: ${backupId}`, false, null);
+            const plan = emptyPlan(`Backup not found: ${backupId}`, false, null);
             writeReceipt(plan, { durationMs: Date.now() - t0, mode: 'restore-backup' });
             return plan;
         }
@@ -1736,7 +1643,7 @@ export class Updater {
             baselineOnly: false,
             installPlugin: null
         };
-        this.printPlan(plan);
+        printPlan(plan);
         if (dryRun) {
             log.info(`Dry-run restore would copy from ${match.dir}`);
             writeReceipt(plan, { durationMs: Date.now() - t0, mode: 'restore-backup', restoredFrom: match.id });
@@ -1839,7 +1746,7 @@ export class Updater {
             log.info('────────────────────────────────────────────');
             log.info('Restore: npm run updater -- --restore-backup <id>');
         }
-        const plan = this.emptyPlan(
+        const plan = emptyPlan(
             infos.length ? `Listed ${infos.length} backup(s)` : 'No backups found',
             false,
             null
@@ -1981,7 +1888,7 @@ export async function runUpdater(options: {
 }
 
 export async function checkPendingRollbackOnBoot(): Promise<boolean> {
-    const cfg = loadConfig();
+    const cfg = loadUpdaterConfig();
     const updater = new Updater();
 
     const applyState = readApplyState();
@@ -2059,7 +1966,7 @@ export async function checkPendingRollbackOnBoot(): Promise<boolean> {
 }
 
 export function startBackgroundUpdater(opts?: { skipInitial?: boolean }): () => void {
-    const cfg = loadConfig();
+    const cfg = loadUpdaterConfig();
     if (cfg.mode !== 'background' || !cfg.autoUpdater) {
         log.info('Background updater not started (UpdaterMode/AutoUpdater)');
         return () => {};

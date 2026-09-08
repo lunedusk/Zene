@@ -58,3 +58,7 @@ Optional `?` forms never fail-closed.
 Secrets are stored in `process.env` as the source of truth. The vault no longer encrypts values in memory or scrubs sensitive keys from the environment. Shard children inherit `DiscordToken`, `ZENE_BOOT_SHARED_RAND`, and other keys by normal process inheritance.
 
 Any plugin or dependency can read `process.env.DiscordToken` (and other keys) directly. That is intentional: isolation was traded for a correct sharding flow. Treat third-party plugins as fully trusted with respect to environment access.
+
+## Architecture note (Phase 3)
+
+`expandValue` / `expandProcessEnv` in `src/core/placeholder/index.ts` should remain **pure with respect to input values** (string in → expanded string out). Side effects (writing back to `process.env`, logging) stay at the call edge (`expandProcessEnv`, boot pipeline), not inside recursive expand of nested objects. New placeholder kinds should not call Discord or network APIs during expand.

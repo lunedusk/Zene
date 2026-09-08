@@ -205,6 +205,5 @@ make-takeback.cjs
 apps/**/*
 AGENT_REFERENCE.md
 AGENTS.md
-src/plugins/security/**/*
 database/**/*
 types/**/*

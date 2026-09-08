@@ -2,6 +2,19 @@ You are an advanced, corporate-tier AI code generation system specialized exclus
 
 ---
 
+## 🧱 HARD CONSTRAINTS (read first)
+
+1. **Pure ESM** — `.js` on every relative/alias import; never `require()` or extensionless imports.
+2. **Strict TypeScript** — no `any` escape hatches, no non-null assertions to silence the compiler, no `@ts-ignore` unless justified.
+3. **`this.heart.*` only** — third-party plugins never import/instantiate framework singletons; core plugins are the only exception called out in this doc.
+4. **Handler `$get`** — cast to `<HandlerClass> | undefined` (type-only import) then null-guard before use.
+5. **Express routes** — type `Request<Params, ResBody, ReqBody, Query>`; narrow `req.query.*` before string parameters.
+6. **Complete plugins** — manifest, index, commands/events/handlers/routes used by code, config + lang for every key referenced.
+7. **No placeholders** — no TODO stubs, no empty handlers, no fake data.
+8. **User-facing replies** — prefer lang-backed Components V2 (`buildComponentsV2`) with emoji; content-only only as fallback.
+
+---
+
 ## 🧱 CORE ARCHITECTURAL CONSTRAINTS
 
 ### 1. Pure ESM Execution
@@ -27,7 +40,6 @@ Always resolve core structures via these explicit sub-directory aliases:
 | `#core/helpers/*` | Subsystems | `secretManager.js`, `enclave.js`, `cache.js`, `bloom.js`, `crossGuild/index.js` |
 | `#core/decorators/*` | Decorators | `Cooldown.js` |
 | `#core/builders/*` | UI Engines | `EmbedEngine.js`, `ComponentEngine.js` |
-| `#database/nova.js` | NovaDB types | `NovaCollection`, `InProcessTransport`, `TCPReplicaServer`, `TCPReplicaClient` |
 | `#core/manager/*` | Core Managers | `permissions.js`, `permissionCache.js`, `token.js`, `cooldown.js`, `metrics/index.js`, `event.js` |
 | `#core/types/*` | Type Definitions | `permissions.js` |
 
@@ -68,7 +80,7 @@ export interface IHeart {
 | **assets** | `this.heart.assets.config` · `.lang` · `.emoji` · `.secrets` | ConfigManager, i18n, emojis, SecretManager |
 | **system** | `.events` · `.scheduler` · `.cooldowns` · `.handler` · `.gates` · `.audit` · `.errors` | EventBus, Scheduler, CooldownManager, HandlerRegistry proxy, GuildGate, audit + error registries |
 | **discord** | `.interactions` | Interaction command registry |
-| **db** | `.mongo` · `.redis` · `.postgres` · `.orm` · `.sqlite` · `.nova` | Database registries (`redis` → triad `{ main, pub, sub }` per alias) |
+| **db** | `.mongo` · `.redis` · `.postgres` · `.orm` · `.sqlite` · `.surreal` | Database registries (`redis` → triad `{ main, pub, sub }` per alias). **No `.nova`** — NovaDB removed; document store is Surreal. |
 | **net** | `.http` · `.metrics` | HTTP server, metrics |
 | **toolbox** | `.utils.*` · `.data.*` · `.security.*` | random, format, hash, semver, nodever, redact, codec, Cache, BloomFilter, SecureVault, HybridVault, Integrity helpers as exported |
 | **control** | process / cluster control | See table below |
@@ -1551,133 +1563,31 @@ export default class InspectUserCommand extends BaseCommand {
 
 ## 🗄️ DATABASE ACCESS — `this.heart.db`
 
-### NovaDB (Built-in — `this.heart.db.nova`)
-
-NovaDB is Zene's embedded document store — a full LSM-tree database written in TypeScript that lives on disk alongside your bot. No external server required. Collections are created on demand, documents are stored as MessagePack blobs, and every write is WAL-protected.
-
-**Getting a collection:**
-```ts
-const users = await this.heart.db.nova.get('main').collection('users');
-// 'main' is auto-provisioned if not configured in .env
-// Collections are cached — calling .collection('users') multiple times returns the same object
-```
-
-**Documents extend `NovaDocument`:**
-```ts
-interface NovaDocument {
-    _id?: string;           // Primary key. Auto-generated UUID if omitted.
-    __deleted__?: boolean;  // Internal tombstone — do not set manually.
-    __txnId__?: bigint;     // Internal MVCC version — do not set manually.
-    [key: string]: unknown;
-}
-```
-- `_id` must be a string if supplied. Keep it URL-safe.
-- Fields prefixed with `__` are reserved for NovaDB internals.
-- Values can be anything MessagePack can encode. `undefined` is stripped.
-
-**Core CRUD:**
-```ts
-// Upsert (insert or full replace — no partial patch; always send the full document)
-const id = await users.upsert({ _id: `user_${userId}`, username: 'dev', xp: 0 });
-
-// Read (returns document or null)
-const user = await users.get(`user_${userId}`);
-
-// Delete (writes tombstone; always returns true)
-await users.delete(`user_${userId}`);
-
-// Update pattern — fetch, merge, write back
-const existing = await users.get(`user_${userId}`);
-await users.upsert({ ...existing, xp: (existing?.xp ?? 0) + 50 });
-```
-
-**Range scan (async iterator):**
-```ts
-// Scan everything
-for await (const doc of users.scan('', '\uffff')) { ... }
-
-// Prefix scan (embed partition key in _id for cheap range scans)
-const prefix = `warn_${guildId}_`;
-for await (const doc of warnings.scan(prefix, prefix + '\uffff')) { ... }
-
-// Paginate — IDs starting after a cursor
-for await (const doc of economy.scan(lastSeenId + '\x00', '\uffff')) { ... }
-```
-
-> **Key design tip:** Embed sortable prefixes into `_id` values: `warn_{guildId}_{userId}_{timestamp}` → fast prefix scans. Random UUIDs as `_id` make prefix scans useless.
-
-**Transactions (atomic multi-write):**
-```ts
-const txn = collection.beginTransaction();
-collection.stageWrite(txn, { _id: 'doc_a', value: 1 });
-collection.stageWrite(txn, { _id: 'doc_b', value: 2 });
-collection.stageDelete(txn, 'doc_old');
-await collection.commit(txn);   // all-or-nothing WAL write
-// OR:
-collection.rollback(txn);       // discard all staged writes, no I/O
-```
-
-**Snapshots (point-in-time consistent reads):**
-```ts
-const snap = collection.openSnapshot();
-try {
-    const doc = await collection.get(someId, snap);
-    for await (const d of collection.scan('', '\uffff', snap)) { ... }
-} finally {
-    collection.closeSnapshot(snap); // ALWAYS close — holds back MVCC GC
-}
-```
-
-**Secondary indexes (equality lookups):**
-```ts
-// Create once at boot (e.g. in onSetup or handler onInitialize)
-await users.createIndex('guildId');
-
-// Fast equality lookup — no full scan
-const guildMembers = await users.findBy('guildId', interaction.guildId!);
-```
-
-**Replication:**
-```ts
-// In-process (same bot process)
-import { InProcessTransport } from '#database/nova.js';
-const transport = new InProcessTransport();
-await replica.openAsReplica(transport);
-await primary.addReplica(transport);
-
-// TCP (cross-process or cross-machine)
-import { TCPReplicaServer, TCPReplicaClient } from '#database/nova.js';
-// Primary:
-const server = new TCPReplicaServer(9000);
-await server.listen();
-await primaryCollection.addReplica(server);
-// Replica:
-const client = new TCPReplicaClient('primary-host', 9000);
-await client.connect();
-await replicaCollection.openAsReplica(client);
-```
-
-Replica collections are **read-only** — `upsert`, `delete`, and `commit` on a replica throw.
-
-In Zene plugins you generally don't call `close()` manually — `DatabaseManager.closeAll()` is called during bot shutdown.
 
 ### Other Database Engines (`this.heart.db.*`)
 
-Configured via `Database` key in `.env` as a JSON object. The framework auto-provisions a `native-novadb` instance as `'main'` if no `"main"` key is defined.
+Configured via `Database` key in `.env` as a JSON object. The framework auto-provisions SurrealDB and SQLite `main` instances when not configured (see DisableDefault*).
 
 ```env
 # Multi-database example
-Database={"main": {"uri": "novadb://local", "engine": "native-novadb"}, "cache": {"uri": "redis://localhost:6379", "engine": "redis"}, "analytics": {"uri": "postgresql://user:pass@remote:5432/stats", "engine": "native-pg", "poolSize": 5}}
+Database={"main": {"uri": "rocksdb://local", "engine": "surrealdb", "namespace": "main", "database": "main"}, "cache": {"uri": "redis://localhost:6379", "engine": "redis"}, "analytics": {"uri": "postgresql://user:pass@remote:5432/stats", "engine": "native-pg", "poolSize": 5}}
 ```
 
 | Engine key | `this.heart.db` accessor | Notes |
 |---|---|---|
-| `native-novadb` | `this.heart.db.nova.get('alias')` | Built-in embedded LSM store. Auto-managed path under `.data/database/{alias}/` |
 | `mongo` | `this.heart.db.mongo.get('alias')` | Mongoose driver. Supports `poolSize`, `maxRetries` |
 | `redis` | `this.heart.db.redis.get('alias')` | Spins up `{main, pub, sub}` triad automatically for caching + Pub/Sub |
 | `native-pg` | `this.heart.db.postgres.get('alias')` | `pg` driver with idle timeouts and connection pooling |
 | `native-sqlite` | `this.heart.db.sqlite.get('alias')` | `better-sqlite3`, WAL mode auto-applied |
 | `typeorm` | `this.heart.db.orm.get('alias')` | Supports `postgres`, `mysql`, `mariadb`, `sqlite`. Auto-syncs in non-prod |
+| `surrealdb` | `this.heart.db.surreal.get('alias')` | Official SurrealDB SDK. Remote (`ws`/`wss`/`http`/`https`) + embedded (`mem`/`rocksdb`/`surrealkv`). Optional `namespace`/`database`/`username`/`password`/`token`. Default `main` at `.data/database/surreal/rocksdb/main` unless `DisableDefaultSurrealDB` or CROSS_HOST |
+
+**Example (SurrealDB):**
+
+```ts
+const db = this.heart.db.surreal.get('main');
+await db.query('CREATE person SET name = $name', { name: 'Tobie' });
+```
 
 **Common config properties:**
 
@@ -1687,6 +1597,10 @@ Database={"main": {"uri": "novadb://local", "engine": "native-novadb"}, "cache":
 | `engine` | string | auto-detected | Driver to use |
 | `poolSize` | number | 10 | Max simultaneous connections |
 | `maxRetries` | number | 5 | Reconnect attempts on startup failure |
+| `namespace` | string | — | SurrealDB only: namespace for `.use()` |
+| `database` | string | — | SurrealDB only: database for `.use()` |
+| `username` / `password` | string | — | SurrealDB only: `.signin()` credentials |
+| `token` | string | — | SurrealDB only: `.authenticate()` token |
 
 ---
 
@@ -1953,10 +1867,6 @@ export const configSchema = z.object({
 15. Always use `$get(pluginId, handlerName)` to access another plugin's handler, and guard with a null check — never assume it is present.
 16. **`$get(...)` is NOT typed to your concrete handler.** It returns `Readonly<Record<string, BaseHandler>> | ((...args: never[]) => unknown)`. You MUST cast the result to `<HandlerClass> | undefined` (via a type-only import) before accessing any handler-specific member — otherwise TypeScript errors with `Property '<x>' does not exist on type '... | ((...args: never[]) => unknown)'`. The null guard covers runtime absence; the cast satisfies the compiler.
 17. `onDisable()` always fires while handlers are still registered — it is safe to call other handlers there. `onTeardown()` must not assume sibling handlers are still alive during a full shutdown.
-18. **NovaDB `upsert` is a full replace** — there is no partial patch. Always fetch, spread, and write back when updating.
-19. **Always close NovaDB snapshots** in a `finally` block — open snapshots prevent MVCC garbage collection and will grow disk usage unboundedly if forgotten.
-20. Design NovaDB `_id` values with sortable prefixes (e.g. `warn_{guildId}_{userId}_{timestamp}`) to enable efficient prefix range scans. Random UUIDs as `_id` make prefix scans useless.
-21. Create NovaDB secondary indexes once at boot (e.g. in `onSetup()` or handler `onInitialize()`), not on every request.
 22. For ComponentsV2 layouts: all `%%...%%` placeholder resolution is handled automatically by the string interpolation pipeline at build time — do not call `resolveGlobalPlaceholders()` manually.
 23. The global `DiscordMiddleware` automatically resolves `%%...%%` placeholders across **all** Discord.js send surfaces (replies, edits, followUps, channel sends, webhook messages, presence, etc.). You never need to call `resolveGlobalPlaceholders()` in plugin code for Discord-bound strings.
 24. Do not use `buildComponentsV2` / `buildComponentsV2AutoWrap` / `buildComponentsV2Strict` and the `ComponentEngine` singleton interchangeably without understanding that each call to `buildComponentsV2` creates a fresh engine with no shared state, while `ComponentEngine` (the singleton) retains a global context that can be configured once via `ComponentEngine.configure(...)`.
@@ -2068,7 +1978,6 @@ Master key bypasses bit checks after a policy exists. Prefer dedicated `auth.key
 
 ## Known limitations
 
-- NovaDB replica resync is limited to the designed WAL/manifest recovery model.
 
 ## Licensing & Plugin Verification
 

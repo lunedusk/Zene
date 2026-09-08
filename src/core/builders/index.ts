@@ -33,6 +33,12 @@ export {
     ComponentV2Error
 } from "./componentsv2Builder.js";
 
+export {
+    buildCv2TextLayout,
+    replyCv2Text,
+    type Cv2TextReplyOptions,
+} from "./cv2Reply.js";
+
 export type {
     ComponentSpec,
     LayoutSpec as Cv2LayoutSpec,

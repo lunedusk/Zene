@@ -1,15 +1,10 @@
 import 'dotenv/config';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-
-if (!process.env.NODE_ENV || process.env.NODE_ENV.trim() === '') {
-    process.env.NODE_ENV = 'production';
-}
-if (!process.env.PublicKey || process.env.PublicKey.trim() === '') {
-    process.env.PublicKey = 'MCowBQYDK2VwAyEAxGjGVv/sK86Px3N7hLY1x1QxS5bugvrqPlo8MW95BwQ=';
-}
-
+import { materializeBootEnv } from '#core/defaults.js';
 import { secrets } from '#core/helpers/secretManager.js';
+
+materializeBootEnv();
 import { getLogger, flushLogs } from '#core/utils/logger.js';
 import { PackageManager } from '#core/helpers/integrity/manifest.js';
 import type { PluginManifest } from '#core/bases/Plugin.js';

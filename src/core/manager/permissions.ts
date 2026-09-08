@@ -4,6 +4,16 @@ import { audit } from '#core/audit/index.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { configManager } from '#core/manager/config.js';
 import {
+    OWNER_BIT,
+    BOT_PROTECTED_BIT,
+    SERVER_PROTECTED_BIT,
+    bitsIncludeOwner,
+    bitsIncludeBotProtected,
+    bitsIncludeServerProtected,
+    envOwnerIds,
+    isEnvOwner,
+} from '#core/manager/permissions/guards.js';
+import {
     PermissionError,
     BUILT_IN_BITS,
     type PermBitDoc,
@@ -25,6 +35,7 @@ import type { Request, Response, NextFunction } from 'express';
 import type { PermissionCache } from '#core/manager/permissionCache.js';
 import { resolvePermissionsBackend } from '#core/database/backendSelector.js';
 import { openSqlAdapter, type SqlAdapter, type Row } from '#core/database/sqlAdapter.js';
+import { AdapterPermissionStore, type PermissionStore } from '#core/manager/permissions/store.js';
 
 const log = getLogger('PermissionsManager');
 
@@ -45,31 +56,6 @@ function parseJsonArray(value: unknown): string[] {
     }
 }
 
-const OWNER_BIT = 'bot.owner';
-const BOT_PROTECTED_BIT = 'bot.protected';
-const SERVER_PROTECTED_BIT = 'server.protected';
-
-function bitsIncludeOwner(bits: string[] | undefined | null): boolean {
-    return Array.isArray(bits) && bits.includes(OWNER_BIT);
-}
-
-function bitsIncludeBotProtected(bits: string[] | undefined | null): boolean {
-    return Array.isArray(bits) && bits.includes(BOT_PROTECTED_BIT);
-}
-
-function bitsIncludeServerProtected(bits: string[] | undefined | null): boolean {
-    return Array.isArray(bits) && bits.includes(SERVER_PROTECTED_BIT);
-}
-
-function envOwnerIds(): string[] {
-    const raw = secrets.getOptional('BotOwnerIds', '') ?? '';
-    return raw.split(',').map((s) => s.trim()).filter(Boolean);
-}
-
-function isEnvOwner(userId: string | null | undefined): boolean {
-    if (!userId) return false;
-    return envOwnerIds().includes(userId);
-}
 
 function assertCanMutateOwnerBit(
     actorUserId: string | null | undefined,
@@ -140,8 +126,13 @@ export interface HttpRouteAccessConfig {
 }
 
 export class PermissionsManager {
-    private db!: SqlAdapter;
+    private store!: PermissionStore;
     private cache?: PermissionCache;
+
+    /** Adapter surface for role-link helpers that still take SqlAdapter */
+    private get db(): SqlAdapter {
+        return this.store.db;
+    }
 
     constructor() {}
 
@@ -151,9 +142,9 @@ export class PermissionsManager {
 
     public async init(cfg?: { engine?: string | null; alias?: string | null }): Promise<void> {
         const choice = resolvePermissionsBackend(cfg);
-        this.db = openSqlAdapter(choice);
+        this.store = new AdapterPermissionStore(openSqlAdapter(choice));
 
-        await this.seedBuiltInBits();
+        await this.store.seedBuiltInBits();
         const { ensureRoleLinkSchema, migrateLegacyAssignedAsDirect } = await import(
             '#core/manager/permissionRoleLinks.js'
         );
@@ -162,10 +153,7 @@ export class PermissionsManager {
         await ensureMirrorSchema(this.db);
         try {
             const botRoles = await this.listBotRoles();
-            const serverRows =
-                this.db.engine === 'mongo'
-                    ? await this.db.mongoCollection('perm_sroles').find({})
-                    : await this.db.all(`SELECT id, guildId, assignedUserIds FROM perm_sroles`);
+            const serverRows = await this.store.listServerRoleAssignmentRows();
             await migrateLegacyAssignedAsDirect(this.db, [
                 ...botRoles.map((r) => ({
                     roleId: r._id,
@@ -216,41 +204,6 @@ export class PermissionsManager {
             );
         } catch (err) {
             log.warn(`Owner-role boot scan failed: ${(err as Error).message}`);
-        }
-    }
-
-    private async seedBuiltInBits(): Promise<void> {
-        const at = nowSeconds();
-        if (this.db.engine === 'mongo') {
-            const col = this.db.mongoCollection('perm_bits');
-            for (const b of BUILT_IN_BITS) {
-                await col.updateOne(
-                    { _id: b.bit },
-                    {
-                        $set: {
-                            _id: b.bit,
-                            id: b.bit,
-                            description: b.description,
-                            scope: b.scope,
-                            pluginId: null,
-                            builtIn: 1,
-                            createdAt: at,
-                        },
-                    },
-                    { upsert: true },
-                );
-            }
-            return;
-        }
-
-        for (const b of BUILT_IN_BITS) {
-            const excluded = this.db.engine === 'postgres' ? 'EXCLUDED' : 'excluded';
-            await this.db.run(
-                `INSERT INTO perm_bits (id, description, scope, pluginId, builtIn, createdAt)
-                 VALUES (?, ?, ?, ?, 1, ?)
-                 ON CONFLICT(id) DO UPDATE SET description = ${excluded}.description, scope = ${excluded}.scope`,
-                [b.bit, b.description, b.scope, null, at],
-            );
         }
     }
 
@@ -314,73 +267,15 @@ export class PermissionsManager {
             const { setBitRank } = await import('#core/types/permissions.js');
             setBitRank(bit, rank);
         }
-        const at = nowSeconds();
-        if (this.db.engine === 'mongo') {
-            await this.db.mongoCollection('perm_bits').updateOne(
-                { _id: bit },
-                {
-                    $set: {
-                        _id: bit,
-                        id: bit,
-                        description,
-                        scope,
-                        pluginId: pluginId ?? null,
-                        builtIn: 0,
-                        createdAt: at,
-                    },
-                },
-                { upsert: true },
-            );
-            return;
-        }
-        const conflict = this.db.engine === 'postgres' ? 'EXCLUDED.description' : 'excluded.description';
-        await this.db.run(
-            `INSERT INTO perm_bits (id, description, scope, pluginId, builtIn, createdAt)
-             VALUES (?, ?, ?, ?, 0, ?)
-             ON CONFLICT(id) DO UPDATE SET description = ${conflict}`,
-            [bit, description, scope, pluginId ?? null, at],
-        );
+        await this.store.registerBit(bit, description, scope, pluginId ?? null);
     }
 
     public async listBits(scope?: 'bot' | 'server' | 'plugin'): Promise<PermBitDoc[]> {
-        if (this.db.engine === 'mongo') {
-            const filter = scope ? { scope } : {};
-            const rows = await this.db.mongoCollection('perm_bits').find(filter);
-            return rows.map((r) => this.rowToBit(r));
-        }
-        const rows = scope
-            ? await this.db.all(`SELECT * FROM perm_bits WHERE scope = ? ORDER BY id`, [scope])
-            : await this.db.all(`SELECT * FROM perm_bits ORDER BY id`);
-        return rows.map((r) => this.rowToBit(r));
-    }
-
-    private rowToBit(r: Row): PermBitDoc {
-        return {
-            _id: String(r.id ?? r._id),
-            description: String(r.description),
-            scope: r.scope as PermBitDoc['scope'],
-            pluginId: r.pluginId != null ? String(r.pluginId) : undefined,
-            builtIn: !!r.builtIn,
-            createdAt: Number(r.createdAt),
-        };
+        return this.store.listBits(scope);
     }
 
     private async bitsExist(bits: string[]): Promise<boolean> {
-        if (bits.length === 0) return true;
-        if (this.db.engine === 'mongo') {
-            const col = this.db.mongoCollection('perm_bits');
-            for (const b of bits) {
-                const doc = await col.findOne({ $or: [{ _id: b }, { id: b }] });
-                if (!doc) return false;
-            }
-            return true;
-        }
-        const placeholders = bits.map(() => '?').join(',');
-        const row = await this.db.get(
-            `SELECT COUNT(*) AS cnt FROM perm_bits WHERE id IN (${placeholders})`,
-            bits,
-        );
-        return Number(row?.cnt ?? 0) === bits.length;
+        return this.store.bitsExist(bits);
     }
 
     private async assertCanMutateBotProtectedBit(
@@ -523,34 +418,7 @@ export class PermissionsManager {
             createdBy: data.createdBy,
             updatedAt: nowSeconds(),
         };
-        if (this.db.engine === 'mongo') {
-            await this.db.mongoCollection('perm_bwroles').insertOne({
-                _id: doc._id,
-                id: doc._id,
-                name: doc.name,
-                color: doc.color,
-                bits: JSON.stringify(doc.bits),
-                assignedUserIds: JSON.stringify(doc.assignedUserIds),
-                createdAt: doc.createdAt,
-                createdBy: doc.createdBy,
-                updatedAt: doc.updatedAt,
-            });
-        } else {
-            await this.db.run(
-                `INSERT INTO perm_bwroles (id, name, color, bits, assignedUserIds, createdAt, createdBy, updatedAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    doc._id,
-                    doc.name,
-                    doc.color,
-                    JSON.stringify(doc.bits),
-                    JSON.stringify(doc.assignedUserIds),
-                    doc.createdAt,
-                    doc.createdBy,
-                    doc.updatedAt,
-                ],
-            );
-        }
+        await this.store.insertBotRole(doc);
         if (bitsIncludeOwner(doc.bits)) {
             void audit.record({
                 actorType: actorUserId ? 'user' : 'api_key',
@@ -592,34 +460,7 @@ export class PermissionsManager {
             bits: data.bits ?? existing.bits,
             updatedAt: nowSeconds(),
         };
-        if (this.db.engine === 'mongo') {
-            await this.db.mongoCollection('perm_bwroles').updateOne(
-                { $or: [{ _id: roleId }, { id: roleId }] },
-                {
-                    $set: {
-                        name: updated.name,
-                        color: updated.color,
-                        bits: JSON.stringify(updated.bits),
-                        updatedAt: updated.updatedAt,
-                    },
-                },
-            );
-            if (involves) {
-                void audit.record({
-                    actorType: actorUserId ? 'user' : 'api_key',
-                    actorId: actorUserId ?? 'api_key',
-                    action: 'perm.role.update',
-                    target: roleId,
-                    outcome: 'success',
-                    meta: { bit: OWNER_BIT },
-                });
-            }
-            return updated;
-        }
-        await this.db.run(
-            `UPDATE perm_bwroles SET name = ?, color = ?, bits = ?, updatedAt = ? WHERE id = ?`,
-            [updated.name, updated.color, JSON.stringify(updated.bits), updated.updatedAt, roleId],
-        );
+        await this.store.updateBotRoleRow(roleId, updated);
         if (involves) {
             void audit.record({
                 actorType: actorUserId ? 'user' : 'api_key',
@@ -637,11 +478,7 @@ export class PermissionsManager {
         const existing = await this.getBotRole(roleId);
         assertCanMutateOwnerBit(actorUserId, existing?.bits, 'perm.role.delete', roleId);
         await this.assertCanMutateBotProtectedBit(actorUserId, existing?.bits, 'perm.role.delete', roleId);
-        if (this.db.engine === 'mongo') {
-            await this.db.mongoCollection('perm_bwroles').deleteOne({ $or: [{ _id: roleId }, { id: roleId }] });
-        } else {
-            await this.db.run(`DELETE FROM perm_bwroles WHERE id = ?`, [roleId]);
-        }
+        await this.store.deleteBotRoleRow(roleId);
         if (existing) {
             await Promise.all(existing.assignedUserIds.map((uid) => this.invalidateUserCache(uid)));
             if (bitsIncludeOwner(existing.bits)) {
@@ -658,23 +495,11 @@ export class PermissionsManager {
     }
 
     private async getBotRole(roleId: string): Promise<BotWideRoleDoc | null> {
-        if (this.db.engine === 'mongo') {
-            const row = await this.db.mongoCollection('perm_bwroles').findOne({
-                $or: [{ _id: roleId }, { id: roleId }],
-            });
-            return row ? this.rowToBotRole(row) : null;
-        }
-        const row = await this.db.get(`SELECT * FROM perm_bwroles WHERE id = ?`, [roleId]);
-        return row ? this.rowToBotRole(row) : null;
+        return this.store.getBotRole(roleId);
     }
 
     public async listBotRoles(): Promise<BotWideRoleDoc[]> {
-        if (this.db.engine === 'mongo') {
-            const rows = await this.db.mongoCollection('perm_bwroles').find({});
-            return rows.map((r) => this.rowToBotRole(r));
-        }
-        const rows = await this.db.all(`SELECT * FROM perm_bwroles ORDER BY createdAt`);
-        return rows.map((r) => this.rowToBotRole(r));
+        return this.store.listBotRoles();
     }
 
     public async assignBotRole(
@@ -750,31 +575,7 @@ export class PermissionsManager {
     }
 
     private async writeBotAssigned(roleId: string, assigned: string[]): Promise<void> {
-        const at = nowSeconds();
-        if (this.db.engine === 'mongo') {
-            await this.db.mongoCollection('perm_bwroles').updateOne(
-                { $or: [{ _id: roleId }, { id: roleId }] },
-                { $set: { assignedUserIds: JSON.stringify(assigned), updatedAt: at } },
-            );
-            return;
-        }
-        await this.db.run(
-            `UPDATE perm_bwroles SET assignedUserIds = ?, updatedAt = ? WHERE id = ?`,
-            [JSON.stringify(assigned), at, roleId],
-        );
-    }
-
-    private rowToBotRole(r: Row): BotWideRoleDoc {
-        return {
-            _id: String(r.id ?? r._id),
-            name: String(r.name),
-            color: String(r.color),
-            bits: parseJsonArray(r.bits),
-            assignedUserIds: parseJsonArray(r.assignedUserIds),
-            createdAt: Number(r.createdAt),
-            createdBy: String(r.createdBy),
-            updatedAt: Number(r.updatedAt),
-        };
+        await this.store.writeBotAssigned(roleId, assigned);
     }
 
     private assertServerScopedBits(bits: string[]): void {
@@ -805,36 +606,7 @@ export class PermissionsManager {
             createdBy: data.createdBy,
             updatedAt: nowSeconds(),
         };
-        if (this.db.engine === 'mongo') {
-            await this.db.mongoCollection('perm_sroles').insertOne({
-                _id: doc._id,
-                id: doc._id,
-                guildId: doc.guildId,
-                name: doc.name,
-                color: doc.color,
-                bits: JSON.stringify(doc.bits),
-                assignedUserIds: JSON.stringify(doc.assignedUserIds),
-                createdAt: doc.createdAt,
-                createdBy: doc.createdBy,
-                updatedAt: doc.updatedAt,
-            });
-            return doc;
-        }
-        await this.db.run(
-            `INSERT INTO perm_sroles (id, guildId, name, color, bits, assignedUserIds, createdAt, createdBy, updatedAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                doc._id,
-                doc.guildId,
-                doc.name,
-                doc.color,
-                JSON.stringify(doc.bits),
-                JSON.stringify(doc.assignedUserIds),
-                doc.createdAt,
-                doc.createdBy,
-                doc.updatedAt,
-            ],
-        );
+        await this.store.insertServerRole(doc);
         return doc;
     }
 
@@ -866,74 +638,28 @@ export class PermissionsManager {
             bits: data.bits ?? existing.bits,
             updatedAt: nowSeconds(),
         };
-        if (this.db.engine === 'mongo') {
-            await this.db.mongoCollection('perm_sroles').updateOne(
-                { $and: [{ $or: [{ _id: roleId }, { id: roleId }] }, { guildId }] },
-                {
-                    $set: {
-                        name: updated.name,
-                        color: updated.color,
-                        bits: JSON.stringify(updated.bits),
-                        updatedAt: updated.updatedAt,
-                    },
-                },
-            );
-            return updated;
-        }
-        await this.db.run(
-            `UPDATE perm_sroles SET name = ?, color = ?, bits = ?, updatedAt = ? WHERE id = ? AND guildId = ?`,
-            [updated.name, updated.color, JSON.stringify(updated.bits), updated.updatedAt, roleId, guildId],
-        );
+        await this.store.updateServerRoleRow(guildId, roleId, updated);
         return updated;
     }
 
     public async deleteServerRole(guildId: string, roleId: string): Promise<void> {
         const existing = await this.getServerRole(guildId, roleId);
-        if (this.db.engine === 'mongo') {
-            await this.db.mongoCollection('perm_sroles').deleteOne({
-                $and: [{ $or: [{ _id: roleId }, { id: roleId }] }, { guildId }],
-            });
-        } else {
-            await this.db.run(`DELETE FROM perm_sroles WHERE id = ? AND guildId = ?`, [roleId, guildId]);
-        }
+        await this.store.deleteServerRoleRow(guildId, roleId);
         if (existing) {
             await Promise.all(existing.assignedUserIds.map((uid) => this.invalidateUserCache(uid, guildId)));
         }
     }
 
     private async getServerRole(guildId: string, roleId: string): Promise<ServerRoleDoc | null> {
-        if (this.db.engine === 'mongo') {
-            const row = await this.db.mongoCollection('perm_sroles').findOne({
-                $and: [{ $or: [{ _id: roleId }, { id: roleId }] }, { guildId }],
-            });
-            return row ? this.rowToServerRole(row) : null;
-        }
-        const row = await this.db.get(`SELECT * FROM perm_sroles WHERE id = ? AND guildId = ?`, [
-            roleId,
-            guildId,
-        ]);
-        return row ? this.rowToServerRole(row) : null;
+        return this.store.getServerRole(guildId, roleId);
     }
 
     public async listServerRoles(guildId: string): Promise<ServerRoleDoc[]> {
-        if (this.db.engine === 'mongo') {
-            const rows = await this.db.mongoCollection('perm_sroles').find({ guildId });
-            return rows.map((r) => this.rowToServerRole(r));
-        }
-        const rows = await this.db.all(
-            `SELECT * FROM perm_sroles WHERE guildId = ? ORDER BY createdAt`,
-            [guildId],
-        );
-        return rows.map((r) => this.rowToServerRole(r));
+        return this.store.listServerRoles(guildId);
     }
 
     public async listAllServerRoles(): Promise<ServerRoleDoc[]> {
-        if (this.db.engine === 'mongo') {
-            const rows = await this.db.mongoCollection('perm_sroles').find({});
-            return rows.map((r) => this.rowToServerRole(r));
-        }
-        const rows = await this.db.all(`SELECT * FROM perm_sroles ORDER BY guildId, createdAt`);
-        return rows.map((r) => this.rowToServerRole(r));
+        return this.store.listAllServerRoles();
     }
 
     public async findHoldersOfBit(bit: string): Promise<{
@@ -1008,32 +734,7 @@ export class PermissionsManager {
     }
 
     private async writeServerAssigned(guildId: string, roleId: string, assigned: string[]): Promise<void> {
-        const at = nowSeconds();
-        if (this.db.engine === 'mongo') {
-            await this.db.mongoCollection('perm_sroles').updateOne(
-                { $and: [{ $or: [{ _id: roleId }, { id: roleId }] }, { guildId }] },
-                { $set: { assignedUserIds: JSON.stringify(assigned), updatedAt: at } },
-            );
-            return;
-        }
-        await this.db.run(
-            `UPDATE perm_sroles SET assignedUserIds = ?, updatedAt = ? WHERE id = ? AND guildId = ?`,
-            [JSON.stringify(assigned), at, roleId, guildId],
-        );
-    }
-
-    private rowToServerRole(r: Row): ServerRoleDoc {
-        return {
-            _id: String(r.id ?? r._id),
-            guildId: String(r.guildId),
-            name: String(r.name),
-            color: String(r.color),
-            bits: parseJsonArray(r.bits),
-            assignedUserIds: parseJsonArray(r.assignedUserIds),
-            createdAt: Number(r.createdAt),
-            createdBy: String(r.createdBy),
-            updatedAt: Number(r.updatedAt),
-        };
+        await this.store.writeServerAssigned(guildId, roleId, assigned);
     }
 
     public async resolve(
@@ -1055,43 +756,20 @@ export class PermissionsManager {
 
         const effectiveBits = new Set<string>();
 
-        if (this.db.engine === 'mongo') {
-            const botRoles = await this.db.mongoCollection('perm_bwroles').find({});
-            for (const row of botRoles) {
-                if (parseJsonArray(row.assignedUserIds).includes(userId)) {
-                    for (const bit of parseJsonArray(row.bits)) effectiveBits.add(bit);
-                }
+        const botRoles = await this.store.listBotRoles();
+        for (const role of botRoles) {
+            if (role.assignedUserIds.includes(userId)) {
+                for (const bit of role.bits) effectiveBits.add(bit);
             }
-            if (guildId) {
-                if (discordGuildOwnerId && discordGuildOwnerId === userId) {
-                    effectiveBits.add('server.owner');
-                }
-                const serverRoles = await this.db.mongoCollection('perm_sroles').find({ guildId });
-                for (const row of serverRoles) {
-                    if (parseJsonArray(row.assignedUserIds).includes(userId)) {
-                        for (const bit of parseJsonArray(row.bits)) effectiveBits.add(bit);
-                    }
-                }
+        }
+        if (guildId) {
+            if (discordGuildOwnerId && discordGuildOwnerId === userId) {
+                effectiveBits.add('server.owner');
             }
-        } else {
-            const botRoleRows = await this.db.all(`SELECT bits, assignedUserIds FROM perm_bwroles`);
-            for (const row of botRoleRows) {
-                if (parseJsonArray(row.assignedUserIds).includes(userId)) {
-                    for (const bit of parseJsonArray(row.bits)) effectiveBits.add(bit);
-                }
-            }
-            if (guildId) {
-                if (discordGuildOwnerId && discordGuildOwnerId === userId) {
-                    effectiveBits.add('server.owner');
-                }
-                const serverRoleRows = await this.db.all(
-                    `SELECT bits, assignedUserIds FROM perm_sroles WHERE guildId = ?`,
-                    [guildId],
-                );
-                for (const row of serverRoleRows) {
-                    if (parseJsonArray(row.assignedUserIds).includes(userId)) {
-                        for (const bit of parseJsonArray(row.bits)) effectiveBits.add(bit);
-                    }
+            const serverRoles = await this.store.listServerRoles(guildId);
+            for (const role of serverRoles) {
+                if (role.assignedUserIds.includes(userId)) {
+                    for (const bit of role.bits) effectiveBits.add(bit);
                 }
             }
         }

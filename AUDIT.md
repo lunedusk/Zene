@@ -1,6 +1,6 @@
 # Audit Registry
 
-Append-only action log for privileged operations. Multi-engine via backend selector (sqlite → postgres → mongo).
+Append-only action log for privileged operations. Persisted on SurrealDB (heart.db.surreal.get('main'), table audit_entries). Under Cross-Host this must be a remote Surreal endpoint shared across workers.
 
 ## Record shape (V2 / core migration version 4)
 
@@ -32,11 +32,11 @@ Sanitization is **allowlist-primary** (`src/core/audit/redact.ts`):
 
 It is impossible to log an arbitrary secret-bearing field by passing it in `meta` / `before` / `after` without first adding that key to the allowlist in code review.
 
-## Migration
+## Storage
 
-- **v2** — create `audit_entries`
-- **v3** — `error_occurrences` (errors subsystem)
-- **v4** — additive nullable columns: `surface`, `request_id`, `target_ref`, `before_json`, `after_json` (+ indexes). Mongo: optional indexes on `requestId` / `surface`.
+- Table / collection: `audit_entries` on Surreal `main` (record id = opaque hex `id`).
+- Legacy SQL/mongo migrations for `audit_entries` remain for historical installs but are no longer the runtime path.
+- Error coalescing store: Surreal table `error_occurrences` (same `main` alias).
 
 Forward-only; existing rows remain valid with null V2 fields.
 

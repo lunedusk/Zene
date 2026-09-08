@@ -6,6 +6,7 @@ import {
     type PermissionResolvable
 } from 'discord.js';
 import { resolveGlobalPlaceholders } from '#core/placeholder/index.js';
+import { replyCv2Text } from '#core/builders/cv2Reply.js';
 import type { RegisterRequirements } from '#core/loader/requirements.js';
 
 export interface CommandConfig {
@@ -40,11 +41,12 @@ export abstract class BaseCommand {
         } catch {
             msg = resolveGlobalPlaceholders('%%emoji_cross%% An error occurred while executing this command.');
         }
-        if (interaction.deferred || interaction.replied) {
-            await interaction.followUp({ content: msg, ephemeral: true }).catch(() => {});
-        } else {
-            await interaction.reply({ content: msg, ephemeral: true }).catch(() => {});
-        }
+        await replyCv2Text(interaction, {
+            content: msg,
+            emoji: '❌',
+            ephemeral: true,
+            preferFollowUp: interaction.replied && !interaction.deferred,
+        }).catch(() => undefined);
     }
 
     public async autocomplete?(interaction: AutocompleteInteraction): Promise<void>;

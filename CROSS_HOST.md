@@ -104,7 +104,9 @@ Drain-first: clear shards → `UpdateInstruct` → worker runs existing updater 
 
 ## Storage gate (Part D)
 
-When `CROSS_HOST=true`, boot **fails** if any `Database` alias uses sqlite / native-sqlite / better-sqlite3 or a file-path URI that looks like a local SQLite file. Per-worker `native-novadb` (or other non-sqlite engines) may still hold local audit/error bodies. Multi-host **fetch** of those bodies is via the query RPC layer, not a shared sqlite file.
+Under `CROSS_HOST=true`, boot also **requires** a remote SurrealDB URI on `Database.main` or `Database.surreal` (`ws://` / `wss://` / `http://` / `https://`) for shared document data (audit, error, dash collections).
+
+When `CROSS_HOST=true`, boot **fails** if any `Database` alias uses sqlite / native-sqlite / better-sqlite3 or a file-path URI that looks like a local SQLite file. Embedded SurrealDB protocols (`mem://`, `rocksdb://`, `surrealkv://`, `surrealkv+versioned://`) are likewise forbidden under Cross-Host; remote SurrealDB (`ws://` / `wss://` / `http://` / `https://`) remains allowed. Per-worker local audit/error bodies (when not on shared Surreal) are fetched via the query RPC layer. Multi-host **fetch** of those bodies is via the query RPC layer, not a shared sqlite file.
 
 ## Audit / error query (Part D)
 
@@ -127,11 +129,11 @@ Native post-write: after successful audit/error record on a **Cross-Host worker*
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `CROSS_HOST_INDEX_ENABLED` | `false` | Optional module; cluster works without it |
-| `CROSS_HOST_INDEX_BACKEND` | `redis` | `redis` \| `postgres` |
+| `CROSS_HOST_INDEX_BACKEND` | `redis` | `redis` only (postgres backend removed) |
 | `CROSS_HOST_INDEX_RETENTION_DAYS` | `14` | Trim / TTL |
 
 - **Redis backend:** uses the Cross-Host Redis alias (sorted sets + hashes for metadata only).
-- **Postgres backend:** prefer `Database.crosshost_index`, else postgres `Database.main`. If neither exists → **warn and disable index** for this process (soft-disable; do not fail boot).
+- **Redis only.** Postgres index backend was removed; shared audit/error live on remote Surreal under CH.
 - Index stores metadata only; full bodies always from owning workers.
 
 ## Query env
@@ -156,8 +158,8 @@ Only one orchestrator should hold the Redis claim. A second process that fails t
 | Worker dead | Shards cleared after suspect + grace; rebalance fills |
 | Orchestrator die | Workers keep shards; control plane pauses until claim |
 | Snapshot diff fail | Worker full-pulls envelope |
-| Index postgres missing | Index disabled; scatter-gather continues |
-| Sqlite in Database | Boot fails (storage gate) |
+| Index disabled | Scatter-gather / Surreal queries continue |
+| Sqlite or embedded SurrealDB in Database | Boot fails (storage gate) |
 
 
 ## Plugin bus & process control
@@ -232,7 +234,7 @@ this.heart.system.eventBus.on('crosshost.assignment.applied', (p) => { /* ... */
 
 `@lunedusk/gateway-multiplex` is a **Cross-Host-only** optional raw-gateway package (gateway v10, identify buckets, resume). Load only via `#core/crosshost/gateway/multiplexLoader.js` — never from standalone or classic sharded paths.
 
-Install/build: `npm run install-packages` (builds `packages/gateway-multiplex` and links `file:packages/gateway-multiplex`). Runtime Cross-Host workers use **discord.js** `Client`s via `DiscordShardAdapter`; multiplex is optional and does **not** replace `discord.js`. The tree `packages/discord.js-14.27.0` is vendored reference source only.
+Install/build: `npm run install-packages` (builds `packages/gateway-multiplex` and links `file:packages/gateway-multiplex`). Runtime Cross-Host workers use **discord.js** `Client`s via `DiscordShardAdapter`; multiplex is optional and does **not** replace `discord.js`.
 
 
 ### Guild affinity
@@ -277,3 +279,19 @@ Slash commands deploy on **workers** only. Use `requirements: { modes: ['crossho
 ## Related permission APIs
 
 Workers expose the same REST surface as standalone when HTTP is enabled. Fleet control (restart, shard shift) is also available under dashboard admin fleet routes when the dashboard plugin is loaded. Use `scripts/route-probe.mjs` against each worker `BASE_URL`.
+
+---
+
+## Env matrix (operator quick view)
+
+| Variable | Default | Role |
+|----------|---------|------|
+| `CROSS_HOST` | `false` | Master switch |
+| `CROSS_HOST_ROLE` | — | `orchestrator` or `worker` (required when enabled) |
+| `CROSS_HOST_HTTP_HOST` | `0.0.0.0` | Control-plane bind host |
+| `CROSS_HOST_HTTP_PORT` | `8020` | Control-plane port |
+| `CROSS_HOST_MTLS_ENABLED` | `false` | Mutual TLS between nodes |
+| `CROSS_HOST_INDEX_ENABLED` | `false` | Redis-backed guild index |
+| `CROSS_HOST_API_GATEWAY_ENABLED` | `true` | Gateway multiplex |
+
+When Cross-Host is on, Database.main / Surreal must be **remote** (no embedded `mem`/`rocksdb`/`surrealkv` on workers). Defaults for these keys live in `src/core/defaults.ts`.

@@ -1,4 +1,4 @@
-import { redisDB, ormDB, mongoDB, pgDB, sqliteDB, novaDB } from '#core/database/index.js';
+import { redisDB, ormDB, mongoDB, pgDB, sqliteDB, surrealDB } from '#core/database/index.js';
 
 export type DatabaseDomain = {
     readonly mongo: typeof mongoDB;
@@ -6,7 +6,7 @@ export type DatabaseDomain = {
     readonly postgres: typeof pgDB;
     readonly orm: typeof ormDB;
     readonly sqlite: typeof sqliteDB;
-    readonly nova: typeof novaDB;
+    readonly surreal: typeof surrealDB;
 };
 
 export const dbDomain: DatabaseDomain = Object.freeze({
@@ -15,5 +15,5 @@ export const dbDomain: DatabaseDomain = Object.freeze({
     postgres: pgDB,
     orm: ormDB,
     sqlite: sqliteDB,
-    nova: novaDB
+    surreal: surrealDB,
 });

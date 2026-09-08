@@ -1,0 +1,43 @@
+{
+    enabled: true,
+    dataBackend: {
+        // engine: "sqlite" | "postgres" | "mongo"
+        // alias: "main"
+    },
+    cooldowns: {
+        // milliseconds; 0 disables
+        ban: 3000,
+        kick: 2000,
+        timeout: 2000,
+        warn: 2000,
+        purge: 5000,
+        lockdown: 10000,
+    },
+    snipe: {
+        ttlMinutes: 15,
+        maxPerChannel: 10,
+    },
+    violations: {
+        cleanDays: 7,
+        decayPoints: 1,
+        pointsOnWarn: 1,
+    },
+    lockdown: {
+        // defaults when /security lockdown on is used without options
+        defaultPauseInvites: true,
+        defaultLockChannels: true,
+        defaultQuarantineJoins: false,
+    },
+    automod: {
+        defaultEnabled: false,
+    },
+
+    raid: {
+        defaultMaxJoins: 8,
+        defaultWindowMs: 15000,
+    },
+    verify: {
+        defaultMaxAttempts: 3,
+        defaultChallengeTtlMs: 120000,
+    },
+}

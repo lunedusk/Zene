@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { resolveBackend, type BackendChoice } from '#core/database/backendSelector.js';
-import { openSqlAdapter, type SqlAdapter } from '#core/database/sqlAdapter.js';
+import type { Surreal } from 'surrealdb';
+import { surrealDB } from '#core/database/index.js';
 import { sanitizeAuditFields, sanitizeAuditMeta } from './redact.js';
 import type {
     AuditMeta,
@@ -10,8 +10,14 @@ import type {
     AuditTargetRef,
 } from './types.js';
 
+const TABLE = 'audit_entries';
+
 function newId(): string {
     return randomBytes(16).toString('hex');
+}
+
+function getDb(): Surreal {
+    return surrealDB.get('main');
 }
 
 function parseTargetRef(raw: unknown): AuditTargetRef | null {
@@ -76,29 +82,63 @@ function parseFieldMap(raw: unknown): AuditMeta | null {
     return null;
 }
 
-export function resolveAuditBackend(): BackendChoice {
-    return resolveBackend({
-        configSection: 'audit',
-        envEngineKey: 'AuditEngine',
-        envAliasKey: 'AuditDbAlias',
-        defaultAlias: 'main',
-    });
+function unwrapList(result: unknown): Record<string, unknown>[] {
+    if (!Array.isArray(result) || result.length === 0) return [];
+    const first = result[0];
+    if (Array.isArray(first)) {
+        return first.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object');
+    }
+    if (first && typeof first === 'object') return [first as Record<string, unknown>];
+    return [];
 }
 
-let cachedAdapter: SqlAdapter | null = null;
-let cachedKey = '';
+function unwrapOne(result: unknown): Record<string, unknown> | null {
+    const list = unwrapList(result);
+    return list[0] ?? null;
+}
 
-function getAdapter(): SqlAdapter {
-    const choice = resolveAuditBackend();
-    const key = `${choice.engine}:${choice.alias}`;
-    if (cachedAdapter && cachedKey === key) return cachedAdapter;
-    cachedAdapter = openSqlAdapter(choice);
-    cachedKey = key;
-    return cachedAdapter;
+function rowToRecord(row: Record<string, unknown>): AuditRecord {
+    let meta: AuditMeta = {};
+    const rawMeta = row.meta;
+    if (typeof rawMeta === 'string') {
+        try {
+            const parsed: unknown = JSON.parse(rawMeta);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                meta = sanitizeAuditMeta(parsed as Record<string, unknown>);
+            }
+        } catch {
+            meta = {};
+        }
+    } else if (rawMeta && typeof rawMeta === 'object' && !Array.isArray(rawMeta)) {
+        meta = sanitizeAuditMeta(rawMeta as Record<string, unknown>);
+    }
+    const actorType = String(row.actorType ?? row.actor_type ?? 'system');
+    const outcome = String(row.outcome ?? 'success');
+    return {
+        id: String(row.id ?? row.key ?? ''),
+        actorType: (actorType === 'user' || actorType === 'api_key' || actorType === 'system'
+            ? actorType
+            : 'system') as AuditRecord['actorType'],
+        actorId: String(row.actorId ?? row.actor_id ?? ''),
+        action: String(row.action ?? ''),
+        target: String(row.target ?? ''),
+        outcome: (outcome === 'fail' ? 'fail' : 'success') as AuditRecord['outcome'],
+        reason: row.reason == null ? null : String(row.reason),
+        meta,
+        createdAt: Number(row.createdAt ?? row.created_at ?? 0),
+        surface: parseSurface(row.surface),
+        requestId:
+            row.requestId != null || row.request_id != null
+                ? String(row.requestId ?? row.request_id)
+                : null,
+        targetRef: parseTargetRef(row.targetRef ?? row.target_ref),
+        before: parseFieldMap(row.before ?? row.before_json),
+        after: parseFieldMap(row.after ?? row.after_json),
+    };
 }
 
 export async function insertAuditRecord(input: AuditRecordInput): Promise<AuditRecord> {
-    const adapter = getAdapter();
+    const db = getDb();
     const before = input.before ? sanitizeAuditFields(input.before) : null;
     const after = input.after ? sanitizeAuditFields(input.after) : null;
     const targetRef = input.targetRef
@@ -134,53 +174,29 @@ export async function insertAuditRecord(input: AuditRecordInput): Promise<AuditR
         after: after && Object.keys(after).length ? after : null,
     };
 
-    const metaJson = JSON.stringify(record.meta);
-    const targetRefJson = record.targetRef ? JSON.stringify(record.targetRef) : null;
-    const beforeJson = record.before ? JSON.stringify(record.before) : null;
-    const afterJson = record.after ? JSON.stringify(record.after) : null;
+    const data: Record<string, unknown> = {
+        key: record.id,
+        id: record.id,
+        actorType: record.actorType,
+        actorId: record.actorId,
+        action: record.action,
+        target: record.target,
+        outcome: record.outcome,
+        reason: record.reason,
+        meta: record.meta,
+        createdAt: record.createdAt,
+        surface: record.surface,
+        requestId: record.requestId,
+        targetRef: record.targetRef,
+        before: record.before,
+        after: record.after,
+    };
 
-    if (adapter.engine === 'mongo') {
-        await adapter.mongoCollection('audit_entries').insertOne({
-            id: record.id,
-            actorType: record.actorType,
-            actorId: record.actorId,
-            action: record.action,
-            target: record.target,
-            outcome: record.outcome,
-            reason: record.reason,
-            meta: record.meta,
-            createdAt: record.createdAt,
-            surface: record.surface,
-            requestId: record.requestId,
-            targetRef: record.targetRef,
-            before: record.before,
-            after: record.after,
-        });
-        return record;
-    }
-
-    await adapter.run(
-        `INSERT INTO audit_entries
-            (id, actor_type, actor_id, action, target, outcome, reason, meta, created_at,
-             surface, request_id, target_ref, before_json, after_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-            record.id,
-            record.actorType,
-            record.actorId,
-            record.action,
-            record.target,
-            record.outcome,
-            record.reason,
-            metaJson,
-            record.createdAt,
-            record.surface,
-            record.requestId,
-            targetRefJson,
-            beforeJson,
-            afterJson,
-        ],
-    );
+    await db.query('UPSERT type::thing($table, $key) CONTENT $data RETURN NONE', {
+        table: TABLE,
+        key: record.id,
+        data,
+    });
     return record;
 }
 
@@ -203,135 +219,64 @@ function clampLimit(limit: number | undefined): number {
     return n;
 }
 
-function rowToRecord(row: Record<string, unknown>): AuditRecord {
-    let meta: AuditMeta = {};
-    const rawMeta = row.meta;
-    if (typeof rawMeta === 'string') {
-        try {
-            const parsed: unknown = JSON.parse(rawMeta);
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                meta = sanitizeAuditMeta(parsed as Record<string, unknown>);
-            }
-        } catch {
-            meta = {};
-        }
-    } else if (rawMeta && typeof rawMeta === 'object' && !Array.isArray(rawMeta)) {
-        meta = sanitizeAuditMeta(rawMeta as Record<string, unknown>);
-    }
-    const actorType = String(row.actorType ?? row.actor_type ?? 'system');
-    const outcome = String(row.outcome ?? 'success');
-    return {
-        id: String(row.id ?? ''),
-        actorType: (actorType === 'user' || actorType === 'api_key' || actorType === 'system'
-            ? actorType
-            : 'system') as AuditRecord['actorType'],
-        actorId: String(row.actorId ?? row.actor_id ?? ''),
-        action: String(row.action ?? ''),
-        target: String(row.target ?? ''),
-        outcome: (outcome === 'fail' ? 'fail' : 'success') as AuditRecord['outcome'],
-        reason: row.reason == null ? null : String(row.reason),
-        meta,
-        createdAt: Number(row.createdAt ?? row.created_at ?? 0),
-        surface: parseSurface(row.surface),
-        requestId:
-            row.requestId != null || row.request_id != null
-                ? String(row.requestId ?? row.request_id)
-                : null,
-        targetRef: parseTargetRef(row.targetRef ?? row.target_ref),
-        before: parseFieldMap(row.before ?? row.before_json),
-        after: parseFieldMap(row.after ?? row.after_json),
-    };
-}
-
 export async function listAuditRecords(filter: AuditListFilter = {}): Promise<AuditRecord[]> {
-    const adapter = getAdapter();
+    const db = getDb();
     const limit = clampLimit(filter.limit);
-
-    if (adapter.engine === 'mongo') {
-        const q: Record<string, unknown> = {};
-        if (filter.actorId) q.actorId = filter.actorId;
-        if (filter.actorType) q.actorType = filter.actorType;
-        if (filter.action) q.action = filter.action;
-        if (filter.outcome) q.outcome = filter.outcome;
-        if (filter.surface) q.surface = filter.surface;
-        if (filter.requestId) q.requestId = filter.requestId;
-        if (filter.from != null || filter.to != null) {
-            const range: Record<string, number> = {};
-            if (filter.from != null) range.$gte = filter.from;
-            if (filter.to != null) range.$lte = filter.to;
-            q.createdAt = range;
-        }
-        const docs = await adapter.mongoCollection('audit_entries').find(q);
-        docs.sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0));
-        return docs.slice(0, limit).map((d) => rowToRecord(d as Record<string, unknown>));
-    }
-
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const vars: Record<string, unknown> = { table: TABLE, limit };
+
     if (filter.actorId) {
-        clauses.push('actor_id = ?');
-        params.push(filter.actorId);
+        clauses.push('actorId = $actorId');
+        vars.actorId = filter.actorId;
     }
     if (filter.actorType) {
-        clauses.push('actor_type = ?');
-        params.push(filter.actorType);
+        clauses.push('actorType = $actorType');
+        vars.actorType = filter.actorType;
     }
     if (filter.action) {
-        clauses.push('action = ?');
-        params.push(filter.action);
+        clauses.push('action = $action');
+        vars.action = filter.action;
     }
     if (filter.outcome) {
-        clauses.push('outcome = ?');
-        params.push(filter.outcome);
+        clauses.push('outcome = $outcome');
+        vars.outcome = filter.outcome;
     }
     if (filter.surface) {
-        clauses.push('surface = ?');
-        params.push(filter.surface);
+        clauses.push('surface = $surface');
+        vars.surface = filter.surface;
     }
     if (filter.requestId) {
-        clauses.push('request_id = ?');
-        params.push(filter.requestId);
+        clauses.push('requestId = $requestId');
+        vars.requestId = filter.requestId;
     }
     if (filter.from != null) {
-        clauses.push('created_at >= ?');
-        params.push(filter.from);
+        clauses.push('createdAt >= $from');
+        vars.from = filter.from;
     }
     if (filter.to != null) {
-        clauses.push('created_at <= ?');
-        params.push(filter.to);
+        clauses.push('createdAt <= $to');
+        vars.to = filter.to;
     }
+
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    params.push(limit);
-    const rows = await adapter.all(
-        `SELECT id, actor_type, actor_id, action, target, outcome, reason, meta, created_at,
-                surface, request_id, target_ref, before_json, after_json
-         FROM audit_entries
-         ${where}
-         ORDER BY created_at DESC
-         LIMIT ?`,
-        params,
+    const result = await db.query(
+        `SELECT * FROM type::table($table) ${where} ORDER BY createdAt DESC LIMIT $limit`,
+        vars,
     );
-    return rows.map((r) => rowToRecord(r as Record<string, unknown>));
+    return unwrapList(result).map(rowToRecord);
 }
 
 export async function getAuditRecordById(id: string): Promise<AuditRecord | null> {
-    const adapter = getAdapter();
-    if (adapter.engine === 'mongo') {
-        const doc = await adapter.mongoCollection('audit_entries').findOne({ id });
-        if (!doc) return null;
-        return rowToRecord(doc as Record<string, unknown>);
-    }
-    const row = await adapter.get(
-        `SELECT id, actor_type, actor_id, action, target, outcome, reason, meta, created_at,
-                surface, request_id, target_ref, before_json, after_json
-         FROM audit_entries WHERE id = ? LIMIT 1`,
-        [id],
-    );
+    const db = getDb();
+    const result = await db.query('SELECT * FROM ONLY type::thing($table, $key)', {
+        table: TABLE,
+        key: id,
+    });
+    const row = unwrapOne(result);
     if (!row) return null;
-    return rowToRecord(row as Record<string, unknown>);
+    return rowToRecord(row);
 }
 
 export function resetAuditAdapterCache(): void {
-    cachedAdapter = null;
-    cachedKey = '';
+    // Surreal client is process-scoped via surrealDB registry; nothing to clear.
 }

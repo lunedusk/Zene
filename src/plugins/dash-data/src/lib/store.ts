@@ -177,16 +177,128 @@ export async function setServerPluginConfig(
     );
 }
 
-export async function infractionsCollection(heart: IHeart) {
-    return heart.db.nova.get('main').collection('dash_infractions');
+/** Document shape used by dashboard routes (former NovaDB docs). */
+export type DashDoc = Record<string, unknown> & { _id?: string };
+
+/**
+ * Surreal-backed collection with the NovaCollection surface used by dashboard routes:
+ * `upsert`, `get`, `delete`, async `scan(start, end)`.
+ *
+ * Each logical document is a Surreal record `table:⟨key⟩` plus a string `key` field
+ * for range scans (prefix queries on former Nova `_id` values).
+ */
+export class SurrealDocCollection {
+    public constructor(
+        private readonly db: import('surrealdb').Surreal,
+        private readonly table: string,
+    ) {}
+
+    public async upsert(doc: DashDoc): Promise<string> {
+        const key = String(doc._id ?? newId('doc'));
+        if (doc.__deleted__ === true) {
+            await this.delete(key);
+            return key;
+        }
+
+        const data: Record<string, unknown> = { key };
+        for (const [k, v] of Object.entries(doc)) {
+            if (k === '_id' || k.startsWith('__')) continue;
+            data[k] = v;
+        }
+
+        await this.db.query(
+            'UPSERT type::thing($table, $key) CONTENT $data RETURN NONE',
+            { table: this.table, key, data },
+        );
+        return key;
+    }
+
+    public async get(id: string): Promise<DashDoc | null> {
+        const result = await this.db.query<[DashDoc[]]>(
+            'SELECT * FROM ONLY type::thing($table, $key)',
+            { table: this.table, key: id },
+        );
+        const row = unwrapQueryRow(result);
+        if (!row || typeof row !== 'object') return null;
+        return normalizeDoc(row as Record<string, unknown>, id);
+    }
+
+    public async delete(id: string): Promise<boolean> {
+        await this.db.query('DELETE type::thing($table, $key) RETURN NONE', {
+            table: this.table,
+            key: id,
+        });
+        return true;
+    }
+
+    public async *scan(start: string, end: string): AsyncGenerator<DashDoc> {
+        const result = await this.db.query<[DashDoc[]]>(
+            `SELECT * FROM type::table($table)
+             WHERE key >= $start AND key <= $end
+             ORDER BY key ASC`,
+            { table: this.table, start, end },
+        );
+        const rows = unwrapQueryList(result);
+        for (const row of rows) {
+            if (!row || typeof row !== 'object') continue;
+            const rec = row as Record<string, unknown>;
+            const key = typeof rec.key === 'string' ? rec.key : extractRecordKey(rec);
+            if (key === null) continue;
+            yield normalizeDoc(rec, key);
+        }
+    }
 }
 
-export async function auditCollection(heart: IHeart) {
-    return heart.db.nova.get('main').collection('dash_audit_log');
+function unwrapQueryRow(result: unknown): unknown {
+    if (!Array.isArray(result) || result.length === 0) return null;
+    const first = result[0];
+    if (Array.isArray(first)) return first[0] ?? null;
+    return first ?? null;
 }
 
-export async function cmdCounterCollection(heart: IHeart) {
-    return heart.db.nova.get('main').collection('dash_command_counters');
+function unwrapQueryList(result: unknown): unknown[] {
+    if (!Array.isArray(result) || result.length === 0) return [];
+    const first = result[0];
+    if (Array.isArray(first)) return first;
+    if (first && typeof first === 'object') return [first];
+    return [];
+}
+
+function extractRecordKey(row: Record<string, unknown>): string | null {
+    const id = row.id;
+    if (typeof id === 'string') {
+        const idx = id.indexOf(':');
+        return idx >= 0 ? id.slice(idx + 1).replace(/^⟨|⟩$/g, '') : id;
+    }
+    if (id && typeof id === 'object' && 'id' in id) {
+        return String((id as { id: unknown }).id);
+    }
+    return null;
+}
+
+function normalizeDoc(row: Record<string, unknown>, key: string): DashDoc {
+    const out: DashDoc = { _id: key };
+    for (const [k, v] of Object.entries(row)) {
+        if (k === 'id' || k === 'key') continue;
+        out[k] = v;
+    }
+    return out;
+}
+
+function surrealMain(heart: IHeart): import('surrealdb').Surreal {
+    return heart.db.surreal.get('main');
+}
+
+export async function infractionsCollection(heart: IHeart): Promise<SurrealDocCollection> {
+    return new SurrealDocCollection(surrealMain(heart), 'dash_infractions');
+}
+
+export async function auditCollection(heart: IHeart): Promise<SurrealDocCollection> {
+    return new SurrealDocCollection(surrealMain(heart), 'dash_audit_log');
+}
+
+export async function cmdCounterCollection(heart: IHeart): Promise<SurrealDocCollection> {
+    return new SurrealDocCollection(surrealMain(heart), 'dash_command_counters');
 }
 
 export async function writeAudit(
