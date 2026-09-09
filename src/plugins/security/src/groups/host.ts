@@ -1,8 +1,8 @@
 import type { ChatInputCommandInteraction, User } from 'discord.js';
 import type { IHeart } from '#core/heart/index.js';
-import type { CooldownOp } from '../../lib/cooldowns.js';
-import type { ActionBatchResult, GuildAuthzDecision, PunishOp } from '../../lib/types.js';
-import type { ProofMeta } from '../../lib/proof.js';
+import type { CooldownOp } from '../lib/cooldowns.js';
+import type { ActionBatchResult, GuildAuthzDecision, PunishOp } from '../lib/types.js';
+import type { ProofMeta } from '../lib/proof.js';
 
 /** Shared surface for security subcommand modules (bound to SecurityCommand instance). */
 export interface SecurityCmdHost {

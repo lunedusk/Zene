@@ -57,28 +57,28 @@ import type {
 } from '../lib/types.js';
 import { OP_BIT, PUNISH_OPS, actorFrom } from './punishMeta.js';
 
-import { handlePunish } from './groups/punish.js';
+import { handlePunish } from '../groups/punish.js';
 import {
     handleWarn,
     handleWarnsList,
     handleRmWarn,
     handleNote,
     handleNotesList,
-} from './groups/records.js';
+} from '../groups/records.js';
 import {
     handlePurge,
     handleSnipe,
     handleChannelLock,
     handleSlowmode,
-} from './groups/channel.js';
-import { handleViolations } from './groups/violations.js';
-import { handleLockdown } from './groups/lockdown.js';
-import { handleAutoMod } from './groups/automod.js';
-import { handleAntiNuke } from './groups/antinuke.js';
-import { handleRaid } from './groups/raid.js';
-import { handleVerify } from './groups/verify.js';
-import { handleTempRole, handleSetup, handleStatus } from './groups/misc.js';
-import type { SecurityCmdHost } from './groups/host.js';
+} from '../groups/channel.js';
+import { handleViolations } from '../groups/violations.js';
+import { handleLockdown } from '../groups/lockdown.js';
+import { handleAutoMod } from '../groups/automod.js';
+import { handleAntiNuke } from '../groups/antinuke.js';
+import { handleRaid } from '../groups/raid.js';
+import { handleVerify } from '../groups/verify.js';
+import { handleTempRole, handleSetup, handleStatus } from '../groups/misc.js';
+import type { SecurityCmdHost } from '../groups/host.js';
 
 
 export default class SecurityCommand extends BaseCommand {

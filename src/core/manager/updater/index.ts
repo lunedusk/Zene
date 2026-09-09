@@ -6,7 +6,6 @@ import { getLogger, flushLogs } from '#core/utils/logger.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { SemVer, SemVerRange } from '#core/utils/semver.js';
 import { GitHubClient } from './github.js';
-import { hashFile } from '#core/helpers/hash/index.js';
 import { parsePluginsTxt } from './pluginsTxt.js';
 import type {
     Baseline,
@@ -23,365 +22,67 @@ import type {
     TakebacksFile,
     ApplyState
 } from './types.js';
+import { hashFile } from '#core/helpers/hash/index.js';
 import { audit } from '#core/audit/index.js';
 import { loadUpdaterConfig, HARD_EXCLUDES } from './config.js';
 import { emptyPlan, printPlan } from './planner.js';
-import { ApplyEngine } from './applyEngine.js';
+import { ApplyEngine } from './apply/engine.js';
+import {
+    STATE_DIR,
+    BASELINE,
+    BACKUP_DIR,
+    STAGING_DIR,
+    ensureDirs,
+    isPluginPath,
+    pluginRoot,
+    shouldHardExclude,
+    sourcePluginPath,
+    runtimePluginPath,
+    localPluginDir,
+    walkLocal,
+    computeLocalHashes,
+    copyDirRecursive,
+} from './paths.js';
+import {
+    readPendingHealth,
+    writePendingHealth,
+    clearPendingHealth,
+    markUpdaterHealthy,
+    readApplyState,
+    writeApplyState,
+    clearApplyState,
+    readBaseline,
+    writeBaseline,
+    writeReceipt,
+    listBackupInfos,
+    listBackups,
+} from './state.js';
+import {
+    readPackageVersion,
+    readLocalManifestId,
+    manifestCompatible,
+    detectLayout,
+    mirrorPluginToRuntime,
+} from './plugins/layout.js';
 
 const execFileAsync = promisify(execFile);
 const log = getLogger('Updater');
 
-const STATE_DIR   = path.join(process.cwd(), '.data', 'updater');
-const BASELINE    = path.join(STATE_DIR, 'baseline.json');
-const BACKUP_DIR  = path.join(STATE_DIR, 'backups');
-const STAGING_DIR = path.join(STATE_DIR, 'staging');
-const PENDING_HEALTH = path.join(STATE_DIR, 'pending-health.json');
-const APPLY_STATE = path.join(STATE_DIR, 'apply-state.json');
-const RECEIPTS_DIR = path.join(STATE_DIR, 'receipts');
-
-function readPendingHealth(): PendingHealth | null {
-    try {
-        if (!fs.existsSync(PENDING_HEALTH)) return null;
-        return JSON.parse(fs.readFileSync(PENDING_HEALTH, 'utf-8')) as PendingHealth;
-    } catch {
-        return null;
-    }
-}
-
-function writePendingHealth(p: PendingHealth): void {
-    ensureDirs();
-    fs.writeFileSync(PENDING_HEALTH, JSON.stringify(p, null, 2), 'utf-8');
-}
-
-function clearPendingHealth(): void {
-    try {
-        if (fs.existsSync(PENDING_HEALTH)) fs.unlinkSync(PENDING_HEALTH);
-    } catch { }
-}
-
-function readApplyState(): ApplyState | null {
-    try {
-        if (!fs.existsSync(APPLY_STATE)) return null;
-        return JSON.parse(fs.readFileSync(APPLY_STATE, 'utf-8')) as ApplyState;
-    } catch {
-        return null;
-    }
-}
-
-function writeApplyState(state: ApplyState): void {
-    ensureDirs();
-    fs.writeFileSync(APPLY_STATE, JSON.stringify(state, null, 2), 'utf-8');
-}
-
-function clearApplyState(): void {
-    try {
-        if (fs.existsSync(APPLY_STATE)) fs.unlinkSync(APPLY_STATE);
-    } catch { }
-}
-
-export function markUpdaterHealthy(): void {
-    const pending = readPendingHealth();
-    if (!pending) return;
-    pending.healthy = true;
-    writePendingHealth(pending);
-    clearPendingHealth();
-    log.info(`Updater health cleared (boot OK for ${pending.toTag})`);
-}
+export { markUpdaterHealthy, listBackups };
 
 export function getUpdaterConfig(): UpdaterConfig {
     return loadUpdaterConfig();
 }
 
-function receiptId(at: Date = new Date()): string {
-    return at.toISOString().replace(/[:.]/g, '-');
-}
-
-function planMode(plan: UpdatePlan): UpdateReceipt['mode'] {
-    if (plan.baselineOnly) return 'baseline-only';
-    if (plan.installPlugin) return 'install-plugin';
-    if (
-        plan.filesToOverwrite.length === 0 &&
-        plan.filesToAdd.length === 0 &&
-        plan.pluginDecisions.some(d => d.action === 'update' || d.action === 'add')
-    ) {
-        return 'plugin-only';
-    }
-    if (plan.toTag || plan.allowed) return 'update';
-    return 'other';
-}
-
-function writeReceipt(
-    plan: UpdatePlan,
-    extra: {
-        durationMs: number;
-        backupDir?: string | null;
-        pendingHealthWritten?: boolean;
-        restoredFrom?: string | null;
-        depsInstall?: UpdateReceipt['depsInstall'];
-        mode?: UpdateReceipt['mode'];
-    }
-): string {
-    ensureDirs();
-    const at = new Date();
-    const id = receiptId(at);
-    const receipt: UpdateReceipt = {
-        schemaVersion: 1,
-        id,
-        at: at.toISOString(),
-        durationMs: extra.durationMs,
-        mode: extra.mode ?? planMode(plan),
-        allowed: plan.allowed,
-        dryRun: plan.dryRun,
-        reason: plan.reason,
-        fromTag: plan.fromTag,
-        toTag: plan.toTag,
-        toCommit: plan.toCommit,
-        installPlugin: plan.installPlugin,
-        targetTag: plan.targetTag ?? null,
-        downgrade: plan.downgrade ?? false,
-        core: {
-            overwrite: plan.filesToOverwrite.length,
-            add: plan.filesToAdd.length,
-            keep: plan.filesToKeep.length,
-            dirtyBlocked: plan.dirtyFiles.length
-        },
-        plugins: plan.pluginDecisions.map(d => ({
-            id: d.pluginId,
-            action: d.action,
-            reason: d.reason,
-            tag: d.selectedPluginTag
-        })),
-        backupDir: extra.backupDir ?? null,
-        pendingHealthWritten: extra.pendingHealthWritten ?? false,
-        restoredFrom: extra.restoredFrom ?? null,
-        depsInstall: extra.depsInstall ?? null
-    };
-    const file = path.join(RECEIPTS_DIR, `${id}.json`);
-    fs.writeFileSync(file, JSON.stringify(receipt, null, 2), 'utf-8');
-    log.info(`Receipt → ${file}`);
-    return file;
-}
-
-function listBackupInfos(): BackupInfo[] {
-    ensureDirs();
-    if (!fs.existsSync(BACKUP_DIR)) return [];
-    const out: BackupInfo[] = [];
-    for (const name of fs.readdirSync(BACKUP_DIR)) {
-        const dir = path.join(BACKUP_DIR, name);
-        let st: fs.Stats;
-        try {
-            st = fs.statSync(dir);
-        } catch {
-            continue;
-        }
-        if (!st.isDirectory()) continue;
-        const us = name.indexOf('_');
-        const tag = us >= 0 ? name.slice(us + 1) : name;
-        const createdAt = us >= 0 ? name.slice(0, us).replace(/-/g, (m, i, s) => {
-            return m;
-        }) : name;
-        out.push({
-            id: name,
-            dir,
-            tag,
-            createdAt: name.slice(0, Math.max(us, 0)) || name,
-            mtimeMs: st.mtimeMs,
-            hasCore: fs.existsSync(path.join(dir, 'core')),
-            hasPackageJson: fs.existsSync(path.join(dir, 'package.json'))
-        });
-    }
-    return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
-}
-
-export function listBackups(): BackupInfo[] {
-    return listBackupInfos();
-}
-
-function ensureDirs(): void {
-    for (const d of [STATE_DIR, BACKUP_DIR, STAGING_DIR, RECEIPTS_DIR]) {
-        fs.mkdirSync(d, { recursive: true });
-    }
-}
-
-function readBaseline(): Baseline | null {
-    try {
-        if (!fs.existsSync(BASELINE)) return null;
-        return JSON.parse(fs.readFileSync(BASELINE, 'utf-8')) as Baseline;
-    } catch {
-        log.warn('Baseline unreadable – treating as missing');
-        return null;
-    }
-}
-
-function writeBaseline(b: Baseline): void {
-    ensureDirs();
-    fs.writeFileSync(BASELINE, JSON.stringify(b, null, 2), 'utf-8');
-    log.info(`Baseline written for tag ${b.tag}`);
-}
-
-function isPluginPath(rel: string): boolean {
-    const n = rel.replace(/\\/g, '/');
-    return n.startsWith('src/plugins/') || n.startsWith('plugins/');
-}
-
-function pluginRoot(rel: string): string | null {
-    const n = rel.replace(/\\/g, '/');
-    const m = n.match(/^(src\/plugins\/[^/]+|plugins\/[^/]+)/);
-    return m ? m[1] : null;
-}
-
-function shouldHardExclude(rel: string): boolean {
-    const parts = rel.replace(/\\/g, '/').split('/');
-    return parts.some(p => HARD_EXCLUDES.has(p)) || rel.startsWith('.');
-}
-
-function walkLocal(root = process.cwd()): string[] {
-    const results: string[] = [];
-    const skip = new Set([
-        'node_modules',
-        '.git',
-        '.github',
-        '.data',
-        'logs',
-        'configuration',
-        'coverage',
-        '.turbo',
-        '.nx',
-    ]);
-
-    function recurse(dir: string, relBase: string) {
-        let entries: fs.Dirent[];
-        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-        for (const ent of entries) {
-            if (skip.has(ent.name) || ent.name.startsWith('.')) continue;
-            const rel = relBase ? `${relBase}/${ent.name}` : ent.name;
-            const full = path.join(dir, ent.name);
-            if (ent.isDirectory()) recurse(full, rel);
-            else if (ent.isFile()) results.push(rel.replace(/\\/g, '/'));
-        }
-    }
-    recurse(root, '');
-    return results;
-}
-
-async function computeLocalHashes(files: string[]): Promise<Record<string, BaselineFileEntry>> {
-    const out: Record<string, BaselineFileEntry> = {};
-    for (const rel of files) {
-        const full = path.join(process.cwd(), rel);
-        try {
-            const { hash, size } = await hashFile(full);
-            out[rel] = { hash, size };
-        } catch {  }
-    }
-    return out;
-}
-
-function readPackageVersion(): SemVer | null {
-    try {
-        const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf-8'));
-        return SemVer.parse(pkg.version);
-    } catch {
-        return null;
-    }
-}
-
-function sourcePluginPath(pluginId: string): string {
-    return path.join('src', 'plugins', pluginId).replace(/\\/g, '/');
-}
-
-function runtimePluginPath(pluginId: string): string {
-    return path.join('plugins', pluginId).replace(/\\/g, '/');
-}
-
-function localPluginDir(pluginName: string): string | null {
-    const candidates = [
-        path.join('src', 'plugins', pluginName),
-        path.join('plugins', pluginName)
-    ];
-    for (const c of candidates) {
-        if (fs.existsSync(path.join(process.cwd(), c))) return c.replace(/\\/g, '/');
-    }
-    return null;
-}
-
-function readLocalManifestId(pluginRel: string, manifestName: string): string | undefined {
-    const p = path.join(process.cwd(), pluginRel, manifestName);
-    if (!fs.existsSync(p)) return undefined;
-    try {
-        const j = JSON.parse(fs.readFileSync(p, 'utf-8'));
-        return j.id || j.name;
-    } catch {
-        return undefined;
-    }
-}
-
-function manifestCompatible(manifestJson: string, coreVersion: SemVer): { ok: boolean; req: string } {
-    try {
-        const manifest = JSON.parse(manifestJson) as { zene_version?: string | string[] };
-        const req: string | string[] = manifest.zene_version ?? '*';
-        let ok = false;
-        try {
-            ok = SemVerRange.satisfies(coreVersion.toString(), req);
-        } catch {
-            ok = false;
-        }
-        return { ok, req: Array.isArray(req) ? req.join(' ') : String(req) };
-    } catch {
-        return { ok: false, req: '?' };
-    }
-}
-
-function detectLayout(stagingRoot: string, pluginId: string): { layout: 'L1' | 'L2' | 'L3'; contentRoot: string } | null {
-    const l1 = path.join(stagingRoot, 'src', 'plugins', pluginId);
-    const l3 = path.join(stagingRoot, 'plugins', pluginId);
-    const l2 = stagingRoot;
-    const has = (dir: string) =>
-        fs.existsSync(path.join(dir, 'manifest.nvx')) || fs.existsSync(path.join(dir, 'manifest.json'));
-    if (has(l1)) return { layout: 'L1', contentRoot: l1 };
-    if (has(l3)) return { layout: 'L3', contentRoot: l3 };
-    if (has(l2)) return { layout: 'L2', contentRoot: l2 };
-    return null;
-}
-
-async function mirrorPluginToRuntime(pluginId: string): Promise<void> {
-    const src = path.join(process.cwd(), sourcePluginPath(pluginId));
-    const dest = path.join(process.cwd(), runtimePluginPath(pluginId));
-    if (!fs.existsSync(src)) {
-        log.warn(`Cannot mirror plugin ${pluginId}: missing ${sourcePluginPath(pluginId)}`);
-        return;
-    }
-    if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
-    await copyDirRecursive(src, dest);
-    log.info(`Mirrored ${sourcePluginPath(pluginId)} → ${runtimePluginPath(pluginId)}`);
-}
-
-async function copyDirRecursive(src: string, dest: string): Promise<void> {
-    fs.mkdirSync(dest, { recursive: true });
-    for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
-        if (
-            ent.name === 'node_modules' ||
-            ent.name === '.git' ||
-            ent.name === '.github' ||
-            ent.name === 'coverage' ||
-            ent.name === '.turbo' ||
-            ent.name === '.nx'
-        )
-            continue;
-        const s = path.join(src, ent.name);
-        const d = path.join(dest, ent.name);
-        if (ent.isSymbolicLink()) continue;
-        if (ent.isDirectory()) await copyDirRecursive(s, d);
-        else if (ent.isFile()) fs.copyFileSync(s, d);
-    }
-}
-
 export class Updater {
     private readonly config: UpdaterConfig;
     private readonly gh: GitHubClient;
+    private readonly apply: ApplyEngine;
 
     constructor() {
         this.config = loadUpdaterConfig();
         this.gh = new GitHubClient(this.config.githubPat, Math.min(this.config.timeoutMs, 60_000));
+        this.apply = new ApplyEngine(this.config, this.gh);
     }
 
     async run(options: {
@@ -408,10 +109,10 @@ export class Updater {
         const restoreBackupId = options.restoreBackup?.trim() || null;
 
         if (listBackupsOpt) {
-            return this.listBackupsAndLog();
+            return this.apply.listBackupsAndLog();
         }
         if (restoreBackupId) {
-            return this.restoreFromBackup(restoreBackupId, dryRun);
+            return this.apply.restoreFromBackup(restoreBackupId, dryRun);
         }
 
         log.info(
@@ -473,8 +174,8 @@ export class Updater {
                 throw e;
             }
             if (!target?.semver) return emptyPlan('No suitable tag', true, installPlugin);
-            const stagingRoot = await this.stageArchive(owner, repo, target.name);
-            const remoteFiles = this.collectRemoteFiles(stagingRoot);
+            const stagingRoot = await this.apply.stageArchive(owner, repo, target.name);
+            const remoteFiles = this.apply.collectRemoteFiles(stagingRoot);
             return this.runBaselineOnly({
                 target, stagingRoot, remoteFiles, dryRun, force
             });
@@ -649,13 +350,13 @@ export class Updater {
             }
             await this.applyPluginDecisions(owner, repo, toApply, force);
             await this.refreshBaselineAfterPlugins(baseline, toApply);
-            this.pruneBackups();
+            this.apply.pruneBackups();
             writeReceipt(plan, { durationMs: Date.now() - runStartedAt });
             return plan;
         }
 
-        const stagingRoot = await this.stageArchive(owner, repo, coreTarget.name);
-        const remoteFiles = this.collectRemoteFiles(stagingRoot);
+        const stagingRoot = await this.apply.stageArchive(owner, repo, coreTarget.name);
+        const remoteFiles = this.apply.collectRemoteFiles(stagingRoot);
         const remoteSet = new Set(remoteFiles);
         const localFiles = walkLocal().filter(f => !shouldHardExclude(f));
 
@@ -768,7 +469,7 @@ export class Updater {
             startedAt: new Date().toISOString(),
             filesPlanned
         });
-        const backupDir = await this.createBackup(baseline?.tag ?? 'unknown', filesPlanned);
+        const backupDir = await this.apply.createBackup(baseline?.tag ?? 'unknown', filesPlanned);
         const backupId = path.basename(backupDir);
         writeApplyState({
             phase: 'applying',
@@ -779,7 +480,7 @@ export class Updater {
             filesPlanned
         });
         try {
-            await this.applyCoreFromStaging(stagingRoot, plan);
+            await this.apply.applyCoreFromStaging(stagingRoot, plan);
         } catch (err) {
             void audit.record({
                 actorType: 'system',
@@ -802,7 +503,7 @@ export class Updater {
                 startedAt: new Date().toISOString(),
                 filesPlanned
             });
-            await this.rebuild();
+            await this.apply.rebuild();
             depsInstall = fs.existsSync(path.join(process.cwd(), 'package-lock.json')) ? 'npm-ci' : 'npm-install';
         } catch (e) {
             depsInstall = 'failed';
@@ -882,7 +583,7 @@ export class Updater {
                 log.error('Post-update command failed', e);
             }
         }
-        this.pruneBackups();
+        this.apply.pruneBackups();
         log.info(`Update to ${coreTarget.name} completed.`);
         const pendingWritten = !!(
             this.config.autoRollback && baseline?.tag && baseline.tag !== coreTarget.name
@@ -929,7 +630,7 @@ export class Updater {
         clearPendingHealth();
         if (pendingBackupId) {
             try {
-                return await this.restoreFromBackup(pendingBackupId, false);
+                return await this.apply.restoreFromBackup(pendingBackupId, false);
             } catch (e) {
                 log.error('Local backup restore failed – falling back to network tag', e);
             }
@@ -1389,7 +1090,7 @@ export class Updater {
             }
 
             log.info(`Fetching plugin ${d.pluginId} from ${pOwner}/${pRepo}@${d.selectedPluginTag}…`);
-            const staging = await this.stageArchive(pOwner, pRepo, d.selectedPluginTag);
+            const staging = await this.apply.stageArchive(pOwner, pRepo, d.selectedPluginTag);
             const detected = detectLayout(staging, d.pluginId);
             if (!detected) {
                 log.warn(`Tag ${d.selectedPluginTag} has no L1/L2/L3 layout for ${d.pluginId} – skip`);
@@ -1399,21 +1100,12 @@ export class Updater {
             const destSrc = path.join(process.cwd(), sourcePluginPath(d.pluginId));
             fs.mkdirSync(path.dirname(destSrc), { recursive: true });
             if (fs.existsSync(destSrc)) fs.rmSync(destSrc, { recursive: true, force: true });
-            await this.copyDir(detected.contentRoot, destSrc);
+            await copyDirRecursive(detected.contentRoot, destSrc);
             log.info(`Applied plugin ${d.pluginId} → ${sourcePluginPath(d.pluginId)} (layout ${detected.layout})`);
             await mirrorPluginToRuntime(d.pluginId);
         }
     }
 
-    private async copyDir(src: string, dest: string): Promise<void> {
-        fs.mkdirSync(dest, { recursive: true });
-        for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
-            const s = path.join(src, ent.name);
-            const d = path.join(dest, ent.name);
-            if (ent.isDirectory()) await this.copyDir(s, d);
-            else if (ent.isFile()) fs.copyFileSync(s, d);
-        }
-    }
 
     private async refreshBaselineAfterPlugins(
         baseline: Baseline | null,
@@ -1508,363 +1200,6 @@ export class Updater {
         log.info(`Baseline-only complete for tag ${target.name}`);
         writeReceipt(plan, { durationMs: 0 });
         return plan;
-    }
-
-    private async stageArchive(owner: string, repo: string, ref: string): Promise<string> {
-        const dest = path.join(STAGING_DIR, ref.replace(/[^\w.-]/g, '_'));
-        if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
-        fs.mkdirSync(dest, { recursive: true });
-
-        log.info(`Downloading ${ref}…`);
-        const buf = await this.gh.downloadArchive(owner, repo, ref);
-        const archivePath = path.join(STAGING_DIR, `${ref}.tar.gz`);
-        fs.writeFileSync(archivePath, buf);
-
-        try {
-            await execFileAsync('tar', ['-xzf', archivePath, '-C', dest, '--strip-components=1'], { timeout: 60_000 });
-        } catch {
-            await execFileAsync('tar', ['-xzf', archivePath, '-C', dest], { timeout: 60_000 });
-            const entries = fs.readdirSync(dest);
-            if (entries.length === 1) {
-                const inner = path.join(dest, entries[0]);
-                if (fs.statSync(inner).isDirectory()) {
-                    for (const name of fs.readdirSync(inner)) {
-                        fs.renameSync(path.join(inner, name), path.join(dest, name));
-                    }
-                    fs.rmSync(inner, { recursive: true, force: true });
-                }
-            }
-        } finally {
-            try { fs.unlinkSync(archivePath); } catch { }
-        }
-        return dest;
-    }
-
-    private collectRemoteFiles(stagingRoot: string): string[] {
-        const files: string[] = [];
-        function recurse(dir: string, rel: string) {
-            for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-                if (ent.name === '.git' || ent.name === 'node_modules') continue;
-                const r = rel ? `${rel}/${ent.name}` : ent.name;
-                const full = path.join(dir, ent.name);
-                if (ent.isDirectory()) recurse(full, r);
-                else if (ent.isFile()) files.push(r.replace(/\\/g, '/'));
-            }
-        }
-        recurse(stagingRoot, '');
-        return files;
-    }
-
-    private async createBackup(tag: string, applyPaths: string[] = []): Promise<string> {
-        const ts = new Date().toISOString().replace(/[:.]/g, '-');
-        const dir = path.join(BACKUP_DIR, `${ts}_${tag}`);
-        fs.mkdirSync(dir, { recursive: true });
-        const cwd = process.cwd();
-        const always = [
-            'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock',
-            'tsconfig.json', 'index.js', 'index.d.ts'
-        ];
-        const pathSet = new Set<string>([...always, ...applyPaths.map(p => p.replace(/\\/g, '/'))]);
-
-        for (const rel of pathSet) {
-            if (rel === 'core' || rel.startsWith('core/')) continue;
-            const src = path.join(cwd, rel);
-            if (!fs.existsSync(src)) continue;
-            const st = fs.statSync(src);
-            const dest = path.join(dir, rel);
-            if (st.isDirectory()) {
-                fs.mkdirSync(dest, { recursive: true });
-                await execFileAsync('cp', ['-a', src + '/.', dest]).catch(async () => {
-                    await execFileAsync('cp', ['-a', src, path.dirname(dest)]);
-                });
-            } else if (st.isFile()) {
-                fs.mkdirSync(path.dirname(dest), { recursive: true });
-                fs.copyFileSync(src, dest);
-            }
-        }
-
-        const needCore =
-            pathSet.has('core') ||
-            [...pathSet].some(p => p.startsWith('core/')) ||
-            fs.existsSync(path.join(cwd, 'core'));
-        if (needCore) {
-            const coreSrc = path.join(cwd, 'core');
-            if (fs.existsSync(coreSrc)) {
-                try {
-                    await execFileAsync('cp', ['-a', coreSrc, path.join(dir, 'core')]);
-                } catch (e) {
-                    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {  }
-                    throw new Error(
-                        `createBackup failed copying core/: ${(e as Error).message}. Apply aborted.`
-                    );
-                }
-            }
-        }
-
-        const baselineSnap = readBaseline();
-        fs.writeFileSync(
-            path.join(dir, 'backup-meta.json'),
-            JSON.stringify({
-                tag,
-                createdAt: new Date().toISOString(),
-                previousTag: baselineSnap?.tag ?? null,
-                commit: baselineSnap?.commit ?? null,
-                paths: [...pathSet]
-            }, null, 2),
-            'utf-8'
-        );
-        log.info(`Backup → ${dir} (${pathSet.size} path(s))`);
-        return dir;
-    }
-
-    private async restoreFromBackup(backupId: string, dryRun: boolean): Promise<UpdatePlan> {
-        const t0 = Date.now();
-        ensureDirs();
-        const infos = listBackupInfos();
-        const match = infos.find(b => b.id === backupId || b.dir === backupId || b.id.startsWith(backupId));
-        if (!match) {
-            const plan = emptyPlan(`Backup not found: ${backupId}`, false, null);
-            writeReceipt(plan, { durationMs: Date.now() - t0, mode: 'restore-backup' });
-            return plan;
-        }
-
-        const plan: UpdatePlan = {
-            fromTag: readBaseline()?.tag ?? null,
-            toTag: match.tag || backupId,
-            toCommit: '',
-            allowed: true,
-            reason: `Restore backup ${match.id}`,
-            dirtyFiles: [],
-            pluginDecisions: [],
-            filesToOverwrite: [],
-            filesToAdd: [],
-            filesToKeep: [],
-            dryRun,
-            baselineOnly: false,
-            installPlugin: null
-        };
-        printPlan(plan);
-        if (dryRun) {
-            log.info(`Dry-run restore would copy from ${match.dir}`);
-            writeReceipt(plan, { durationMs: Date.now() - t0, mode: 'restore-backup', restoredFrom: match.id });
-            return plan;
-        }
-
-        writeApplyState({
-            phase: 'restoring',
-            backupId: match.id,
-            toTag: match.tag || backupId,
-            fromTag: readBaseline()?.tag ?? null,
-            startedAt: new Date().toISOString()
-        });
-
-        const safety = await this.createBackup(`pre-restore_${readBaseline()?.tag ?? 'current'}`);
-
-        const cwd = process.cwd();
-        const skipNames = new Set(['backup-meta.json']);
-        function walkBackup(dir: string, relBase: string): void {
-            for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-                if (skipNames.has(ent.name)) continue;
-                const rel = relBase ? `${relBase}/${ent.name}` : ent.name;
-                const src = path.join(dir, ent.name);
-                const dest = path.join(cwd, rel);
-                if (ent.isDirectory()) {
-                    fs.mkdirSync(dest, { recursive: true });
-                    walkBackup(src, rel);
-                } else if (ent.isFile()) {
-                    fs.mkdirSync(path.dirname(dest), { recursive: true });
-                    fs.copyFileSync(src, dest);
-                    plan.filesToOverwrite.push(rel.replace(/\\/g, '/'));
-                }
-            }
-        }
-        walkBackup(match.dir, '');
-
-        let deps: UpdateReceipt['depsInstall'] = 'skipped';
-        try {
-            await this.rebuild();
-            deps = fs.existsSync(path.join(cwd, 'package-lock.json')) ? 'npm-ci' : 'npm-install';
-        } catch (e) {
-            log.error('Rebuild after restore failed', e);
-            plan.allowed = false;
-            plan.reason = `Restore copied files but rebuild failed: ${(e as Error).message}`;
-            writeReceipt(plan, {
-                durationMs: Date.now() - t0,
-                mode: 'restore-backup',
-                restoredFrom: match.id,
-                backupDir: safety,
-                depsInstall: 'failed'
-            });
-            return plan;
-        }
-
-        let meta: { tag?: string; commit?: string | null } = {};
-        try {
-            const metaPath = path.join(match.dir, 'backup-meta.json');
-            if (fs.existsSync(metaPath)) {
-                meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { tag?: string; commit?: string | null };
-            }
-        } catch { }
-
-        const rehashFiles = walkLocal().filter(f => !shouldHardExclude(f));
-        const freshHashes = await computeLocalHashes(rehashFiles);
-        const prev = readBaseline();
-        const tagFromMeta = meta.tag || match.tag;
-        writeBaseline({
-            tag: (tagFromMeta.startsWith('v') || /^\d/.test(tagFromMeta)) ? tagFromMeta : (prev?.tag ?? tagFromMeta),
-            commit: meta.commit ?? prev?.commit ?? '',
-            timestamp: new Date().toISOString(),
-            previousTag: prev?.tag ?? null,
-            previousCommit: prev?.commit ?? null,
-            files: freshHashes
-        });
-
-        clearApplyState();
-        log.info(`Restored from backup ${match.id}`);
-        writeReceipt(plan, {
-            durationMs: Date.now() - t0,
-            mode: 'restore-backup',
-            restoredFrom: match.id,
-            backupDir: safety,
-            depsInstall: deps
-        });
-        return plan;
-    }
-
-    private listBackupsAndLog(): UpdatePlan {
-        const t0 = Date.now();
-        const infos = listBackupInfos();
-        if (infos.length === 0) {
-            log.info('No backups under .data/updater/backups/');
-        } else {
-            log.info(`── Backups (${infos.length}) ─────────────────────`);
-            for (const b of infos) {
-                log.info(
-                    `  ${b.id}  tag=${b.tag}  core=${b.hasCore ? 'yes' : 'no'}  pkg=${b.hasPackageJson ? 'yes' : 'no'}`
-                );
-            }
-            log.info('────────────────────────────────────────────');
-            log.info('Restore: npm run updater -- --restore-backup <id>');
-        }
-        const plan = emptyPlan(
-            infos.length ? `Listed ${infos.length} backup(s)` : 'No backups found',
-            false,
-            null
-        );
-        (plan as UpdatePlan).allowed = true;
-        (plan as UpdatePlan).reason = infos.length ? `Listed ${infos.length} backup(s)` : 'No backups found';
-        writeReceipt(plan, { durationMs: Date.now() - t0, mode: 'list-backups' });
-        return plan;
-    }
-
-    private async applyCoreFromStaging(stagingRoot: string, plan: UpdatePlan): Promise<void> {
-        const all = [...plan.filesToOverwrite, ...plan.filesToAdd].filter(rel => !isPluginPath(rel));
-        const coreRels = all.filter(rel => rel === 'core' || rel.startsWith('core/'));
-        const otherRels = all.filter(rel => rel !== 'core' && !rel.startsWith('core/'));
-        const cwd = process.cwd();
-
-        for (const rel of otherRels) {
-            const src = path.join(stagingRoot, rel);
-            const dest = path.join(cwd, rel);
-            if (!fs.existsSync(src)) continue;
-            fs.mkdirSync(path.dirname(dest), { recursive: true });
-            fs.copyFileSync(src, dest);
-        }
-
-        const stagingCore = path.join(stagingRoot, 'core');
-        const hasStagingCore = fs.existsSync(stagingCore);
-        if (hasStagingCore || coreRels.length > 0) {
-            const coreNew = path.join(cwd, 'core.new');
-            const coreOld = path.join(cwd, 'core.old');
-            const coreLive = path.join(cwd, 'core');
-            if (fs.existsSync(coreNew)) fs.rmSync(coreNew, { recursive: true, force: true });
-            if (hasStagingCore) {
-                await execFileAsync('cp', ['-a', stagingCore, coreNew]);
-            } else {
-                for (const rel of coreRels) {
-                    const src = path.join(stagingRoot, rel);
-                    if (!fs.existsSync(src)) continue;
-                    const dest = path.join(cwd, rel.replace(/^core(?=\/|$)/, 'core.new'));
-                    fs.mkdirSync(path.dirname(dest), { recursive: true });
-                    fs.copyFileSync(src, dest);
-                }
-            }
-            if (fs.existsSync(coreNew)) {
-                if (fs.existsSync(coreOld)) fs.rmSync(coreOld, { recursive: true, force: true });
-                if (fs.existsSync(coreLive)) fs.renameSync(coreLive, coreOld);
-                fs.renameSync(coreNew, coreLive);
-                try { fs.rmSync(coreOld, { recursive: true, force: true }); } catch { }
-            }
-        }
-
-        log.info(`Applied ${all.length} core file(s)`);
-        void audit.record({
-            actorType: 'system',
-            actorId: 'system',
-            action: 'updater.apply',
-            target: 'core',
-            outcome: 'success',
-            meta: { count: all.length },
-        });
-    }
-
-    private async reinstallDependencies(): Promise<void> {
-        const cwd = process.cwd();
-        const hasLock =
-            fs.existsSync(path.join(cwd, 'package-lock.json')) ||
-            fs.existsSync(path.join(cwd, 'npm-shrinkwrap.json'));
-        const installTimeout = Math.max(this.config.timeoutMs, 600_000);
-
-        if (hasLock) {
-            log.info('Installing dependencies via npm ci (lockfile present)…');
-            try {
-                await execFileAsync('npm', ['ci'], {
-                    cwd,
-                    timeout: installTimeout,
-                    env: { ...process.env, NODE_ENV: process.env.NODE_ENV || 'production' }
-                });
-                log.info('npm ci finished');
-                return;
-            } catch (e) {
-                log.warn('npm ci failed – falling back to npm install', e);
-            }
-        }
-
-        log.info('Installing dependencies via npm install…');
-        await execFileAsync('npm', ['install'], {
-            cwd,
-            timeout: installTimeout,
-            env: { ...process.env, NODE_ENV: process.env.NODE_ENV || 'production' }
-        });
-        log.info('npm install finished');
-    }
-
-    private async rebuild(): Promise<void> {
-        log.info('Rebuild sequence…');
-        await this.reinstallDependencies();
-        try {
-            await execFileAsync('npm', ['run', 'clean'], { cwd: process.cwd(), timeout: 60_000 });
-        } catch { }
-        await execFileAsync('npm', ['run', 'build'], {
-            cwd: process.cwd(),
-            timeout: this.config.timeoutMs
-        });
-        log.info('Rebuild finished');
-    }
-
-    private pruneBackups(): void {
-        try {
-            const entries = fs.readdirSync(BACKUP_DIR)
-                .map(name => ({
-                    name,
-                    full: path.join(BACKUP_DIR, name),
-                    mtime: fs.statSync(path.join(BACKUP_DIR, name)).mtimeMs
-                }))
-                .sort((a, b) => b.mtime - a.mtime);
-            for (const e of entries.slice(this.config.maxBackups)) {
-                fs.rmSync(e.full, { recursive: true, force: true });
-            }
-        } catch { }
     }
 }
 
