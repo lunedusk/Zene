@@ -99,7 +99,8 @@ Optional per-plugin file declaring dashboard surfaces for the **Plugin Dashboard
 
 - Path: `plugins/<id>/dashboard/manifest.json` (`schemaVersion: 1`)
 - Loaded into `GET /api/dash/registry` (session required; visibility filtered for the caller)
-- **Tier 1** declarative · **Tier 2** sandboxed iframe (any loaded plugin) · **Tier 3** host module only if operator sets **`DashHostOriginPlugins`**
+- **Tier 1** declarative · **Tier 2** sandboxed iframe (any loaded plugin) · **Tier 3** host module (any loaded plugin that declares `tier: 3`; no separate env allowlist — do not install plugins you do not trust)
+- Tier 2/3 assets served from **PluginAssetsOrigin** (`assetOrigin` / `assetEntryUrl` on the registry snapshot)
 - Signed/unsigned is a **badge** in registry data only — not a functional gate
 - Unknown `kind` / `tier` → surface dropped
 - Asset origin: env **`PluginAssetsOrigin`** (default `http://plugin-assets.localhost:{APIPort}`)

@@ -22,16 +22,6 @@ const TIER_SET = new Set<number>([1, 2, 3]);
 
 const REGISTRY_EVENT = 'dash.registry.updated';
 
-function hostOriginOptInIds(): Set<string> {
-    const raw = secrets.getOptional('DashHostOriginPlugins', '') ?? '';
-    return new Set(
-        raw
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean),
-    );
-}
-
 let registryVersion = 1;
 let cachedSnapshot: DashRegistrySnapshot | null = null;
 
@@ -121,16 +111,10 @@ function resolveSigned(pluginId: string): PluginSignedStatus {
 }
 
 function applySurfaceGate(
-    pluginId: string,
+    _pluginId: string,
     surface: DashSurfaceBase,
 ): { surface: DashSurfaceBase | null; blockedReason?: string } {
-    if (surface.tier === 1 || surface.tier === 2) {
-        return { surface };
-    }
-    if (surface.tier === 3) {
-        if (!hostOriginOptInIds().has(pluginId)) {
-            return { surface: null, blockedReason: 'tier3_host_origin_not_opted_in' };
-        }
+    if (surface.tier === 1 || surface.tier === 2 || surface.tier === 3) {
         return { surface };
     }
     return { surface: null, blockedReason: 'unknown_tier' };
@@ -166,15 +150,22 @@ function assetUrls(
     surface: DashSurfaceBase,
     origin: string,
 ): { assetOrigin: string | null; assetEntryUrl: string | null } {
-    if (surface.tier !== 2 || !surface.iframe?.entryHtml) {
-        return { assetOrigin: null, assetEntryUrl: null };
-    }
     const base = origin.replace(/\/$/, '');
-    const entry = surface.iframe.entryHtml.replace(/^\//, '');
-    return {
-        assetOrigin: base,
-        assetEntryUrl: `${base}/plugins/${encodeURIComponent(pluginId)}/${entry}`,
-    };
+    if (surface.tier === 2 && surface.iframe?.entryHtml) {
+        const entry = surface.iframe.entryHtml.replace(/^\//, '');
+        return {
+            assetOrigin: base,
+            assetEntryUrl: `${base}/plugins/${encodeURIComponent(pluginId)}/${entry}`,
+        };
+    }
+    if (surface.tier === 3 && surface.hostModule?.moduleKey) {
+        const entry = surface.hostModule.moduleKey.replace(/^\//, '');
+        return {
+            assetOrigin: base,
+            assetEntryUrl: `${base}/plugins/${encodeURIComponent(pluginId)}/${entry}`,
+        };
+    }
+    return { assetOrigin: null, assetEntryUrl: null };
 }
 
 export async function buildRegistrySnapshot(filter?: {

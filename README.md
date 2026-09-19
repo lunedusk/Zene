@@ -1,6 +1,6 @@
 # Zene
 
-**v0.5.6** — modular Discord application framework for Node.js  
+**v0.5.7** — modular Discord application framework for Node.js  
 TypeScript · pure ESM · Node ≥ 20 · discord.js v14
 
 Credits: [VeduStorm](https://github.com/VeduStorm) · [Lunedusk](https://github.com/lunedusk)

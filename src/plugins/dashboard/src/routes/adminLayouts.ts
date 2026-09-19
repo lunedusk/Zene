@@ -5,7 +5,7 @@ import { ok, guarded, HttpError, requireBody } from '../lib/http.js';
 import { writeAudit } from '../lib/db.js';
 import type DashDataStoreHandler from '../../../dash-data/src/handlers/store.js';
 import type { DashLayoutDoc, LayoutScope } from '../../../dash-data/src/lib/store.js';
-import { isBotOwnerUser, isBotOwnerFromBits } from '../lib/owner.js';
+import { isEnvOwnerUser, isBotOwnerUser } from '../lib/owner.js';
 
 const SCOPES = new Set<LayoutScope>([
     'public_landing',
@@ -15,13 +15,12 @@ const SCOPES = new Set<LayoutScope>([
     'server_guild',
 ]);
 
-async function requireBotOwner(req: DashRequest): Promise<void> {
+async function requireEnvOwner(req: DashRequest): Promise<void> {
     const userId = req.dashSession!.payload.userId;
-    const bits = req.dashSession!.payload.bits;
-    if (isBotOwnerFromBits(userId, bits) || (await isBotOwnerUser(userId))) {
+    if (isEnvOwnerUser(userId)) {
         return;
     }
-    throw new HttpError(403, 'forbidden', 'Layout authoring requires bot.owner');
+    throw new HttpError(403, 'forbidden', 'Layout authoring requires env BotOwnerIds');
 }
 
 function parseScope(raw: unknown): LayoutScope {
@@ -106,7 +105,12 @@ protected register(): void {
 
     private async canAuthor(req: DashRequest, res: Response): Promise<void> {
         const userId = req.dashSession!.payload.userId;
-        ok(res, { canAuthor: await isBotOwnerUser(userId), userId });
+        ok(res, {
+            canAuthor: isEnvOwnerUser(userId),
+            envOwner: isEnvOwnerUser(userId),
+            botOwner: await isBotOwnerUser(userId),
+            userId,
+        });
     }
 
     private async get(req: DashRequest, res: Response): Promise<void> {
@@ -120,7 +124,7 @@ protected register(): void {
     }
 
     private async put(req: DashRequest, res: Response): Promise<void> {
-        await requireBotOwner(req);
+        await requireEnvOwner(req);
         const body = requireBody<{
             id: string;
             scope: string;

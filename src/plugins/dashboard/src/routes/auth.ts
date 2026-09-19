@@ -4,7 +4,7 @@ import { applyGateway, requireSession, type DashRequest } from '../lib/authz.js'
 import { ok, guarded, HttpError } from '../lib/http.js';
 import { isGloballyBanned } from '../lib/db.js';
 import { BOT_OWNER_BIT } from '../lib/bits.js';
-import { isBotOwnerFromBits } from '../lib/owner.js';
+import { isBotOwnerFromBits, isEnvOwnerUser } from '../lib/owner.js';
 import { tokens } from '../lib/tokens.js';
 import type PermissionsHandler from '../../../permissions/src/handlers/manager.js';
 
@@ -110,6 +110,7 @@ protected register(): void {
 
         const verified = await t.verify(token);
 
+        const userId = verified.payload.userId;
         ok(res, {
             token,
             expiresAt: verified.payload.exp,
@@ -122,7 +123,8 @@ protected register(): void {
                     : null,
             },
             bits: verified.payload.bits,
-            isBotOwner: isBotOwnerFromBits(verified.payload.userId, verified.payload.bits),
+            isBotOwner: isBotOwnerFromBits(userId, verified.payload.bits),
+            envOwner: isEnvOwnerUser(userId),
         });
     }
 
@@ -131,9 +133,14 @@ protected register(): void {
         const perms = this.permissions;
         if (!perms) throw new HttpError(500, 'internal', 'Permissions handler unavailable.');
 
+        const userId = req.dashSession!.payload.userId;
         const guildOwnerId = guildId ? this.heart.client.guilds.cache.get(guildId)?.ownerId : undefined;
-        const resolved = await perms.resolve(req.dashSession!.payload.userId, guildId, guildOwnerId);
-        ok(res, { ...resolved, bits: [...resolved.bits] });
+        const resolved = await perms.resolve(userId, guildId, guildOwnerId);
+        ok(res, {
+            ...resolved,
+            bits: [...resolved.bits],
+            envOwner: isEnvOwnerUser(userId),
+        });
     }
 
     private async sessionCheck(req: DashRequest, res: Response): Promise<void> {

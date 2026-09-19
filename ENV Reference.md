@@ -1,6 +1,6 @@
 # Zene — Environment Variable Reference
 
-> **Framework Version:** Zene v0.5.6
+> **Framework Version:** Zene v0.5.7
 > **Last Updated:** 2026
 > **Node.js Requirement:** ≥ 20
 

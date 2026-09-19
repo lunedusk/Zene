@@ -2,10 +2,18 @@ import { BaseRoute } from '#core/bases/Route.js';
 import { type Response } from 'express';
 import { applyGateway, requireAuthedBit, type DashRequest } from '../lib/authz.js';
 import { ok, guarded, HttpError, requireBody } from '../lib/http.js';
+import { isEnvOwnerUser } from '../lib/owner.js';
 import { dashGet, dashAll, dashRun, dashMongo, ensureDashboardAdapter, writeAudit, newId } from '../lib/db.js';
 import { BITS } from '../lib/bits.js';
 
 type PresetParams = { presetId: string };
+
+
+function assertEnvOwner(req: DashRequest): void {
+    if (!isEnvOwnerUser(req.dashSession!.payload.userId)) {
+        throw new HttpError(403, 'forbidden', 'Theme and landing writes require env BotOwnerIds');
+    }
+}
 
 export default class AdminThemeRoute extends BaseRoute {
     public readonly basePath = '/api/dash/admin';
@@ -98,6 +106,7 @@ protected register(): void {
     }
 
     private async putTheme(req: DashRequest, res: Response): Promise<void> {
+        assertEnvOwner(req);
         if (!req.body || typeof req.body !== 'object') throw new HttpError(400, 'bad_request', 'Body must be a token map object.');
         const payload = JSON.stringify(req.body);
         const at = Date.now();
@@ -138,6 +147,7 @@ protected register(): void {
     }
 
     private async savePreset(req: DashRequest, res: Response): Promise<void> {
+        assertEnvOwner(req);
         const body = requireBody<{ name: string }>(req.body, ['name']);
         const db = await ensureDashboardAdapter();
         let tokens = '{}';
@@ -178,6 +188,7 @@ protected register(): void {
     }
 
     private async deletePreset(req: DashRequest<PresetParams>, res: Response): Promise<void> {
+        assertEnvOwner(req);
         const db = await ensureDashboardAdapter();
         let changed = false;
         if (db.engine === 'mongo') {
@@ -218,6 +229,7 @@ protected register(): void {
     }
 
     private async putLandingConfig(req: DashRequest, res: Response): Promise<void> {
+        assertEnvOwner(req);
         if (!req.body || typeof req.body !== 'object') throw new HttpError(400, 'bad_request', 'Body must be a config object.');
         const payload = JSON.stringify(req.body);
         const at = Date.now();
