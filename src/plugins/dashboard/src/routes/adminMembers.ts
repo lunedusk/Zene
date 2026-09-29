@@ -5,6 +5,8 @@ import { ok, guarded, HttpError, parsePagination, paginated, toStringArray } fro
 import { dashGet, dashAll, dashRun, dashMongo, ensureDashboardAdapter, writeAudit, infractionsCollection, banGlobal, unbanGlobal, newId, GLOBAL_BAN_SENTINEL } from '../lib/db.js';
 import { kickMember, banMember, unbanMember, muteMember, unmuteMember, serializeMember } from '../lib/discord.js';
 import { BITS } from '../lib/bits.js';
+import { resolveActorPermissions } from '#core/permissions/capabilities.js';
+import { canActOnMember } from '#core/permissions/hierarchy.js';
 
 type UserParams = { userId: string };
 type UserNoteParams = { userId: string; noteId: string };
@@ -187,15 +189,42 @@ protected register(): void {
         ok(res, paginated(page, all.length, p));
     }
 
+    /**
+     * Target hierarchy check — capability/bits alone are not enough.
+     * Uses PermissionsManager + hierarchy.ts (no second hierarchy system).
+     */
+    private async assertCanActOnTarget(actorUserId: string, targetUserId: string, guildId?: string): Promise<void> {
+        if (actorUserId === targetUserId) {
+            throw new HttpError(403, 'forbidden', 'Cannot act on yourself.');
+        }
+        const actor = await resolveActorPermissions(actorUserId, guildId);
+        const target = await resolveActorPermissions(targetUserId, guildId);
+        const decision = canActOnMember({
+            actorUserId,
+            targetUserId,
+            actor: actor.resolved,
+            target: target.resolved,
+            scope: guildId ? 'server' : 'any',
+        });
+        if (!decision.allowed) {
+            throw new HttpError(403, 'forbidden', decision.code ?? 'hierarchy_denied');
+        }
+    }
+
     private async kick(req: DashRequest<UserParams>, res: Response): Promise<void> {
         const { userId } = req.params;
         const guildIds = toStringArray(req.body?.guildIds);
         const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
         if (guildIds.length === 0) throw new HttpError(400, 'bad_request', 'guildIds must be a non-empty array.');
 
+        const actorId = req.dashSession!.payload.userId;
+        for (const gid of guildIds) {
+            await this.assertCanActOnTarget(actorId, userId, gid);
+        }
+
         const results = await this.forEachGuild(guildIds, (gid) => kickMember(this.heart, gid, userId, reason));
-        await this.logInfraction(userId, 'kick', reason, req.dashSession!.payload.userId, guildIds);
-        await writeAudit(this.heart, { actorId: req.dashSession!.payload.userId, action: 'member.kick', target: userId, meta: { guildIds, reason } });
+        await this.logInfraction(userId, 'kick', reason, actorId, guildIds);
+        await writeAudit(this.heart, { actorId, action: 'member.kick', target: userId, meta: { guildIds, reason } });
         ok(res, { userId, results });
     }
 
@@ -206,19 +235,26 @@ protected register(): void {
         const deleteMessageDays = Number(req.body?.deleteMessageDays ?? 0);
         if (guildIds.length === 0) throw new HttpError(400, 'bad_request', 'guildIds must be a non-empty array.');
 
+        const actorId = req.dashSession!.payload.userId;
+        for (const gid of guildIds) {
+            await this.assertCanActOnTarget(actorId, userId, gid);
+        }
+
         const results = await this.forEachGuild(guildIds, (gid) =>
             banMember(this.heart, gid, userId, reason, deleteMessageDays * 86400),
         );
-        await this.logInfraction(userId, 'ban', reason, req.dashSession!.payload.userId, guildIds);
-        await writeAudit(this.heart, { actorId: req.dashSession!.payload.userId, action: 'member.ban', target: userId, meta: { guildIds, reason, deleteMessageDays } });
+        await this.logInfraction(userId, 'ban', reason, actorId, guildIds);
+        await writeAudit(this.heart, { actorId, action: 'member.ban', target: userId, meta: { guildIds, reason, deleteMessageDays } });
         ok(res, { userId, results });
     }
 
     private async banGlobalHandler(req: DashRequest<UserParams>, res: Response): Promise<void> {
         const { userId } = req.params;
         const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+        const actorId = req.dashSession!.payload.userId;
+        await this.assertCanActOnTarget(actorId, userId);
 
-        await banGlobal(this.heart, userId, reason, req.dashSession!.payload.userId);
+        await banGlobal(this.heart, userId, reason, actorId);
         await this.logInfraction(userId, 'ban-global', reason, req.dashSession!.payload.userId, []);
         await writeAudit(this.heart, { actorId: req.dashSession!.payload.userId, action: 'member.ban-global', target: userId, meta: { reason } });
         ok(res, { userId, globallyBanned: true });
@@ -250,9 +286,14 @@ protected register(): void {
         if (guildIds.length === 0) throw new HttpError(400, 'bad_request', 'guildIds must be a non-empty array.');
         if (!Number.isFinite(duration) || duration <= 0) throw new HttpError(400, 'bad_request', 'duration (ms) must be a positive number.');
 
+        const actorId = req.dashSession!.payload.userId;
+        for (const gid of guildIds) {
+            await this.assertCanActOnTarget(actorId, userId, gid);
+        }
+
         const results = await this.forEachGuild(guildIds, (gid) => muteMember(this.heart, gid, userId, duration, reason));
-        await this.logInfraction(userId, 'mute', reason, req.dashSession!.payload.userId, guildIds, { duration });
-        await writeAudit(this.heart, { actorId: req.dashSession!.payload.userId, action: 'member.mute', target: userId, meta: { guildIds, duration, reason } });
+        await this.logInfraction(userId, 'mute', reason, actorId, guildIds, { duration });
+        await writeAudit(this.heart, { actorId, action: 'member.mute', target: userId, meta: { guildIds, duration, reason } });
         ok(res, { userId, results });
     }
 

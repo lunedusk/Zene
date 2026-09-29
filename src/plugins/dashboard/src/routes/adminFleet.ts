@@ -4,6 +4,7 @@ import { applyGateway, requireAuthedAnyBit, type DashRequest } from '../lib/auth
 import { ok, guarded, HttpError, requireBody } from '../lib/http.js';
 import { BITS } from '../lib/bits.js';
 import { writeAudit } from '../lib/db.js';
+import { resolveActorPermissions } from '#core/permissions/capabilities.js';
 
 export default class AdminFleetRoute extends BaseRoute {
     public readonly basePath = '/api/dash/admin/fleet';
@@ -60,9 +61,16 @@ protected register(): void {
             BITS.BOT_SHARD_VIEW,
             BITS.BOT_CROSSHOST_VIEW,
         ]);
-        const manage = requireAuthedAnyBit(this.heart, [
+        // Do not treat fleet.restart as implying worker.restart or shard.shift.
+        const fleetRestart = requireAuthedAnyBit(this.heart, [
             BITS.BOT_FLEET_RESTART,
+            BITS.BOT_CROSSHOST_MANAGE,
+        ]);
+        const workerRestart = requireAuthedAnyBit(this.heart, [
             BITS.BOT_WORKER_RESTART,
+            BITS.BOT_CROSSHOST_MANAGE,
+        ]);
+        const shardShift = requireAuthedAnyBit(this.heart, [
             BITS.BOT_SHARD_SHIFT,
             BITS.BOT_CROSSHOST_MANAGE,
         ]);
@@ -79,14 +87,22 @@ protected register(): void {
         );
         this.router.post(
             '/restart',
-            ...manage,
+            // Handler branches on body.scope; middleware allows either fleet or worker restart bits.
+            // Handler still enforces the specific bit via fresh resolve for worker vs fleet.
+            ...requireAuthedAnyBit(this.heart, [
+                BITS.BOT_FLEET_RESTART,
+                BITS.BOT_WORKER_RESTART,
+                BITS.BOT_CROSSHOST_MANAGE,
+            ]),
             this.asyncHandler(guarded(this.heart, this.restart.bind(this))),
         );
         this.router.post(
             '/shard-shift',
-            ...manage,
+            ...shardShift,
             this.asyncHandler(guarded(this.heart, this.shardShift.bind(this))),
         );
+        void fleetRestart;
+        void workerRestart;
 
         const logs = requireAuthedAnyBit(this.heart, [
             BITS.BOT_LOGS_VIEW,
@@ -153,6 +169,22 @@ protected register(): void {
             throw new HttpError(400, 'not_available_here', 'Fleet restart requires Cross-Host');
         }
         const body = (req.body ?? {}) as { scope?: string; machineId?: string; reason?: string };
+        const actor = await resolveActorPermissions(req.dashSession!.payload.userId);
+        const bits = actor.resolved.bits;
+        const isOwner = actor.resolved.botOwner || bits.has('bot.owner');
+        const scopeHint = body.scope === 'worker' ? 'worker' : 'fleet';
+        if (scopeHint === 'worker') {
+            if (!isOwner && !bits.has(BITS.BOT_WORKER_RESTART) && !bits.has(BITS.BOT_CROSSHOST_MANAGE)) {
+                throw new HttpError(403, 'forbidden', 'worker restart requires bot.worker.restart');
+            }
+            const machineId = typeof body.machineId === 'string' ? body.machineId.trim() : '';
+            if (!machineId) {
+                throw new HttpError(400, 'bad_request', 'machineId required for worker restart');
+            }
+            // machineId is a selector — existence is validated by shutdownMachine / control plane.
+        } else if (!isOwner && !bits.has(BITS.BOT_FLEET_RESTART) && !bits.has(BITS.BOT_CROSSHOST_MANAGE)) {
+            throw new HttpError(403, 'forbidden', 'fleet restart requires bot.fleet.restart');
+        }
         const scope = body.scope === 'worker' ? 'worker' : 'fleet';
         const reason = typeof body.reason === 'string' ? body.reason : 'dashboard fleet restart';
         const userId = req.dashSession!.payload.userId;

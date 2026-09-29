@@ -173,19 +173,32 @@ export function requireSession(heart: IHeart) {
     };
 }
 
+/**
+ * Phase 1: bit checks use PermissionsManager.cachedResolve (fresh), not token-embedded bits alone.
+ * Token bits are no longer authoritative for sensitive route gates.
+ */
 export function requireBit(heart: IHeart, bit: string) {
-    return (req: DashRequest, res: Response, next: NextFunction): void => {
-        const t = tryTokens(heart);
+    return async (req: DashRequest, res: Response, next: NextFunction): Promise<void> => {
         const verified = req.dashSession;
-        if (!t || !verified) {
-            err(res, 401, 'unauthorized', heart.assets.lang.get(heart.id, 'errors.unauthorized'));
+        if (!verified) {
+            sendAuthzFailure(res, heart, 'unauthenticated');
             return;
         }
-        if (t.hasBit(verified, BOT_OWNER_BIT as Bit) || t.hasBit(verified, bit as Bit)) {
-            next();
-            return;
+        try {
+            const actor = await resolveActorPermissions(verified.payload.userId);
+            if (
+                actor.resolved.botOwner ||
+                actor.resolved.bits.has(BOT_OWNER_BIT) ||
+                actor.resolved.bits.has(bit)
+            ) {
+                next();
+                return;
+            }
+            sendAuthzFailure(res, heart, 'forbidden');
+        } catch (e) {
+            heart.log.error(`requireBit resolve failed: ${(e as Error)?.message ?? e}`);
+            err(res, 500, 'internal', heart.assets.lang.get(heart.id, 'errors.internal'));
         }
-        err(res, 403, 'forbidden', heart.assets.lang.get(heart.id, 'errors.forbidden'));
     };
 }
 
@@ -194,24 +207,29 @@ export function requireAuthedBit(heart: IHeart, bit: string) {
 }
 
 export function requireAnyBit(heart: IHeart, bits: readonly string[]) {
-    return (req: DashRequest, res: Response, next: NextFunction): void => {
-        const t = tryTokens(heart);
+    return async (req: DashRequest, res: Response, next: NextFunction): Promise<void> => {
         const verified = req.dashSession;
-        if (!t || !verified) {
-            err(res, 401, 'unauthorized', heart.assets.lang.get(heart.id, 'errors.unauthorized'));
+        if (!verified) {
+            sendAuthzFailure(res, heart, 'unauthenticated');
             return;
         }
-        if (t.hasBit(verified, BOT_OWNER_BIT as Bit)) {
-            next();
-            return;
-        }
-        for (const bit of bits) {
-            if (t.hasBit(verified, bit as Bit)) {
+        try {
+            const actor = await resolveActorPermissions(verified.payload.userId);
+            if (actor.resolved.botOwner || actor.resolved.bits.has(BOT_OWNER_BIT)) {
                 next();
                 return;
             }
+            for (const bit of bits) {
+                if (actor.resolved.bits.has(bit)) {
+                    next();
+                    return;
+                }
+            }
+            sendAuthzFailure(res, heart, 'forbidden');
+        } catch (e) {
+            heart.log.error(`requireAnyBit resolve failed: ${(e as Error)?.message ?? e}`);
+            err(res, 500, 'internal', heart.assets.lang.get(heart.id, 'errors.internal'));
         }
-        err(res, 403, 'forbidden', heart.assets.lang.get(heart.id, 'errors.forbidden'));
     };
 }
 
@@ -222,22 +240,45 @@ export function requireAuthedAnyBit(heart: IHeart, bits: readonly string[]) {
 export function requireGuildBit(heart: IHeart, bit: string, crossServerBit?: string) {
     return [
         requireSession(heart),
-        (req: DashRequest, res: Response, next: NextFunction): void => {
-            const t = tryTokens(heart);
+        async (req: DashRequest, res: Response, next: NextFunction): Promise<void> => {
             const verified = req.dashSession;
-            const guildId = req.params.guildId;
-            if (!t || !verified) {
-                err(res, 401, 'unauthorized', heart.assets.lang.get(heart.id, 'errors.unauthorized'));
+            const guildIdRaw = req.params.guildId;
+            const guildId = typeof guildIdRaw === 'string' ? guildIdRaw : undefined;
+            if (!verified) {
+                sendAuthzFailure(res, heart, 'unauthenticated');
                 return;
             }
-            if (t.hasBit(verified, BOT_OWNER_BIT as Bit)) return next();
-            if (crossServerBit && t.hasBit(verified, crossServerBit as Bit)) return next();
-            if (verified.payload.guildId && verified.payload.guildId !== guildId) {
-                err(res, 403, 'forbidden', heart.assets.lang.get(heart.id, 'errors.forbidden'));
+            if (!guildId) {
+                sendAuthzFailure(res, heart, 'forbidden', 'forbidden', 'guildId required');
                 return;
             }
-            if (t.hasBit(verified, bit as Bit)) return next();
-            err(res, 403, 'forbidden', heart.assets.lang.get(heart.id, 'errors.forbidden'));
+            try {
+                // Resolve with guild context so server-scoped bits are current.
+                const actor = await resolveActorPermissions(verified.payload.userId, guildId);
+                if (actor.resolved.botOwner || actor.resolved.bits.has(BOT_OWNER_BIT)) {
+                    next();
+                    return;
+                }
+                if (crossServerBit && actor.resolved.bits.has(crossServerBit)) {
+                    next();
+                    return;
+                }
+                // Token guild scope may constrain, but never grants authority by itself.
+                const tokenGuild = verified.payload.guildId;
+                if (tokenGuild && tokenGuild !== guildId) {
+                    // Scoped token for another guild cannot act here even if bits somehow overlap.
+                    sendAuthzFailure(res, heart, 'forbidden');
+                    return;
+                }
+                if (actor.resolved.bits.has(bit)) {
+                    next();
+                    return;
+                }
+                sendAuthzFailure(res, heart, 'forbidden');
+            } catch (e) {
+                heart.log.error(`requireGuildBit resolve failed: ${(e as Error)?.message ?? e}`);
+                err(res, 500, 'internal', heart.assets.lang.get(heart.id, 'errors.internal'));
+            }
         },
     ];
 }

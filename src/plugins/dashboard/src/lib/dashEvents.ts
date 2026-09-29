@@ -4,6 +4,7 @@ import { getLogger } from '#core/utils/logger.js';
 import { REGISTRY_EVENT } from './dashRegistry.js';
 import type { Response } from 'express';
 import type { ResolvedPermissions } from '#core/types/permissions.js';
+import { clientMayReceive as policyClientMayReceive } from './sseDeliveryPolicy.js';
 
 const log = getLogger('DashEvents');
 
@@ -77,30 +78,8 @@ function writeEvent(res: Response, event: DashSsePayload): boolean {
     }
 }
 
-/**
- * Event authorization (delivery layer).
- * Heartbeats and registry.updated are delivered to any authenticated connection.
- * Guild-scoped layout events require the client to have been resolved for that guild
- * or hold bot-wide view bits (Phase 1 minimum filter).
- */
 function clientMayReceive(client: SseClient, event: DashSsePayload): boolean {
-    if (event.type === 'heartbeat' || event.type === 'registry.updated' || event.type === 'theme.updated') {
-        return true;
-    }
-    if (event.type === 'session.revoked') {
-        return true;
-    }
-    if (event.guildId) {
-        if (client.isEnvOwner || client.bits.has('bot.owner')) return true;
-        if (client.bits.has('bot.servers.view') || client.bits.has('bot.servers.manage')) return true;
-        // Without a subscription model, guild-scoped events only go to env/bot owners
-        // and bot-wide server viewers in Phase 1 (avoids cross-guild leakage).
-        return false;
-    }
-    if (event.sensitivity === 'admin') {
-        return client.isEnvOwner || client.bits.has('bot.owner') || client.bits.has('bot.fleet.view');
-    }
-    return true;
+    return policyClientMayReceive(client, event);
 }
 
 export function broadcastDashEvent(
@@ -165,13 +144,7 @@ export function removeSseClientsForUser(userId: string): void {
     }
 }
 
-/** Test helper: evaluate delivery policy without I/O. */
-export function testClientMayReceive(
-    client: Pick<SseClient, 'bits' | 'isEnvOwner' | 'userId'>,
-    event: Pick<DashSsePayload, 'type' | 'guildId' | 'sensitivity'>,
-): boolean {
-    return clientMayReceive(client as SseClient, event as DashSsePayload);
-}
+export { clientMayReceive as testClientMayReceive } from './sseDeliveryPolicy.js';
 
 export type { ResolvedPermissions };
 

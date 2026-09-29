@@ -1,5 +1,6 @@
 /**
  * Phase 1 dashboard security unit tests.
+ * Imports only pure modules to avoid logger/secretManager ESM init cycles.
  * Run: npx tsx --test src/plugins/dashboard/src/lib/phase1-security.test.ts
  */
 
@@ -8,9 +9,9 @@ import assert from 'node:assert/strict';
 import {
     projectExternalRegistry,
     projectRegistryDiagnostics,
-} from './dashRegistry.js';
+} from './registryProjection.js';
 import type { DashRegistrySnapshot } from '#core/types/dashSdk.js';
-import { testClientMayReceive } from './dashEvents.js';
+import { clientMayReceive } from './sseDeliveryPolicy.js';
 import {
     assertExpectedVersion,
     hashIdempotencyPayload,
@@ -91,7 +92,7 @@ describe('external registry projection', () => {
 describe('SSE delivery filter', () => {
     it('allows heartbeat to any client', () => {
         assert.equal(
-            testClientMayReceive(
+            clientMayReceive(
                 { userId: 'u', bits: new Set(), isEnvOwner: false },
                 { type: 'heartbeat' },
             ),
@@ -101,7 +102,7 @@ describe('SSE delivery filter', () => {
 
     it('blocks guild-scoped events for users without bot-wide server view', () => {
         assert.equal(
-            testClientMayReceive(
+            clientMayReceive(
                 { userId: 'u', bits: new Set(['server.members.view']), isEnvOwner: false },
                 { type: 'layout.updated', guildId: 'g1' },
             ),
@@ -111,7 +112,7 @@ describe('SSE delivery filter', () => {
 
     it('allows guild-scoped events for bot.servers.view', () => {
         assert.equal(
-            testClientMayReceive(
+            clientMayReceive(
                 { userId: 'u', bits: new Set(['bot.servers.view']), isEnvOwner: false },
                 { type: 'layout.updated', guildId: 'g1' },
             ),
@@ -156,7 +157,6 @@ describe('routing intent', () => {
                 return shardId === 0 ? 'worker-a' : 'worker-b';
             },
         };
-        // Use a guild id that maps deterministically
         const result = resolveGuildRoute('123456789012345678', { totalShards, shardMap: map });
         assert.equal(result.ok, true);
         if (result.ok) {

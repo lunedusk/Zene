@@ -263,92 +263,9 @@ export function getCachedSnapshot(): DashRegistrySnapshot | null {
     return cachedSnapshot;
 }
 
-/**
- * Project an internal snapshot to the browser-safe external registry.
- * Unauthorized surfaces are omitted entirely (no visibleEstimate: false leak).
- */
-export function projectExternalRegistry(
-    snapshot: DashRegistrySnapshot,
-): import('#core/types/dashSdk.js').DashRegistryExternalSnapshot {
-    const plugins: import('#core/types/dashSdk.js').DashRegistryPluginExternal[] = [];
-    for (const p of snapshot.plugins) {
-        const surfaces = p.surfaces
-            .filter((s) => s.visibleEstimate)
-            .map((s) => {
-                const { visibleEstimate: _v, blockedReason: _b, ...rest } = s;
-                return {
-                    id: rest.id,
-                    kind: rest.kind,
-                    tier: rest.tier,
-                    title: rest.title,
-                    description: rest.description,
-                    icon: rest.icon,
-                    order: rest.order,
-                    priority: rest.priority,
-                    pluginId: rest.pluginId,
-                    nav: rest.nav,
-                    inject: rest.inject,
-                    theme: rest.theme,
-                    dashCompat: rest.dashCompat,
-                    dependencies: rest.dependencies,
-                    settingsSchemaId: rest.settingsSchemaId,
-                    declarative: rest.declarative,
-                    iframe: rest.iframe,
-                    hostModule: rest.hostModule,
-                    assetOrigin: rest.assetOrigin,
-                    assetEntryUrl: rest.assetEntryUrl,
-                    access: 'read' as const,
-                };
-            });
-        if (surfaces.length === 0 && !p.manifest) {
-            // Omit plugins with no discoverable surfaces and no manifest from external nav noise
-            // unless they are loaded with empty surfaces intentionally — still list plugin shell
-            // only when signed state is useful for owners; external users get plugins with surfaces.
-            continue;
-        }
-        if (surfaces.length === 0) continue;
-        plugins.push({
-            pluginId: p.pluginId,
-            signed: p.signed,
-            unsignedBadge: p.unsignedBadge,
-            state: p.state,
-            label: p.manifest?.label,
-            surfaces,
-        });
-    }
-    return {
-        registrySchemaVersion: 2,
-        version: snapshot.version,
-        generatedAt: snapshot.generatedAt,
-        assetOrigin: snapshot.assetOrigin,
-        plugins,
-    };
-}
-
-/**
- * Diagnostics view — must be gated by dashboard.registry.diagnostics capability.
- */
-export function projectRegistryDiagnostics(
-    snapshot: DashRegistrySnapshot,
-): import('#core/types/dashSdk.js').DashRegistryDiagnostics {
-    const surfaces: import('#core/types/dashSdk.js').DashSurfaceDiagnostic[] = [];
-    for (const p of snapshot.plugins) {
-        for (const s of p.surfaces) {
-            surfaces.push({
-                pluginId: p.pluginId,
-                surfaceId: s.id,
-                visibleEstimate: s.visibleEstimate,
-                blockedReason: s.blockedReason,
-                requiredBits: s.visibility?.requiredBits,
-            });
-        }
-    }
-    return {
-        registrySchemaVersion: 2,
-        version: snapshot.version,
-        generatedAt: snapshot.generatedAt,
-        surfaces,
-    };
-}
+export {
+    projectExternalRegistry,
+    projectRegistryDiagnostics,
+} from './registryProjection.js';
 
 export { REGISTRY_EVENT };
