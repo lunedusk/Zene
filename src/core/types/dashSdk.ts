@@ -261,3 +261,73 @@ export function toExternalSurface(s: DashSurfaceResolved): DashSurfaceExternal {
         access: s.visibleEstimate ? 'read' : 'none',
     };
 }
+
+// ─── Phase 2B visibility + widget auth expansion ─────────────────────────────
+
+export type VisibilityLeaf =
+    | { type: 'bit'; bit: string }
+    | { type: 'owner' }
+    | { type: 'user'; userId: string }
+    | { type: 'guild'; guildId: string }
+    | { type: 'featureFlag'; flag: string }
+    | { type: 'pluginEnabled'; pluginId: string }
+    | { type: 'crossHostEnabled' }
+    | { type: 'runtime'; key: string; equals?: string };
+
+export type VisibilityExpr =
+    | VisibilityLeaf
+    | { type: 'and'; of: VisibilityExpr[] }
+    | { type: 'or'; of: VisibilityExpr[] }
+    | { type: 'not'; of: VisibilityExpr };
+
+export interface WidgetAuthHints {
+    read?: string[];
+    write?: string[];
+}
+
+export interface DashSurfaceV2Extensions {
+    visibilityExpr?: VisibilityExpr;
+    widgetAuth?: WidgetAuthHints;
+}
+
+/** Evaluate visibility expression for UX hints only — never final authorization. */
+export function evalVisibilityExpr(
+    expr: VisibilityExpr,
+    ctx: {
+        bits: ReadonlySet<string>;
+        isOwner: boolean;
+        userId: string;
+        guildId?: string;
+        featureFlags?: ReadonlySet<string>;
+        enabledPlugins?: ReadonlySet<string>;
+        crossHostEnabled?: boolean;
+        runtime?: Record<string, string>;
+    },
+): boolean {
+    switch (expr.type) {
+        case 'bit':
+            return ctx.bits.has(expr.bit) || ctx.bits.has('bot.owner') || ctx.isOwner;
+        case 'owner':
+            return ctx.isOwner || ctx.bits.has('bot.owner');
+        case 'user':
+            return ctx.userId === expr.userId;
+        case 'guild':
+            return ctx.guildId === expr.guildId;
+        case 'featureFlag':
+            return ctx.featureFlags?.has(expr.flag) === true;
+        case 'pluginEnabled':
+            return ctx.enabledPlugins?.has(expr.pluginId) === true;
+        case 'crossHostEnabled':
+            return ctx.crossHostEnabled === true;
+        case 'runtime':
+            return ctx.runtime?.[expr.key] === (expr.equals ?? 'true');
+        case 'and':
+            return expr.of.every((e) => evalVisibilityExpr(e, ctx));
+        case 'or':
+            return expr.of.some((e) => evalVisibilityExpr(e, ctx));
+        case 'not':
+            return !evalVisibilityExpr(expr.of, ctx);
+        default:
+            return false;
+    }
+}

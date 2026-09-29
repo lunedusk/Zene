@@ -89,39 +89,59 @@ protected register(): void {
         this.router.put('/public/landing-config', ...pages, this.asyncHandler(guarded(this.heart, this.putLandingConfig.bind(this))));
     }
 
-    private async getTheme(_req: DashRequest, res: Response): Promise<void> {
-        const db = await ensureDashboardAdapter();
-        let row: { tokens: string; updatedAt: number } | null = null;
-        if (db.engine === 'mongo') {
-            const doc = await (await dashMongo('dash_theme')).findOne({ $or: [{ id: 'current' }, { _id: 'current' }] });
-            if (doc) row = { tokens: String(doc.tokens ?? '{}'), updatedAt: Number(doc.updatedAt ?? 0) };
-        } else {
-            row = (await dashGet(`SELECT tokens, updatedAt FROM dash_theme WHERE id = 'current'`)) as {
-                tokens: string;
-                updatedAt: number;
-            } | null;
+    private async getTheme(req: DashRequest, res: Response): Promise<void> {
+        // Phase 2A: service → repository (no route-level SQL for this path).
+        const { buildRequestContext } = await import('../lib/requestContext.js');
+        const { ThemeLayoutService } = await import('../services/themeLayoutService.js');
+        const { ServiceError } = await import('../lib/requestContext.js');
+        try {
+            const ctx = await buildRequestContext(req);
+            const svc = new ThemeLayoutService(this.heart);
+            const result = await svc.getThemePublicAuthed(ctx);
+            if (!result.ok) throw result.error;
+            ok(res, { tokens: result.data.tokens, updatedAt: result.data.version, version: result.data.version }, 200, {
+                requestId: ctx.requestId,
+            });
+        } catch (e) {
+            if (e instanceof ServiceError) {
+                throw new HttpError(e.hideExistence ? 404 : e.httpStatus, e.code.toLowerCase(), e.message, e.details);
+            }
+            throw e;
         }
-        if (!row) throw new HttpError(404, 'not_found', 'Theme not initialized.');
-        ok(res, { tokens: JSON.parse(row.tokens), updatedAt: row.updatedAt });
     }
 
     private async putTheme(req: DashRequest, res: Response): Promise<void> {
         assertEnvOwner(req);
-        if (!req.body || typeof req.body !== 'object') throw new HttpError(400, 'bad_request', 'Body must be a token map object.');
-        const payload = JSON.stringify(req.body);
-        const at = Date.now();
-        const db = await ensureDashboardAdapter();
-        if (db.engine === 'mongo') {
-            await (await dashMongo('dash_theme')).updateOne(
-                { _id: 'current' },
-                { $set: { _id: 'current', id: 'current', tokens: payload, updatedAt: at } },
-                { upsert: true },
-            );
-        } else {
-            await dashRun(`UPDATE dash_theme SET tokens = ?, updatedAt = ? WHERE id = 'current'`, [payload, at]);
+        if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+            throw new HttpError(400, 'bad_request', 'Body must be a token map object.');
         }
-        await writeAudit(this.heart, { actorId: req.dashSession!.payload.userId, action: 'theme.save' });
-        ok(res, { saved: true });
+        const { buildRequestContext } = await import('../lib/requestContext.js');
+        const { ThemeLayoutService } = await import('../services/themeLayoutService.js');
+        const { ServiceError } = await import('../lib/requestContext.js');
+        try {
+            const ctx = await buildRequestContext(req);
+            const body = req.body as Record<string, unknown>;
+            const expectedVersion =
+                typeof body.expectedVersion === 'number' ? body.expectedVersion : undefined;
+            const tokens =
+                body.tokens && typeof body.tokens === 'object' && !Array.isArray(body.tokens)
+                    ? (body.tokens as Record<string, unknown>)
+                    : (body as Record<string, unknown>);
+            // Strip control fields if client sent envelope
+            if ('expectedVersion' in tokens) delete tokens.expectedVersion;
+            if ('tokens' in body && body.tokens) {
+                /* tokens already extracted */
+            }
+            const svc = new ThemeLayoutService(this.heart);
+            const result = await svc.putTheme(ctx, { tokens, expectedVersion });
+            if (!result.ok) throw result.error;
+            ok(res, { saved: true, version: result.data.version }, 200, { requestId: ctx.requestId });
+        } catch (e) {
+            if (e instanceof ServiceError) {
+                throw new HttpError(e.hideExistence ? 404 : e.httpStatus, e.code.toLowerCase(), e.message, e.details);
+            }
+            throw e;
+        }
     }
 
     private async listPresets(_req: DashRequest, res: Response): Promise<void> {

@@ -230,6 +230,24 @@ export function guarded<Req extends Request = Request>(
     };
 }
 
+/** Map Phase 2A ServiceError to HTTP (hideExistence → 404). */
+export function sendServiceError(res: Response, e: unknown, heart: IHeart): void {
+    if (e && typeof e === 'object' && (e as { name?: string }).name === 'ServiceError') {
+        const se = e as {
+            code: string;
+            message: string;
+            httpStatus: number;
+            details?: unknown;
+            hideExistence?: boolean;
+        };
+        const status = se.hideExistence ? 404 : se.httpStatus;
+        const code = se.hideExistence ? 'not_found' : se.code.toLowerCase();
+        err(res, status, code, se.message, se.details);
+        return;
+    }
+    sendHttpError(res, e, heart);
+}
+
 export function requireBody<T extends Record<string, unknown>>(
     body: unknown,
     requiredKeys: (keyof T)[],
