@@ -60,9 +60,21 @@ protected register(): void {
             throw new HttpError(401, 'unauthorized', 'session required');
         }
 
-        const bits = new Set<string>((session.payload.bits ?? []).map(String));
-        const t = tryTokens(this.heart);
-        if (t?.hasBit(session, BOT_OWNER_BIT as Bit)) bits.add(BOT_OWNER_BIT);
+        // Prefer PermissionsManager resolve for delivery filter; fall back to token bits.
+        let bits: Set<string>;
+        let isEnvOwner: boolean;
+        try {
+            const { resolveActorPermissions } = await import('#core/permissions/capabilities.js');
+            const actor = await resolveActorPermissions(session.payload.userId);
+            bits = new Set(actor.resolved.bits);
+            isEnvOwner = actor.isEnvOwner;
+            if (actor.resolved.botOwner) bits.add(BOT_OWNER_BIT);
+        } catch {
+            bits = new Set<string>((session.payload.bits ?? []).map(String));
+            const t = tryTokens(this.heart);
+            if (t?.hasBit(session, BOT_OWNER_BIT as Bit)) bits.add(BOT_OWNER_BIT);
+            isEnvOwner = isBotOwnerFromBits(session.payload.userId, bits);
+        }
 
         res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
         res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -78,7 +90,7 @@ protected register(): void {
             res,
             userId: session.payload.userId,
             bits,
-            isEnvOwner: isBotOwnerFromBits(session.payload.userId, bits),
+            isEnvOwner,
         });
 
         log.debug(`SSE client ${id} connected user=${session.payload.userId}`);

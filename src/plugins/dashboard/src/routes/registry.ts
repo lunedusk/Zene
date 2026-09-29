@@ -1,47 +1,83 @@
 import { BaseRoute } from '#core/bases/Route.js';
 import { type Response } from 'express';
-import { applyGateway, requireSession, type DashRequest } from '../lib/authz.js';
+import {
+    applyGateway,
+    requireSession,
+    requireCapability,
+    ensureRequestId,
+    type DashRequest,
+} from '../lib/authz.js';
 import { ok, guarded } from '../lib/http.js';
-import { buildRegistrySnapshot } from '../lib/dashRegistry.js';
-import { BOT_OWNER_BIT } from '../lib/bits.js';
-import { isBotOwnerFromBits } from '../lib/owner.js';
-import type { Bit } from '#core/manager/token.js';
-import { tryTokens } from '../lib/tokens.js';
+import {
+    buildRegistrySnapshot,
+    projectExternalRegistry,
+    projectRegistryDiagnostics,
+} from '../lib/dashRegistry.js';
+import { resolveActorPermissions } from '#core/permissions/capabilities.js';
 
 export default class DashRegistryRoute extends BaseRoute {
     public readonly basePath = '/api/dash';
 
-    
     /**
      * @openapi
      * /api/dash/registry:
      *   get:
      *     tags: [Dashboard]
-     *     summary: Public plugin/command registry snapshot
+     *     summary: Server-resolved external registry (unauthorized surfaces omitted)
+     *     security: [{ bearerAuth: [] }]
      *     responses:
-     *       '200': { description: Registry }
+     *       '200': { description: External registry snapshot }
+     * /api/dash/registry/diagnostics:
+     *   get:
+     *     tags: [Dashboard]
+     *     summary: Registry diagnostics (blocked reasons) — capability gated
+     *     security: [{ bearerAuth: [] }]
+     *     responses:
+     *       '200': { description: Diagnostics }
+     *       '403': { description: Forbidden }
+     *       '404': { description: Hidden when existence-sensitive }
      */
 
-protected register(): void {
+    protected register(): void {
         applyGateway(this.heart, this.router);
         this.router.get(
             '/registry',
+            ensureRequestId,
             requireSession(this.heart),
             this.asyncHandler(guarded(this.heart, this.snapshot.bind(this))),
+        );
+        this.router.get(
+            '/registry/diagnostics',
+            ensureRequestId,
+            requireSession(this.heart),
+            requireCapability(this.heart, 'dashboard.registry.diagnostics', { hideExistence: true }),
+            this.asyncHandler(guarded(this.heart, this.diagnostics.bind(this))),
         );
     }
 
     private async snapshot(req: DashRequest, res: Response): Promise<void> {
         const session = req.dashSession!;
-        const t = tryTokens(this.heart);
-        const bitList = session.payload.bits ?? [];
-        const bits = new Set<string>(bitList.map(String));
-        if (t?.hasBit(session, BOT_OWNER_BIT as Bit)) {
-            bits.add(BOT_OWNER_BIT);
-        }
         const userId = session.payload.userId;
-        const isEnvOwner = isBotOwnerFromBits(userId, bits);
-        const data = await buildRegistrySnapshot({ bits, userId, isEnvOwner });
-        ok(res, data);
+        // Authoritative permission resolve (not token bits alone)
+        const actor = await resolveActorPermissions(userId);
+        const data = await buildRegistrySnapshot({
+            bits: actor.resolved.bits,
+            userId,
+            isEnvOwner: actor.isEnvOwner,
+        });
+        const external = projectExternalRegistry(data);
+        ok(res, external, 200, { requestId: req.requestId });
+    }
+
+    private async diagnostics(req: DashRequest, res: Response): Promise<void> {
+        const session = req.dashSession!;
+        const userId = session.payload.userId;
+        const actor = await resolveActorPermissions(userId);
+        const data = await buildRegistrySnapshot({
+            bits: actor.resolved.bits,
+            userId,
+            isEnvOwner: actor.isEnvOwner,
+        });
+        ok(res, projectRegistryDiagnostics(data), 200, { requestId: req.requestId });
     }
 }

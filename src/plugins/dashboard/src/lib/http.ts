@@ -1,22 +1,41 @@
 import { type Request, type Response } from 'express';
 import { type IHeart } from '#core/heart/index.js';
+import { createHash, randomUUID } from 'node:crypto';
 
-export function ok(res: Response, data: unknown, status = 200): void {
-    res.status(status).json({ ok: true, data });
-}
+export type AuthzFailureClass = 'unauthenticated' | 'forbidden' | 'hidden';
 
-export function err(
-    res: Response,
-    status: number,
-    code: string,
-    message: string,
-    details?: unknown,
-): void {
-    res.status(status).json({
-        ok: false,
-        error: { code, message, ...(details !== undefined ? { details } : {}) },
-    });
-}
+export const DASH_ERROR_CODES = {
+    AUTH_REQUIRED: 'AUTH_REQUIRED',
+    AUTH_INVALID: 'AUTH_INVALID',
+    AUTH_EXPIRED: 'AUTH_EXPIRED',
+    SUDO_REQUIRED: 'SUDO_REQUIRED',
+    FORBIDDEN: 'FORBIDDEN',
+    NOT_FOUND: 'NOT_FOUND',
+    CAPABILITY_REQUIRED: 'CAPABILITY_REQUIRED',
+    OWNER_REQUIRED: 'OWNER_REQUIRED',
+    GUILD_ACCESS_REQUIRED: 'GUILD_ACCESS_REQUIRED',
+    VERSION_CONFLICT: 'VERSION_CONFLICT',
+    IDEMPOTENCY_REPLAY: 'IDEMPOTENCY_REPLAY',
+    IDEMPOTENCY_CONFLICT: 'IDEMPOTENCY_CONFLICT',
+    PLUGIN_UNAVAILABLE: 'PLUGIN_UNAVAILABLE',
+    WORKER_UNAVAILABLE: 'WORKER_UNAVAILABLE',
+    SHARD_UNAVAILABLE: 'SHARD_UNAVAILABLE',
+    CROSSHOST_DISABLED: 'CROSSHOST_DISABLED',
+    STALE_ROUTE: 'STALE_ROUTE',
+    DATABASE_UNAVAILABLE: 'DATABASE_UNAVAILABLE',
+    VALIDATION_FAILED: 'VALIDATION_FAILED',
+    GATEWAY_UNAVAILABLE: 'GATEWAY_UNAVAILABLE',
+} as const;
+
+export type DashErrorCode = (typeof DASH_ERROR_CODES)[keyof typeof DASH_ERROR_CODES];
+
+export type CacheClass =
+    | 'public'
+    | 'private-user'
+    | 'private-guild'
+    | 'private-owner'
+    | 'sensitive'
+    | 'no-store';
 
 export class HttpError extends Error {
     constructor(
@@ -26,7 +45,127 @@ export class HttpError extends Error {
         public readonly details?: unknown,
     ) {
         super(message);
+        this.name = 'HttpError';
     }
+}
+
+export interface ApiMeta {
+    requestId?: string;
+    [key: string]: unknown;
+}
+
+export function ok(res: Response, data: unknown, status = 200, meta?: ApiMeta): void {
+    const requestId =
+        meta?.requestId ??
+        (typeof res.getHeader('x-request-id') === 'string' ? String(res.getHeader('x-request-id')) : undefined);
+    const body: { ok: true; data: unknown; meta?: ApiMeta } = { ok: true, data };
+    if (requestId || meta) {
+        body.meta = { ...meta, requestId };
+    }
+    res.status(status).json(body);
+}
+
+export function err(
+    res: Response,
+    status: number,
+    code: string,
+    message: string,
+    details?: unknown,
+): void {
+    const requestId =
+        typeof res.getHeader('x-request-id') === 'string' ? String(res.getHeader('x-request-id')) : undefined;
+    res.status(status).json({
+        ok: false,
+        error: { code, message, ...(details !== undefined ? { details } : {}) },
+        ...(requestId ? { requestId } : {}),
+    });
+}
+
+/** Optimistic concurrency: client expectedVersion must match current. */
+export function assertExpectedVersion(expected: number | undefined, current: number): void {
+    if (expected === undefined) return;
+    if (expected !== current) {
+        throw new HttpError(409, DASH_ERROR_CODES.VERSION_CONFLICT, 'Resource version conflict', {
+            expectedVersion: expected,
+            currentVersion: current,
+        });
+    }
+}
+
+export interface IdempotencyRecord {
+    actorId: string;
+    operation: string;
+    resourceKey: string;
+    idempotencyKey: string;
+    requestHash: string;
+    result?: unknown;
+    jobId?: string;
+    expiresAt: number;
+}
+
+/** Hash a payload for idempotency conflict detection. */
+export function hashIdempotencyPayload(payload: unknown): string {
+    return createHash('sha256').update(JSON.stringify(payload ?? null)).digest('hex');
+}
+
+/**
+ * In-memory idempotency primitive (Phase 1 contract).
+ * Same key + same hash → replay; same key + different hash → conflict.
+ * Not durable across process restarts — wire to storage in a later phase if required.
+ */
+const idempotencyStore = new Map<string, IdempotencyRecord>();
+
+export function idempotencyLookup(options: {
+    actorId: string;
+    operation: string;
+    resourceKey: string;
+    idempotencyKey: string;
+    requestHash: string;
+}): { status: 'miss' } | { status: 'replay'; record: IdempotencyRecord } | { status: 'conflict' } {
+    const id = `${options.actorId}:${options.operation}:${options.resourceKey}:${options.idempotencyKey}`;
+    const existing = idempotencyStore.get(id);
+    if (!existing) return { status: 'miss' };
+    if (existing.expiresAt < Date.now()) {
+        idempotencyStore.delete(id);
+        return { status: 'miss' };
+    }
+    if (existing.requestHash !== options.requestHash) return { status: 'conflict' };
+    return { status: 'replay', record: existing };
+}
+
+export function idempotencyStoreResult(
+    options: {
+        actorId: string;
+        operation: string;
+        resourceKey: string;
+        idempotencyKey: string;
+        requestHash: string;
+        ttlMs?: number;
+    },
+    result: unknown,
+    jobId?: string,
+): void {
+    const id = `${options.actorId}:${options.operation}:${options.resourceKey}:${options.idempotencyKey}`;
+    idempotencyStore.set(id, {
+        actorId: options.actorId,
+        operation: options.operation,
+        resourceKey: options.resourceKey,
+        idempotencyKey: options.idempotencyKey,
+        requestHash: options.requestHash,
+        result,
+        jobId,
+        expiresAt: Date.now() + (options.ttlMs ?? 24 * 60 * 60 * 1000),
+    });
+}
+
+/** Async job contract shape (types only — no fake endpoints). */
+export interface AsyncJobAccepted {
+    jobId: string;
+    status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+}
+
+export function newJobId(): string {
+    return randomUUID();
 }
 
 export function sendHttpError(res: Response, e: unknown, heart: IHeart): void {
