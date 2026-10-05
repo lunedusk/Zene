@@ -18,6 +18,7 @@ export type DashboardEventResourceType =
     | 'job'
     | 'data_rights'
     | 'session'
+    | 'override'
     | 'global';
 
 export interface DashboardEventResource {

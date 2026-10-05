@@ -17,6 +17,40 @@ export function getDashboardAdapter(): SqlAdapter {
     return adapter;
 }
 
+/**
+ * Test-only: install an isolated SQLite backend for alias "main" and open the dashboard adapter.
+ * Uses a unique on-disk temp path so concurrent suites do not share state with production.
+ * Does not use the caller's production database.
+ */
+export async function installIsolatedDashboardTestBackend(options?: {
+    readonly alias?: string;
+    readonly filepath?: string;
+}): Promise<{ alias: string; filepath: string }> {
+    const { sqliteDB } = await import('#core/database/sqlite.js');
+    const alias = options?.alias ?? 'main';
+    const filepath =
+        options?.filepath ??
+        `${process.env.TMPDIR ?? '/tmp'}/zene-dash-test-${process.pid}-${Date.now()}.sqlite`;
+    sqliteDB.connect(alias, `sqlite://${filepath}`);
+    adapter = openSqlAdapter({ engine: 'sqlite', alias });
+    await adapter.run(
+        `CREATE TABLE IF NOT EXISTS dash_kv (
+            ns TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            updatedAt BIGINT NOT NULL,
+            PRIMARY KEY (ns, key)
+        )`,
+        [],
+    );
+    return { alias, filepath };
+}
+
+/** Test-only: drop the cached adapter so the next call re-resolves. */
+export function resetDashboardAdapterForTests(): void {
+    adapter = null;
+}
+
 export async function initSchema(_heart: IHeart): Promise<void> {
     await ensureDashboardAdapter();
 }

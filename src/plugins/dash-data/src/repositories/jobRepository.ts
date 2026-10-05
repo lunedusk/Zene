@@ -107,13 +107,23 @@ export async function executeJobOnce(jobId: string): Promise<JobRecord | null> {
     const job = await getJob(jobId);
     if (!job) return null;
     if (job.status === 'succeeded' || job.status === 'cancelled') return job;
+    if (typeof job.nextAttemptAt === 'number' && job.nextAttemptAt > Date.now()) {
+        return job;
+    }
+    if (job.status !== 'queued' && job.status !== 'retrying' && job.status !== 'running') {
+        return job;
+    }
+    if (job.status !== 'running') {
+        const claimed = await transitionJob(jobId, 'running');
+        if (!claimed || claimed.status !== 'running') return claimed;
+    }
     const handler = handlers.get(job.type);
     if (!handler) {
         return transitionJob(jobId, 'failed', { error: 'NO_HANDLER' });
     }
-    await transitionJob(jobId, 'running');
     try {
-        const out = await handler({ ...job, status: 'running' });
+        const latest = (await getJob(jobId)) ?? job;
+        const out = await handler({ ...latest, status: 'running' });
         if (out.ok) {
             return transitionJob(jobId, 'succeeded', { result: out.result, error: undefined });
         }
@@ -128,4 +138,60 @@ export async function executeJobOnce(jobId: string): Promise<JobRecord | null> {
         }
         return transitionJob(jobId, 'failed', { error: msg });
     }
+}
+
+const NS_DUE = 'dash_jobs_due';
+
+export async function indexDueJob(jobId: string, runAt: number): Promise<void> {
+    await kvSet(NS_DUE, jobId, { jobId, runAt });
+}
+
+export async function listDueJobIds(nowMs: number = Date.now()): Promise<string[]> {
+    const raw = await kvGet(NS_DUE, '_index');
+    const ids = Array.isArray(raw) ? (raw as string[]) : [];
+    const due: string[] = [];
+    for (const id of ids) {
+        const meta = (await kvGet(NS_DUE, id)) as { jobId?: string; runAt?: number } | null;
+        if (meta && typeof meta.runAt === 'number' && meta.runAt <= nowMs) {
+            due.push(id);
+        }
+    }
+    return due;
+}
+
+export async function registerDueIndex(jobId: string, runAt: number): Promise<void> {
+    await indexDueJob(jobId, runAt);
+    const raw = await kvGet(NS_DUE, '_index');
+    const ids = Array.isArray(raw) ? (raw as string[]) : [];
+    if (!ids.includes(jobId)) ids.push(jobId);
+    await kvSet(NS_DUE, '_index', ids.slice(-500));
+}
+
+export async function clearDueIndex(jobId: string): Promise<void> {
+    await kvSet(NS_DUE, jobId, null);
+    const raw = await kvGet(NS_DUE, '_index');
+    const ids = Array.isArray(raw) ? (raw as string[]) : [];
+    await kvSet(NS_DUE, '_index', ids.filter((id) => id !== jobId));
+}
+
+export async function processDueJobs(nowMs: number = Date.now()): Promise<JobRecord[]> {
+    const ids = await listDueJobIds(nowMs);
+    const out: JobRecord[] = [];
+    for (const id of ids) {
+        const job = await getJob(id);
+        if (!job) {
+            await clearDueIndex(id);
+            continue;
+        }
+        if (job.status === 'succeeded' || job.status === 'cancelled' || job.status === 'failed') {
+            await clearDueIndex(id);
+            continue;
+        }
+        const result = await executeJobOnce(id);
+        if (result) out.push(result);
+        if (result && (result.status === 'succeeded' || result.status === 'failed' || result.status === 'cancelled')) {
+            await clearDueIndex(id);
+        }
+    }
+    return out;
 }

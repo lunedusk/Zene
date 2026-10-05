@@ -83,6 +83,14 @@ export function serviceOk<T>(data: T, meta?: Record<string, unknown>): ServiceRe
     return meta ? { ok: true, data, meta } : { ok: true, data };
 }
 
+/** Narrow ServiceResult to success data or rethrow the ServiceError. */
+export function unwrapServiceResult<T>(result: ServiceResult<T>): T {
+    if (!result.ok) {
+        throw result.error;
+    }
+    return result.data;
+}
+
 export function serviceFail(
     code: ServiceErrorCode,
     message: string,

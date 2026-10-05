@@ -171,7 +171,113 @@ export async function getPublishedOverride(
 export async function schedulePublish(overrideId: string, scheduledAt: number): Promise<OwnerOverrideRecord | null> {
     const cur = (await kvGet(NS, overrideId)) as OwnerOverrideRecord | null;
     if (!cur) return null;
+    if (scheduledAt <= Date.now()) return null;
     const next = { ...cur, state: 'scheduled' as const, scheduledAt, updatedAt: Date.now() };
     await kvSet(NS, overrideId, next);
     return next;
 }
+
+export async function cancelScheduledPublish(overrideId: string): Promise<OwnerOverrideRecord | null> {
+    const cur = (await kvGet(NS, overrideId)) as OwnerOverrideRecord | null;
+    if (!cur) return null;
+    if (cur.state !== 'scheduled') return cur;
+    const next: OwnerOverrideRecord = {
+        ...cur,
+        state: 'draft',
+        scheduledAt: undefined,
+        updatedAt: Date.now(),
+    };
+    await kvSet(NS, overrideId, next);
+    return next;
+}
+
+export async function getOverride(overrideId: string): Promise<OwnerOverrideRecord | null> {
+    const rec = (await kvGet(NS, overrideId)) as OwnerOverrideRecord | null;
+    return rec ?? null;
+}
+
+export async function getOverrideByTarget(
+    targetKind: string,
+    targetKey: string,
+): Promise<OwnerOverrideRecord | null> {
+    const targetId = `${targetKind}:${targetKey}`;
+    const id = (await kvGet(NS_BY_TARGET, targetId)) as string | null;
+    if (typeof id !== 'string') return null;
+    return getOverride(id);
+}
+
+/**
+ * Attach a preview token hash + expiry. Does not grant dashboard session authority.
+ */
+export async function attachPreviewSession(
+    overrideId: string,
+    previewTokenHash: string,
+    previewExpiresAt: number,
+): Promise<OwnerOverrideRecord | null> {
+    const cur = (await kvGet(NS, overrideId)) as OwnerOverrideRecord | null;
+    if (!cur) return null;
+    const next: OwnerOverrideRecord = {
+        ...cur,
+        state: cur.state === 'published' ? cur.state : 'preview',
+        previewTokenHash,
+        previewExpiresAt,
+        updatedAt: Date.now(),
+    };
+    await kvSet(NS, overrideId, next);
+    return next;
+}
+
+export async function clearPreviewSession(overrideId: string): Promise<OwnerOverrideRecord | null> {
+    const cur = (await kvGet(NS, overrideId)) as OwnerOverrideRecord | null;
+    if (!cur) return null;
+    const next: OwnerOverrideRecord = {
+        ...cur,
+        previewTokenHash: undefined,
+        previewExpiresAt: undefined,
+        state: cur.state === 'preview' ? 'draft' : cur.state,
+        updatedAt: Date.now(),
+    };
+    await kvSet(NS, overrideId, next);
+    return next;
+}
+
+/**
+ * Rollback: publish a historical snapshot through the normal publication pipeline
+ * (new published version based on history). Distinct from restore (which creates a draft-like restored state).
+ */
+export async function rollbackOverrideVersion(
+    targetKind: string,
+    targetKey: string,
+    version: number,
+): Promise<OwnerOverrideRecord | null> {
+    const versions = await listOverrideVersions(targetKind, targetKey);
+    const snap = versions.find((v) => v.version === version);
+    if (!snap) return null;
+    const targetId = `${targetKind}:${targetKey}`;
+    const id = (await kvGet(NS_BY_TARGET, targetId)) as string | null;
+    if (typeof id !== 'string') return null;
+    const published: OwnerOverrideRecord = {
+        ...snap,
+        overrideId: id,
+        state: 'published',
+        updatedAt: Date.now(),
+        version: snap.version + 1,
+        changeSummary: `rollback_to_v${version}`,
+        scheduledAt: undefined,
+        previewTokenHash: undefined,
+        previewExpiresAt: undefined,
+    };
+    await kvSet(NS, id, published);
+    await pushVersion(published);
+    await purgeOldVersions(targetId, 4);
+    return published;
+}
+
+/** Due scheduled overrides (for job worker execution). */
+export async function listDueScheduled(nowMs: number = Date.now()): Promise<OwnerOverrideRecord[]> {
+    // KV scan is not available generically; callers should track schedule job ids.
+    // This helper is a no-op placeholder for job-driven lookups by known overrideId.
+    void nowMs;
+    return [];
+}
+

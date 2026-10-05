@@ -14,6 +14,8 @@ import {
     type PluginSignedStatus,
 } from '#core/types/dashSdk.js';
 import { getLogger } from '#core/utils/logger.js';
+import { evaluatePluginIntegrity } from './pluginIntegrity.js';
+import { setPluginRuntimeIntegrity } from './pluginRuntimeGate.js';
 
 const log = getLogger('DashRegistry');
 
@@ -195,6 +197,45 @@ export async function buildRegistrySnapshot(filter?: {
                 unsignedBadge: signed !== 'signed',
                 state: plugin.state,
                 manifest: null,
+                surfaces: [],
+            });
+            continue;
+        }
+
+        const zeneVer = plugin.manifest.zene_version;
+        const zeneVersionStr = Array.isArray(zeneVer)
+            ? (zeneVer[0] ?? '0.0.0')
+            : String(zeneVer ?? '0.0.0');
+        const integrity = evaluatePluginIntegrity({
+            pluginId,
+            pluginVersion: String(plugin.manifest.version ?? '0.0.0'),
+            zeneVersion: zeneVersionStr,
+            sdkVersion: String(manifest.dashCompat ?? '1.0.0'),
+            requiredSdkRange: typeof manifest.dashCompat === 'string' ? manifest.dashCompat : undefined,
+            signatureValid: signed === 'signed' ? true : signed === 'failed' ? false : undefined,
+            disabled: plugin.state === 'DISABLED' || plugin.state === 'ERROR',
+            quarantined: signed === 'failed',
+        });
+        setPluginRuntimeIntegrity(pluginId, {
+            pluginId,
+            pluginVersion: String(plugin.manifest.version ?? '0.0.0'),
+            zeneVersion: zeneVersionStr,
+            sdkVersion: String(manifest.dashCompat ?? '1.0.0'),
+            requiredSdkRange: typeof manifest.dashCompat === 'string' ? manifest.dashCompat : undefined,
+            signatureValid: signed === 'signed' ? true : signed === 'failed' ? false : undefined,
+            disabled: plugin.state === 'DISABLED' || plugin.state === 'ERROR',
+            quarantined: signed === 'failed',
+        });
+        if (!integrity.acceptContributions) {
+            log.warn(
+                `[${pluginId}] dashboard contributions rejected: integrity=${integrity.state} reasons=${integrity.reasons.join(',')}`,
+            );
+            plugins.push({
+                pluginId,
+                signed,
+                unsignedBadge: signed !== 'signed',
+                state: plugin.state,
+                manifest,
                 surfaces: [],
             });
             continue;

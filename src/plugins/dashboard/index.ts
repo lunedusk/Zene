@@ -39,6 +39,46 @@ export default class DashboardPlugin extends BasePlugin {
         this.log.info('Dashboard API is live.');
 
         try {
+            const { bootstrapPhase4 } = await import('./src/lib/bootstrapPhase4.js');
+            const result = await bootstrapPhase4({
+                cutoverPhase: 2,
+                betterAuth: {
+                    enabled: false,
+                },
+            });
+            this.log.info(
+                `Phase4 bootstrap: schema=${result.schema.ok} rateLimitRedis=${result.rateLimitRedis} betterAuth=${result.betterAuth.ok} cutover=${result.cutoverPhase}`,
+            );
+            if (!result.schema.ok) {
+                this.log.warn(`Better Auth schema ensure: ${result.schema.message ?? 'failed'}`);
+            }
+        } catch (e) {
+            this.log.warn(`Phase4 bootstrap deferred: ${e instanceof Error ? e.message : 'unknown'}`);
+        }
+
+        try {
+            const perms = this.heart.system.handler.$get('permissions', 'manager') as
+                | PermissionsHandler
+                | undefined;
+            if (perms) {
+                const { bindRealtimeActorRefreshToPermissions, wrapPermissionsInvalidateUser } =
+                    await import('./src/lib/realtime/permissionsManagerBinding.js');
+                bindRealtimeActorRefreshToPermissions(async (userId, guildId) => {
+                    return perms.resolve(userId, guildId);
+                });
+                const originalInvalidate = perms.invalidateUser.bind(perms);
+                perms.invalidateUser = wrapPermissionsInvalidateUser(originalInvalidate);
+                this.log.info('Realtime auth bound to PermissionsManager resolve/invalidate');
+            } else {
+                this.log.warn('Permissions handler unavailable — realtime auth refresh not bound');
+            }
+        } catch (e) {
+            this.log.warn(
+                `Realtime PermissionsManager binding deferred: ${e instanceof Error ? e.message : 'unknown'}`,
+            );
+        }
+
+        try {
             this.heart.system.events.on(
                 'command:executed',
                 (payload: { pluginId: string; commandName: string }) => {

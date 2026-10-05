@@ -1,21 +1,18 @@
 /**
- * Phase 2C — Rate-limit Express middleware wired to risk classification.
+ * Phase 2C/4 — Rate-limit Express middleware wired to risk classification + distributed store.
  */
 
 import type { Response, NextFunction } from 'express';
 import type { DashRequest } from '../authz.js';
 import { err } from '../http.js';
 import { LocalRateLimiter, ruleForRisk, type RouteRiskClass } from './rateLimitPolicy.js';
+import { distributedAllow } from './distributedStore.js';
 
 const limiter = new LocalRateLimiter();
 
 export function rateLimit(risk: RouteRiskClass) {
     const rule = ruleForRisk(risk);
     return (req: DashRequest, res: Response, next: NextFunction): void => {
-        if (rule.distributed) {
-            // Production Redis adapter deferred; enforce local best-effort and document.
-            // Cluster-wide guarantees are NOT claimed.
-        }
         const userId = req.dashSession?.payload.userId;
         const sessionId = req.dashSession?.payload.jti;
         const ip =
@@ -32,12 +29,26 @@ export function rateLimit(risk: RouteRiskClass) {
             operation: risk,
             guild: typeof req.params.guildId === 'string' ? req.params.guildId : undefined,
         });
-        if (!limiter.allow(key, rule)) {
-            res.setHeader('Retry-After', String(Math.ceil(rule.windowMs / 1000)));
-            err(res, 429, 'rate_limited', 'Too many requests', { risk, windowMs: rule.windowMs });
-            return;
-        }
-        next();
+
+        const run = async (): Promise<void> => {
+            const decision = rule.distributed
+                ? await distributedAllow(key, rule)
+                : { allowed: limiter.allow(key, rule), remaining: 0, backend: 'local' as const };
+            if (!decision.allowed) {
+                res.setHeader('Retry-After', String(Math.ceil(rule.windowMs / 1000)));
+                err(res, 429, 'rate_limited', 'Too many requests', {
+                    risk,
+                    windowMs: rule.windowMs,
+                    backend: decision.backend,
+                });
+                return;
+            }
+            next();
+        };
+
+        void run().catch((e: unknown) => {
+            next(e instanceof Error ? e : new Error('rate_limit_error'));
+        });
     };
 }
 

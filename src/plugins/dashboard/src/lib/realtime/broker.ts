@@ -16,6 +16,7 @@ import {
     scopeMatchesEvent,
     type RealtimeActor,
 } from './subscriptionAuthz.js';
+import { makeDeniedRealtimeActor } from './resolvedPermissionsFactory.js';
 
 export interface BrokerClient {
     readonly id: string;
@@ -49,6 +50,17 @@ const clients = new Map<string, BrokerClient>();
 const recent: DashboardEvent[] = [];
 const RECENT_MAX = 100;
 
+/**
+ * Optional resolver: when global authRevision advances past client.authRevision,
+ * re-resolve actor from Zene PermissionsManager (or test double) before delivery.
+ */
+export type ActorRefreshFn = (userId: string) => RealtimeActor | null | Promise<RealtimeActor | null>;
+let actorRefresh: ActorRefreshFn | null = null;
+
+export function setRealtimeActorRefresh(fn: ActorRefreshFn | null): void {
+    actorRefresh = fn;
+}
+
 export function bumpRealtimeAuthRevision(): number {
     authRevision += 1;
     return authRevision;
@@ -73,6 +85,11 @@ export function publishDashboardEvent(input: BrokerPublishInput): DashboardEvent
     if (recent.length > RECENT_MAX) recent.shift();
 
     for (const [id, client] of clients) {
+        // Refresh when global revision advanced. Sync resolvers apply immediately;
+        // async resolvers update actor for subsequent events.
+        if (actorRefresh && client.authRevision < authRevision) {
+            applyActorRefresh(id, client, actorRefresh);
+        }
         if (!clientMayReceive(client, event)) continue;
         if (!client.write(event)) {
             clients.delete(id);
@@ -88,8 +105,57 @@ export function publishDashboardEvent(input: BrokerPublishInput): DashboardEvent
     return event;
 }
 
+function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        'then' in value &&
+        typeof (value as { then?: unknown }).then === 'function'
+    );
+}
+
+function applyActorRefresh(
+    clientId: string,
+    client: BrokerClient,
+    refresh: ActorRefreshFn,
+): void {
+    const result = refresh(client.actor.userId);
+    if (isPromiseLike(result)) {
+        void result.then((next) => {
+            const c = clients.get(clientId);
+            if (!c) return;
+            c.actor = next ?? makeDeniedRealtimeActor(c.actor.userId);
+            c.authRevision = authRevision;
+        });
+        return;
+    }
+    client.actor = result ?? makeDeniedRealtimeActor(client.actor.userId);
+    client.authRevision = authRevision;
+}
+
+/**
+ * Synchronous publish after ensuring all clients have refreshed actors for current revision.
+ * Prefer this in tests and when actorRefresh is synchronous.
+ */
+export function publishDashboardEventWithAuthRefresh(input: BrokerPublishInput): DashboardEvent {
+    if (actorRefresh) {
+        for (const [id, client] of clients) {
+            if (client.authRevision < authRevision) {
+                const result = actorRefresh(client.actor.userId);
+                if (!isPromiseLike(result)) {
+                    client.actor = result ?? makeDeniedRealtimeActor(client.actor.userId);
+                    client.authRevision = authRevision;
+                } else {
+                    applyActorRefresh(id, client, actorRefresh);
+                }
+            }
+        }
+    }
+    return publishDashboardEvent(input);
+}
+
 function clientMayReceive(client: BrokerClient, event: DashboardEvent): boolean {
-    // Delivery-time authorization (fresh relative to client.actor snapshot).
+    // Delivery-time authorization against current actor snapshot (refreshed when revision advances).
     if (!authorizeEventDelivery(client.actor, event)) return false;
     if (client.scopes.length === 0) {
         // Compatibility: no explicit scopes → registry/theme/heartbeat only (Phase 1-like).
