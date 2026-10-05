@@ -1,6 +1,6 @@
-/**
- * Build public command catalog from Zene CommandRegistry — no invented commands.
- */
+
+
+
 
 import {
     listCommandTree,

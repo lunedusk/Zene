@@ -30,7 +30,7 @@ export const SECURITY_BITS_TO_REGISTER: ReadonlyArray<{ bit: string; description
     { bit: SECURITY_BITS.RAID, description: 'Toggle raid mode and join-rate protections.', rank: 550 },
 ];
 
-/** Existing core/server bits used for classic moderation actions. */
+
 export const SERVER_BITS = {
     BAN: 'server.members.ban',
     KICK: 'server.members.kick',

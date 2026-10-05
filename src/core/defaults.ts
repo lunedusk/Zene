@@ -24,7 +24,7 @@ export interface DefaultEntry {
 export const MATERIALIZE_KEYS = ['NODE_ENV', 'PublicKey'] as const;
 
 const ENTRIES: readonly DefaultEntry[] = [
-    // --- identity / boot ---
+
     { key: 'NODE_ENV', kind: 'string', value: 'production' },
     { key: 'PublicKey', kind: 'string', value: BUILTIN_PUBLIC_KEY },
     { key: 'DiscordToken', kind: 'string', required: true, sensitive: true },
@@ -32,11 +32,11 @@ const ENTRIES: readonly DefaultEntry[] = [
     { key: 'DefaultLocale', kind: 'string', value: 'en' },
     { key: 'GuildID', kind: 'string' },
 
-    // --- HTTP ---
+
     { key: 'APIPort', kind: 'string', value: '3000' },
     { key: 'APIHost', kind: 'string', value: '0.0.0.0' },
 
-    // --- flags ---
+
     { key: 'hotReloadEnabled', kind: 'boolean', value: false },
     { key: 'isSharded', kind: 'boolean', value: false },
     { key: 'CROSS_HOST', kind: 'boolean', value: false },
@@ -46,7 +46,7 @@ const ENTRIES: readonly DefaultEntry[] = [
     { key: 'DisableDefaultSqlite', kind: 'boolean', value: false },
     { key: 'DisableDefaultSurrealDB', kind: 'boolean', value: false },
 
-    // --- updater ---
+
     { key: 'AutoUpdater', kind: 'boolean', value: true },
     { key: 'DevBuilds', kind: 'boolean', value: false },
     { key: 'SafeUpdate', kind: 'boolean', value: true },
@@ -64,17 +64,17 @@ const ENTRIES: readonly DefaultEntry[] = [
     { key: 'UpdaterIntervalMs', kind: 'string', value: String(6 * 60 * 60 * 1000) },
     { key: 'UpdaterHealthGraceMs', kind: 'string', value: String(15 * 60 * 1000) },
 
-    // --- errors ---
+
     { key: 'ErrorCoalesceWindowSec', kind: 'string', value: '60' },
 
-    // --- token plugin ---
+
     { key: 'TokenMasterSecret', kind: 'string', required: true, sensitive: true },
     { key: 'TokenTTL', kind: 'string', value: '900' },
     { key: 'TokenMaxTTL', kind: 'string', value: '86400' },
     { key: 'TokenIssuer', kind: 'string', value: 'zene' },
     { key: 'TokenAudience', kind: 'string', value: 'dashboard' },
 
-    // --- cross-host ---
+
     { key: 'CROSS_HOST_HTTP_HOST', kind: 'string', value: '0.0.0.0' },
     { key: 'CROSS_HOST_HTTP_PORT', kind: 'string', value: '8020' },
     { key: 'CROSS_HOST_MTLS_ENABLED', kind: 'boolean', value: false },

@@ -73,7 +73,7 @@ export default class SetupInteractionsEvent extends BaseEvent<[unknown]> {
     ]);
 
     public async execute(): Promise<void> {
-        // Button maps only.
+
     }
 
     private getWizard(): SetupWizardHandler | undefined {

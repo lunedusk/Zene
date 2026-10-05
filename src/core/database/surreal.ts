@@ -60,7 +60,7 @@ export function resolveSurrealUri(uri: string, alias: string): string {
         return trimmed;
     }
 
-    // Strip scheme:// and optional leading slashes for path extraction
+
     const afterScheme = trimmed.slice(protocol.length + 1).replace(/^\/\//, '');
     const isLocalShorthand =
         afterScheme === '' ||
@@ -85,7 +85,7 @@ export function resolveSurrealUri(uri: string, alias: string): string {
         return `${protocol}://${dir}`;
     }
 
-    // Honour explicit user path
+
     const resolved = path.isAbsolute(afterScheme)
         ? afterScheme
         : path.resolve(process.cwd(), afterScheme);
@@ -155,7 +155,7 @@ export class SurrealRegistry {
                 try {
                     await db.close();
                 } catch {
-                    // ignore close errors during failed connect
+
                 }
                 const err = error as Error;
                 log.error(`Failed to initialize SurrealDB [${alias}]: ${err.message}`, {
@@ -189,7 +189,7 @@ export class SurrealRegistry {
         const status: Record<string, boolean> = {};
         for (const [alias, client] of this.clients.entries()) {
             try {
-                // Lightweight readiness probe — version() hits the engine without side effects
+
                 await client.version();
                 status[alias] = true;
             } catch {

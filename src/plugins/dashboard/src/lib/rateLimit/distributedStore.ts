@@ -1,6 +1,6 @@
-/**
- * Phase 4 — Distributed rate-limit store (Redis when available; fail-closed for security risks).
- */
+
+
+
 
 import type { RateLimitRule, RouteRiskClass } from './rateLimitPolicy.js';
 import { LocalRateLimiter } from './rateLimitPolicy.js';
@@ -15,7 +15,7 @@ export interface RateLimitStore {
     allow(key: string, rule: RateLimitRule): Promise<RateLimitDecision>;
 }
 
-/** Risks that must never fail open when distributed backend is down. */
+
 export const FAIL_CLOSED_RISKS: ReadonlySet<RouteRiskClass> = new Set([
     'authentication',
     'sensitive_mutation',
@@ -41,10 +41,10 @@ export function getDistributedRateLimitRedis(): RedisLike | null {
     return redisClient;
 }
 
-/**
- * Rebind from Redis registry without requiring process restart.
- * Call on connect/reconnect lifecycle events.
- */
+
+
+
+
 export function rebindRateLimitRedisFromRegistry(
     tryGet: (alias: string) => { main: RedisLike } | null,
 ): boolean {
@@ -59,10 +59,10 @@ export function rebindRateLimitRedisFromRegistry(
     return false;
 }
 
-/**
- * Atomic window counter. Redis INCR + PEXPIRE on first hit.
- * If Redis missing: local for non-security; fail-closed for security risks.
- */
+
+
+
+
 export async function distributedAllow(
     key: string,
     rule: RateLimitRule,
@@ -81,7 +81,7 @@ export async function distributedAllow(
                 backend: 'redis',
             };
         } catch {
-            // fall through to fail-closed / local
+
         }
     }
 

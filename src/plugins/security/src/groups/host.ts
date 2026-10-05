@@ -4,7 +4,7 @@ import type { CooldownOp } from '../lib/cooldowns.js';
 import type { ActionBatchResult, GuildAuthzDecision, PunishOp } from '../lib/types.js';
 import type { ProofMeta } from '../lib/proof.js';
 
-/** Shared surface for security subcommand modules (bound to SecurityCommand instance). */
+
 export interface SecurityCmdHost {
     readonly heart: IHeart;
     t(key: string, vars?: Record<string, string | number>, locale?: string): string;

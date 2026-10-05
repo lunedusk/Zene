@@ -1,6 +1,6 @@
-/**
- * Navigation editor draft model — owner override layer (not a second nav authority).
- */
+
+
+
 
 import { logger } from '../lib/logger.js';
 import type { NavigationItem, VisibilityExpr } from '../nav/types.js';

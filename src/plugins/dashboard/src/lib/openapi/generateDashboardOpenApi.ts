@@ -1,6 +1,6 @@
-/**
- * Phase 4 — Generate OpenAPI from Dashboard route JSDoc via swagger-jsdoc (same stack as API plugin).
- */
+
+
+
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,24 +61,24 @@ export async function generateDashboardOpenApiSpec(): Promise<GenerateOpenApiRes
     const paths = (spec.paths ?? {}) as Record<string, unknown>;
     const pathCount = Object.keys(paths).length;
 
-    // Required inventory paths should appear in generated spec when JSDoc is present
+
     for (const entry of DASHBOARD_OPENAPI_INVENTORY) {
         const pathItem = paths[entry.path] as Record<string, unknown> | undefined;
         if (!pathItem) {
-            // soft: inventory is authoritative checklist; JSDoc may lag — record warning-level
+
             errors.push(`generated_missing_path:${entry.method}:${entry.path}`);
         } else if (!pathItem[entry.method]) {
             errors.push(`generated_missing_method:${entry.method}:${entry.path}`);
         }
     }
 
-    // Hard failures: empty paths, invalid openapi version
+
     if (pathCount === 0) errors.push('generated_paths_empty');
     if (spec.openapi !== '3.0.3' && spec.openapi !== '3.1.0') {
         errors.push(`openapi_version:${String(spec.openapi)}`);
     }
 
-    // Inventory must itself be valid
+
     const hardErrors = errors.filter(
         (e) =>
             e === 'generated_paths_empty' ||

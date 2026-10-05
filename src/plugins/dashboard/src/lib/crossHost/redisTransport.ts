@@ -1,7 +1,7 @@
-/**
- * Phase 4 — Real Redis pub/sub Cross-Host transport (ioredis via existing redisDB).
- * Isolated channel prefix for tests; never uses production channels without explicit prefix.
- */
+
+
+
+
 
 import type { Redis } from 'ioredis';
 import { getLogger } from '#core/utils/logger.js';
@@ -37,10 +37,10 @@ export function newTransportMessageId(): string {
     return `rtx_${Date.now()}_${seq}`;
 }
 
-/**
- * Create transport bound to Redis pub + sub clients.
- * channelPrefix must be unique per test (e.g. zene:test:dash:<pid>).
- */
+
+
+
+
 export function createRedisTransport(input: {
     pub: Redis;
     sub: Redis;
@@ -153,7 +153,7 @@ export function createRedisTransport(input: {
                     try {
                         await input.sub.unsubscribe(full(channel));
                     } catch {
-                        /* ignore */
+
                     }
                 }
             };
@@ -165,10 +165,10 @@ export function createRedisTransport(input: {
     };
 }
 
-/**
- * Try connect isolated Redis for tests. Returns null if unavailable.
- * Uses REDIS_URL or redis://127.0.0.1:6379 — never production Cross-Host prefix.
- */
+
+
+
+
 export async function tryCreateTestRedisTransport(workerId: string): Promise<{
     transport: RedisTransport;
     disconnect: () => Promise<void>;
@@ -199,8 +199,8 @@ export async function tryCreateTestRedisTransport(workerId: string): Promise<{
                 new Promise((_, rej) => setTimeout(() => rej(new Error('redis_connect_timeout')), 2000)),
             ]);
         } catch {
-            try { pub.disconnect(); } catch { /* ignore */ }
-            try { sub.disconnect(); } catch { /* ignore */ }
+            try { pub.disconnect(); } catch {              }
+            try { sub.disconnect(); } catch {              }
             return null;
         }
         const prefix = `zene:test:dash:${process.pid}:${Date.now()}`;

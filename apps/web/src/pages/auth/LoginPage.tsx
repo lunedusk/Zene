@@ -43,7 +43,7 @@ export function LoginPage() {
                 onClick={() => {
                   trackPublic('login_start', { provider: 'discord' });
                   logger.debug('web.auth.session.loaded', { action: 'login_start' });
-                  // Existing Discord OAuth entry — Dashboard API / public auth routes
+
                   window.location.href = '/api/dash/auth/discord' ;
                 }}
               >

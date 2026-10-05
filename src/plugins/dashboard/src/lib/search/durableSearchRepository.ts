@@ -1,7 +1,7 @@
-/**
- * Phase 4 — Durable search repository (KV-backed via dash-data store).
- * Candidate retrieval only — authorization is performed by SearchService.
- */
+
+
+
+
 
 import { kvGet, kvSet } from '../../../../dash-data/src/lib/store.js';
 import type { SearchCandidate, SearchResultKind } from './searchAuthz.js';
@@ -55,10 +55,10 @@ export async function durableIndexUpdatedAt(): Promise<number | null> {
     return typeof v === 'number' ? v : null;
 }
 
-/**
- * List all durable entries. Uses index of keys stored under meta when available;
- * falls back to scanning known seeds + any upserted keys tracked in meta set.
- */
+
+
+
+
 async function listAllEntries(): Promise<DurableSearchEntry[]> {
     const keyListRaw = await kvGet(NS_META, 'keys');
     const keys = Array.isArray(keyListRaw) ? (keyListRaw as string[]) : [];
@@ -85,9 +85,9 @@ export async function durableUpsertTracked(c: SearchCandidate): Promise<void> {
     await trackKey(key);
 }
 
-/**
- * Candidate query — NOT authorization.
- */
+
+
+
 export async function durableQueryCandidates(
     query: string,
     options?: { kinds?: readonly SearchResultKind[]; limit?: number },
@@ -124,7 +124,7 @@ export async function ensureDurableSearchSeed(): Promise<void> {
     await durableUpsertTracked({ id: 'docs.getting-started', kind: 'doc', title: 'Getting Started' });
 }
 
-/** Backend availability probe */
+
 export type SearchBackendStatus = 'ok' | 'unavailable';
 
 export async function probeSearchBackend(): Promise<SearchBackendStatus> {

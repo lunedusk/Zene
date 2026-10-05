@@ -1,6 +1,6 @@
-/**
- * Typed Dashboard API surface helpers — all traffic stays on /api/dash/*.
- */
+
+
+
 
 import { apiClient } from './client.js';
 import { logger } from '../lib/logger.js';
@@ -118,7 +118,7 @@ export async function saveLayout(doc: {
 }
 
 
-/** Normalize unknown registry plugin payloads into RegistryPlugin[] without unsafe casts. */
+
 export function normalizeRegistryPlugins(raw: unknown): RegistryPlugin[] {
   if (!Array.isArray(raw)) return [];
   const out: RegistryPlugin[] = [];

@@ -96,7 +96,7 @@ export async function computeLocalHashes(
             const { hash, size } = await hashFile(full);
             out[rel] = { hash, size };
         } catch {
-            /* skip unreadable */
+
         }
     }
     return out;

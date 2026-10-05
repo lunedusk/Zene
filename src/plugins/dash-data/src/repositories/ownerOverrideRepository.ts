@@ -1,6 +1,6 @@
-/**
- * Phase 2B — Owner customization override layer (does not mutate plugin manifests).
- */
+
+
+
 
 import { kvGet, kvSet, newId } from '../lib/store.js';
 
@@ -8,7 +8,7 @@ export type OverridePublicationState = 'draft' | 'preview' | 'published' | 'sche
 
 export interface OwnerOverrideRecord {
     overrideId: string;
-    /** Logical target: page | widget | theme | layout | component | tsx */
+
     targetKind: string;
     targetKey: string;
     pluginId?: string;
@@ -17,7 +17,7 @@ export interface OwnerOverrideRecord {
     sourceFile?: string;
     exportName?: string;
     contentHash: string;
-    /** Opaque payload (theme tokens, layout grid, page def, tsx source meta) */
+
     payload: unknown;
     authorUserId: string;
     createdAt: number;
@@ -118,7 +118,7 @@ async function pushVersion(rec: OwnerOverrideRecord): Promise<void> {
     await kvSet(NS_VERSIONS, key, list);
 }
 
-/** Retain current history; purge versions four versions back (keep last 4 published snapshots). */
+
 async function purgeOldVersions(targetId: string, keep: number): Promise<void> {
     const raw = await kvGet(NS_VERSIONS, targetId);
     const list = Array.isArray(raw) ? (raw as OwnerOverrideRecord[]) : [];
@@ -206,9 +206,9 @@ export async function getOverrideByTarget(
     return getOverride(id);
 }
 
-/**
- * Attach a preview token hash + expiry. Does not grant dashboard session authority.
- */
+
+
+
 export async function attachPreviewSession(
     overrideId: string,
     previewTokenHash: string,
@@ -241,10 +241,10 @@ export async function clearPreviewSession(overrideId: string): Promise<OwnerOver
     return next;
 }
 
-/**
- * Rollback: publish a historical snapshot through the normal publication pipeline
- * (new published version based on history). Distinct from restore (which creates a draft-like restored state).
- */
+
+
+
+
 export async function rollbackOverrideVersion(
     targetKind: string,
     targetKey: string,
@@ -273,10 +273,10 @@ export async function rollbackOverrideVersion(
     return published;
 }
 
-/** Due scheduled overrides (for job worker execution). */
+
 export async function listDueScheduled(nowMs: number = Date.now()): Promise<OwnerOverrideRecord[]> {
-    // KV scan is not available generically; callers should track schedule job ids.
-    // This helper is a no-op placeholder for job-driven lookups by known overrideId.
+
+
     void nowMs;
     return [];
 }

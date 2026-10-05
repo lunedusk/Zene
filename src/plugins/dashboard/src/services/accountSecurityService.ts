@@ -1,7 +1,7 @@
-/**
- * Phase 4 — Account security service (session/device/MFA/passkey contracts).
- * Authentication state is Better Auth–owned when live; Zene still authorizes access to these APIs.
- */
+
+
+
+
 
 import { kvGet, kvSet, newId } from '../../../dash-data/src/lib/store.js';
 import type { RequestContext } from '../lib/requestContext.js';
@@ -119,10 +119,10 @@ export class AccountSecurityService {
         );
     }
 
-    /**
-     * TOTP enrollment starts — returns opaque enrollment id + otpauth URI.
-     * Secret is stored server-side only and never logged.
-     */
+
+
+
+
     async beginTotpEnrollment(ctx: RequestContext): Promise<ServiceResult<{ enrollmentId: string; otpauthUri: string }>> {
         const enrollmentId = newId('mfa');
         const secret = generateTotpSecret(20);
@@ -254,7 +254,7 @@ export class AccountSecurityService {
         return serviceOk({ events: list.slice(-50) }, { requestId: ctx.requestId });
     }
 
-    /** Test helper: seed session record */
+
     async seedSession(userId: string, session: SessionView): Promise<void> {
         const raw = await kvGet(NS_SESSIONS, userKey(userId));
         const list = Array.isArray(raw) ? (raw as SessionView[]) : [];

@@ -58,11 +58,9 @@ jobs:
           set -euo pipefail
           LIB="$RUNNER_TEMP/nvx_pack_lib.sh"
           cat > "$LIB" <<'PACKLIB'
-          # shellcheck shell=bash
           pack_all_plugins() {
             set -euo pipefail
 
-            # Signing key required — same secret + env names as Plugin CI.
             if [ -z "${PrivateKey:-}" ] && [ -z "${PLUGIN_SIGNING_KEY:-}" ]; then
               echo "::error::PLUGIN_SIGNING_KEY secret is required to sign manifest.nvx"
               exit 1
@@ -70,7 +68,6 @@ jobs:
             export PrivateKey="${PrivateKey:-$PLUGIN_SIGNING_KEY}"
             export PLUGIN_SIGNING_KEY="${PLUGIN_SIGNING_KEY:-$PrivateKey}"
 
-            # Packer artifacts must exist (produced by npm install + npm run build).
             test -f core/dependency/index.mjs
             test -f scripts/manifestPacker.js
 
@@ -133,9 +130,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # NOTE (nvx): install → build → pack → copy-assets must happen BEFORE
-          # the Slim-Source zip, so the signed src/plugins/*/manifest.nvx are
-          # captured in Source, and the compiled dirs contain them for Compiled.
           echo "🔨 Building Slim (official pipeline)..."
           npm install
           npm run clean || true
@@ -144,7 +138,6 @@ jobs:
           echo "🔏 Packing .nvx (Slim: in-repo plugins present)..."
           source "$NVX_PACK_LIB"
           pack_all_plugins
-          # Re-run copy-assets so the new .nvx are carried into compiled output.
           npm run copy-assets
 
           echo "📦 Packaging Slim Source..."
@@ -188,7 +181,6 @@ jobs:
           set -euo pipefail
           mkdir -p src/plugins
 
-          # Snapshot first-party plugins present before inject (INTERNAL — never auto-dropped).
           ls -1 src/plugins 2>/dev/null > bundled-internal-plugins.txt || true
           : > bundled-external-injected.txt
 
@@ -197,8 +189,6 @@ jobs:
           cat plugins.txt || true
           echo "────────────────────────────────────────"
 
-          # Fail loud if the shared semver engine cannot run under strip-types.
-          # A broken engine must never look like "every tag is incompatible".
           SEMVER_CLI=(node --experimental-strip-types src/core/utils/semver.ts)
           if [ ! -f src/core/utils/semver.ts ]; then
             echo "::error::src/core/utils/semver.ts missing — cannot evaluate plugin ranges"
@@ -218,20 +208,13 @@ jobs:
           fi
           echo "semver CLI sanity check passed (true→0, false→1)"
 
-          # Returns 0 if this plugins.txt line is allowed in the Bundled pack.
-          # Allowed:
-          #   - in-repo name / plugin-* branch (no colon)  → always first-party
-          #   - external name:owner/repo[@tag] only if owner is lunedusk (case-insensitive)
           is_bundled_allowed() {
             local line="$1"
             if ! echo "$line" | grep -q ':'; then
               return 0
             fi
-            # Strip optional name prefix: take side after first colon
             local spec="${line#*:}"
-            # Drop @pin if present
             local repo_part="${spec%%@*}"
-            # owner/repo
             local owner="${repo_part%%/*}"
             owner=$(echo "$owner" | tr '[:upper:]' '[:lower:]')
             if [ "$owner" = "lunedusk" ]; then
@@ -261,8 +244,6 @@ jobs:
           }
 
           pick_compatible_tag() {
-            # Args: PLUGIN_NAME VERSION REPO_DIR
-            # Prints selected tag ref or empty
             local PLUGIN_NAME="$1"
             local CORE_VER="$2"
             local REPO_DIR="$3"
@@ -271,7 +252,6 @@ jobs:
             mapfile -t TAGS < <(cd "$REPO_DIR" && git tag -l "plugin-${PLUGIN_NAME}-v*" | sort -V -r)
 
             if [ ${#TAGS[@]} -eq 0 ]; then
-              # Also try plain v* for L2 single-plugin repos
               mapfile -t TAGS < <(cd "$REPO_DIR" && git tag -l "v*" | sort -V -r)
             fi
 
@@ -294,7 +274,6 @@ jobs:
               fi
 
               REQ=$(node -e 'const m=JSON.parse(process.argv[1]); const r=m.zene_version??"*"; process.stdout.write(Array.isArray(r)?r.join(" "):String(r));' "$MANIFEST")
-              # 0 = compatible, 1 = incompatible, 2+ = parse/engine error (skip tag; engine-down is caught by sanity check above)
               set +e
               SEMVER_OUT=$("${SEMVER_CLI[@]}" satisfies "$CORE_VER" "$REQ" --include-prerelease 2>&1)
               SEMVER_RC=$?
@@ -325,7 +304,6 @@ jobs:
               continue
             fi
 
-            # ── External: name:owner/repo[@optionalTag]
             if echo "$line" | grep -q ':'; then
               PLUGIN_NAME="${line%%:*}"
               SPEC="${line#*:}"
@@ -346,10 +324,8 @@ jobs:
               trap cleanup_tmp EXIT
 
               if ! git clone --depth 1 "https://github.com/${REPO_SPEC}.git" "$TMP_DIR/repo" 2>/dev/null; then
-                # deepen for tags
                 git clone "https://github.com/${REPO_SPEC}.git" "$TMP_DIR/repo"
               fi
-              # fetch tags
               git -C "$TMP_DIR/repo" fetch --tags --force 2>/dev/null || true
 
               if [ -n "$PIN_TAG" ]; then
@@ -366,7 +342,6 @@ jobs:
                 continue
               fi
 
-              # Ensure tag is present locally
               git -C "$TMP_DIR/repo" checkout "$SELECTED_REF" 2>/dev/null || \
                 git -C "$TMP_DIR/repo" fetch origin "refs/tags/${SELECTED_REF}:refs/tags/${SELECTED_REF}" && \
                 git -C "$TMP_DIR/repo" checkout "$SELECTED_REF"
@@ -378,7 +353,6 @@ jobs:
               continue
             fi
 
-            # ── In-repo first-party (branch name or bare id)
             branch="$line"
             PLUGIN_NAME=${branch#plugin-}
             echo "  In-repo: $branch → plugin name = '$PLUGIN_NAME'"
@@ -392,9 +366,6 @@ jobs:
 
             echo "  📥 Injecting tag $SELECTED_REF → src/plugins/$PLUGIN_NAME"
             inject_from_git_archive "$SELECTED_REF" "$PLUGIN_NAME" "."
-            # Tag-injected content is external for the drop loop even when the
-            # plugins.txt line has no owner/repo colon (same-repo branch/tag).
-            # Only the pre-inject snapshot is INTERNAL (never auto-dropped).
             if ! grep -qxF "$PLUGIN_NAME" bundled-internal-plugins.txt 2>/dev/null; then
               echo "$PLUGIN_NAME" >> bundled-external-injected.txt
               echo "  ↳ recorded as external-injected (not in pre-inject snapshot)"
@@ -425,10 +396,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # NOTE (nvx): install → build → pack → copy-assets must happen BEFORE
-          # the Bundled-Source zip so the signed src/plugins/*/manifest.nvx
-          # (in-repo + injected lunedusk) are captured in Source, and the
-          # compiled dirs contain them for the Compiled zip.
           echo "🔨 Building Bundled (official pipeline)..."
           npm install
           npm run clean || true
@@ -473,12 +440,10 @@ jobs:
             fi
             cat "$BUILD_LOG"
 
-            # Attribute errors to src/plugins/<id>/
             mapfile -t ERR_PLUGINS < <(
               grep -oE 'src/plugins/[A-Za-z0-9_-]+/' "$BUILD_LOG"                 | sed 's|src/plugins/||;s|/||'                 | sort -u
             )
 
-            # Any diagnostic path outside plugins, or unattributed failure → fail closed
             NON_PLUGIN_HITS=$(grep -E 'error TS|error TS[0-9]+' "$BUILD_LOG" | grep -vE 'src/plugins/[A-Za-z0-9_-]+/' || true)
             if [ -n "$NON_PLUGIN_HITS" ]; then
               echo "❌ Core/shared or non-plugin TypeScript errors — failing (will not drop plugins to hide them)"
@@ -519,7 +484,6 @@ jobs:
               echo "🗑️  Dropping external plugin '$pid' due to tsc errors"
               echo "$pid	$REASON" >> bundled-dropped-plugins.txt
               rm -rf "src/plugins/$pid"
-              # Remove from external list so a reappear is treated carefully
               if [ -f "$EXTERNAL_FILE" ]; then
                 grep -vxF "$pid" "$EXTERNAL_FILE" > "${EXTERNAL_FILE}.tmp" || true
                 mv "${EXTERNAL_FILE}.tmp" "$EXTERNAL_FILE"
@@ -544,7 +508,6 @@ jobs:
           echo "🔏 Packing .nvx (Bundled: in-repo + remaining injected plugins)..."
           source "$NVX_PACK_LIB"
           pack_all_plugins
-          # Re-run copy-assets so the new .nvx are carried into compiled output.
           npm run copy-assets
 
           echo "📦 Packaging Bundled Source..."
@@ -603,10 +566,6 @@ jobs:
 
           TAG_NAME="v${VERSION}"
 
-          # Commit signed .nvx for IN-REPO plugins back to main. Injected
-          # lunedusk/* plugins are transient (created in Inject, wiped by
-          # `npm run clean` at the end of Build Bundled), so only in-repo
-          # src/plugins/*/manifest.nvx that survive on disk get staged.
           git add docs/ *.md plugins.txt takebacks.json || true
           git add src/plugins/*/manifest.nvx || true
           if ! git diff --cached --quiet; then

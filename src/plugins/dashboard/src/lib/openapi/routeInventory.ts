@@ -1,7 +1,7 @@
-/**
- * Phase 4 — Deterministic Dashboard OpenAPI surface inventory + validation.
- * Routes register via JSDoc; this inventory is the contract checklist and structural validator.
- */
+
+
+
+
 
 export type OpenApiMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -13,7 +13,7 @@ export interface OpenApiRouteEntry {
     readonly summary: string;
 }
 
-/** Authoritative inventory of Phase 1–4 Dashboard public API surface. */
+
 export const DASHBOARD_OPENAPI_INVENTORY: readonly OpenApiRouteEntry[] = [
     { method: 'get', path: '/api/dash/auth/resolve', tag: 'DashboardAuth', auth: 'none', summary: 'Resolve Discord OAuth' },
     { method: 'get', path: '/api/dash/auth/permissions', tag: 'DashboardAuth', auth: 'session', summary: 'Permission bits' },
@@ -45,10 +45,10 @@ export interface OpenApiValidationResult {
     readonly routeCount: number;
 }
 
-/**
- * Structural validation of the inventory (paths, methods, auth tags).
- * Fails if inventory is empty, duplicates exist, or paths violate conventions.
- */
+
+
+
+
 export function validateOpenApiInventory(
     inventory: readonly OpenApiRouteEntry[] = DASHBOARD_OPENAPI_INVENTORY,
 ): OpenApiValidationResult {
@@ -70,7 +70,7 @@ export function validateOpenApiInventory(
     return { ok: errors.length === 0, errors, routeCount: inventory.length };
 }
 
-/** Minimal OpenAPI 3.0 document derived from inventory (deterministic). */
+
 export function buildOpenApiDocument(
     inventory: readonly OpenApiRouteEntry[] = DASHBOARD_OPENAPI_INVENTORY,
 ): Record<string, unknown> {

@@ -1,7 +1,7 @@
-/**
- * Phase 4 — Job executor with leasing, heartbeats, and recovery.
- * Separates execution from persistence (jobRepository).
- */
+
+
+
+
 
 import {
     getJob,
@@ -46,7 +46,7 @@ export class JobExecutor {
         this.timer = setInterval(() => {
             void this.tick();
         }, pollMs);
-        // unref so process can exit in tests
+
         if (typeof this.timer === 'object' && this.timer && 'unref' in this.timer) {
             (this.timer as NodeJS.Timeout).unref();
         }
@@ -60,7 +60,7 @@ export class JobExecutor {
     }
 
     async tick(): Promise<{ processed: number }> {
-        // Recover expired leases
+
         const now = Date.now();
         for (const [jobId, lease] of leases) {
             if (lease.leaseExpiresAt <= now) {
@@ -76,22 +76,22 @@ export class JobExecutor {
             }
         }
 
-        // Process due scheduled jobs (including owner.override.publish)
+
         await processDueJobs(now);
 
         let processed = 0;
         while (this.running < this.concurrency) {
-            // Claim is implicit via executeJobOnce transition to running
-            // Executor relies on job handlers registered in process
-            break; // due jobs handled above; ad-hoc claim needs a global queue index
+
+
+            break;
         }
         void processed;
         return { processed };
     }
 
-    /**
-     * Execute a specific job under a lease (used by HTTP process-due and workers).
-     */
+
+
+
     async executeWithLease(jobId: string): Promise<JobRecord | null> {
         const now = Date.now();
         const existing = leases.get(jobId);

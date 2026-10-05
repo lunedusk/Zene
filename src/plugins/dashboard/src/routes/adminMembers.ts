@@ -14,7 +14,7 @@ type UserNoteParams = { userId: string; noteId: string };
 export default class AdminMembersRoute extends BaseRoute {
     public readonly basePath = '/api/dash/admin/members';
 
-    
+
     /**
      * @openapi
      * /api/dash/admin/members:
@@ -189,10 +189,10 @@ protected register(): void {
         ok(res, paginated(page, all.length, p));
     }
 
-    /**
-     * Target hierarchy check — capability/bits alone are not enough.
-     * Uses PermissionsManager + hierarchy.ts (no second hierarchy system).
-     */
+
+
+
+
     private async assertCanActOnTarget(actorUserId: string, targetUserId: string, guildId?: string): Promise<void> {
         if (actorUserId === targetUserId) {
             throw new HttpError(403, 'forbidden', 'Cannot act on yourself.');

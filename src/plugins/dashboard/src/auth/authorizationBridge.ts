@@ -1,8 +1,8 @@
-/**
- * AuthorizationBridge — authentication (Better Auth) → Zene authorization.
- *
- * Never uses Better Auth roles/permissions as Zene authorization substitutes.
- */
+
+
+
+
+
 
 import type { ResolvedPermissions } from '#core/types/permissions.js';
 import { resolveActorPermissions } from '#core/permissions/capabilities.js';
@@ -21,11 +21,11 @@ export interface AuthorizationDecision {
 
 export type AuthorizationBridgeResult = AuthorizationDecision | AuthBridgeFailure;
 
-/**
- * Map Better Auth user + linked identities to the Zene authorization subject.
- * Prefer Discord subject when linked; otherwise fall back to canonical auth user id
- * only when the permissions layer is prepared to resolve it (documented migration).
- */
+
+
+
+
+
 export function resolveAuthorizationSubject(
     authUserId: string,
     identities: readonly IdentityRef[],
@@ -56,9 +56,9 @@ export function buildBridgedIdentity(input: {
     };
 }
 
-/**
- * Validate session snapshot shape then load fresh Zene permissions for the subject.
- */
+
+
+
 export async function bridgeAuthToZeneAuthorization(
     identity: BridgedAuthIdentity,
     nowMs: number = Date.now(),
@@ -83,10 +83,10 @@ export async function bridgeAuthToZeneAuthorization(
     };
 }
 
-/**
- * Compatibility: existing Discord-only dash session maps into bridge identity.
- * Used during migration Phase 1–2 while custom dash tokens still exist.
- */
+
+
+
+
 export function bridgedIdentityFromLegacyDashSession(input: {
     userId: string;
     sessionId: string;

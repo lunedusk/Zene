@@ -141,7 +141,7 @@ export default class AutoModHandler extends BaseHandler {
 
         let hit: AutoModHit | null = runSyncFilters(message as Message, settings);
 
-        // Attachment rate uses a rolling window (overrides pure per-message sync hit).
+
         if (settings.attachments) {
             const rateHit = await this.checkAttachmentRate(message as Message, settings);
             if (rateHit) hit = rateHit;
@@ -295,7 +295,7 @@ export default class AutoModHandler extends BaseHandler {
                         metadata: { filter: hit.filter, detail: hit.detail ?? null },
                     });
                 } catch {
-                    /* ignore */
+
                 }
             }
             if (settings.actionStrike) {

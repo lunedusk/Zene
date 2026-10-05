@@ -1,6 +1,6 @@
-/**
- * Phase 2B — transport-neutral Dashboard realtime event contract.
- */
+
+
+
 
 export type DashboardEventResourceType =
     | 'registry'
@@ -34,7 +34,7 @@ export interface DashboardEventResource {
 export interface DashboardEvent {
     readonly eventId: string;
     readonly type: string;
-    /** ISO-8601 timestamp */
+
     readonly occurredAt: string;
     readonly sequence?: number;
     readonly actor?: { readonly userId?: string };
@@ -42,7 +42,7 @@ export interface DashboardEvent {
     readonly payload: unknown;
 }
 
-/** Subscription scope kinds — explicit, not "subscribe everything". */
+
 export type SubscriptionScopeKind =
     | 'registry'
     | 'theme'
@@ -101,10 +101,10 @@ export function parseSubscriptionScope(raw: string): SubscriptionScope | null {
     return null;
 }
 
-/**
- * Event ID strategy: UUID v4 for uniqueness + optional sequence for per-broker ordering.
- * Not globally totally ordered across processes; scoped streams use sequence when provided.
- */
+
+
+
+
 export function newEventId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return crypto.randomUUID();

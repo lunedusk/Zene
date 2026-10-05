@@ -297,7 +297,7 @@ export default class ModerationBridgeHandler extends BaseHandler {
         });
     }
 
-    /** Ban then immediately unban, optionally deleting recent messages. */
+
     public async softban(input: {
         guildIds: readonly string[];
         userId: string;
@@ -364,7 +364,7 @@ export default class ModerationBridgeHandler extends BaseHandler {
         });
     }
 
-    /** Ban by user ID (member need not be present). Emits as hackban. */
+
     public async hackban(input: {
         guildIds: readonly string[];
         userId: string;
@@ -399,10 +399,10 @@ export default class ModerationBridgeHandler extends BaseHandler {
         });
     }
 
-    /**
-     * Ban and schedule an automatic unban. Pending rows are polled by the
-     * security plugin scheduler task registered in onEnable.
-     */
+
+
+
+
     public async tempban(input: {
         guildIds: readonly string[];
         userId: string;
@@ -465,7 +465,7 @@ export default class ModerationBridgeHandler extends BaseHandler {
         });
     }
 
-    /** Process due tempbans (called by scheduler). */
+
     public async processDueTempbans(): Promise<number> {
         const store = this.store();
         const core = this.core();

@@ -51,7 +51,7 @@ describe('layout engine', () => {
   });
 
   it('rejects span beyond columns', () => {
-    const state = createEmptyBreakpoint('mobile'); // 4 cols
+    const state = createEmptyBreakpoint('mobile');
     const big = w({ instanceId: 'big', col: 0, colSpan: 8 });
     assert.equal(validatePlacement(state, big).ok, false);
   });

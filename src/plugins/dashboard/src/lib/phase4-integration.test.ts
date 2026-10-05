@@ -1,7 +1,7 @@
-/**
- * Phase 4 production-integration tests.
- * Uses isolated SQLite backend + in-process Cross-Host transport boundary.
- */
+
+
+
+
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
@@ -71,7 +71,7 @@ describe('phase4 integration: search Cross-Host peer', () => {
             kind: 'page',
             title: 'Peer Page One',
         });
-        // allow async handlers
+
         await new Promise((r) => setTimeout(r, 10));
         const found = await durableQueryCandidates('Peer Page');
         assert.ok(found.some((c) => c.id === 'page.peer-1'));
@@ -133,7 +133,7 @@ describe('phase4 integration: realtime delivery + mid-connection auth', () => {
             resource: { type: 'guild', id: 'g1', guildId: 'g1' },
             payload: { ok: true },
         });
-        // authorizeEventDelivery may allow env owner and deny empty bits depending on event type
+
         off1();
         off2();
         assert.ok(received.length + denied.length >= 0);
@@ -170,12 +170,12 @@ describe('phase4 integration: Redis rate-limit lifecycle', () => {
         assert.equal(open.backend, 'redis');
         assert.equal(open.allowed, true);
 
-        // disconnect
+
         setDistributedRateLimitRedis(null);
         const closed2 = await distributedAllow('authentication|ip:9.9.9.9|route:/x', rule);
         assert.equal(closed2.backend, 'fail_closed');
 
-        // reconnect via rebind
+
         const rebound = rebindRateLimitRedisFromRegistry(() => ({
             main: {
                 async incr(key) {

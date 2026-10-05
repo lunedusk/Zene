@@ -1,6 +1,6 @@
-/**
- * Phase 2A — reusable resource authorization helpers on top of Phase 1 capabilities.
- */
+
+
+
 
 import type { ActorCapabilityId } from '#core/types/capabilities.js';
 import { evaluateCapability, resolveActorPermissions } from '#core/permissions/capabilities.js';
@@ -44,9 +44,9 @@ export async function assertCapability(
     throw new ServiceError('FORBIDDEN', decision.reason ?? 'Forbidden', 403, { code: decision.code });
 }
 
-/**
- * Target hierarchy for member-sensitive mutations.
- */
+
+
+
 export async function assertMemberTarget(
     ctx: RequestContext,
     targetUserId: string,
@@ -69,8 +69,8 @@ export async function assertMemberTarget(
 }
 
 export function assertGuildScope(ctx: RequestContext, guildId: string): void {
-    // Client-supplied guildId is a selector; capability/bits must already authorize server ops.
-    // Scoped session tokens for a different guild cannot pivot.
+
+
     const tokenGuild = ctx.session.payload.guildId;
     if (tokenGuild && tokenGuild !== guildId) {
         throw new ServiceError('FORBIDDEN', 'Session guild scope mismatch', 403);

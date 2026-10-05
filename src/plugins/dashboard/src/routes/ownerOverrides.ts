@@ -1,6 +1,6 @@
-/**
- * Owner override publish / preview / schedule / version HTTP API.
- */
+
+
+
 
 import { BaseRoute } from '#core/bases/Route.js';
 import { type Response } from 'express';
@@ -104,7 +104,7 @@ export default class OwnerOverridesRoute extends BaseRoute {
             const ctx = await buildRequestContext(req);
             const ttl = typeof req.body?.ttlSeconds === 'number' ? req.body.ttlSeconds : 900;
             const result = await ownerOverrideService.createPreview(ctx, req.params.overrideId, ttl);
-            // Non-indexable: advise clients via payload
+
             res.setHeader('X-Robots-Tag', 'noindex, nofollow');
             ok(res, unwrapServiceResult(result), 200, { requestId: ctx.requestId });
         } catch (e) {
@@ -127,9 +127,9 @@ export default class OwnerOverridesRoute extends BaseRoute {
         const token = typeof req.query.token === 'string' ? req.query.token : '';
         if (!token) throw new HttpError(400, 'bad_request', 'token required');
         try {
-            // Minimal context for secret resolution — session optional for pure preview validation
+
             if (!req.dashSession) {
-                // Allow validation without full session using env secret only
+
                 const { validatePreviewToken } = await import('../lib/previewToken.js');
                 const secret = process.env['DASH_PREVIEW_SECRET'] ?? process.env['BETTER_AUTH_SECRET'] ?? '';
                 if (!secret || secret.length < 16) {

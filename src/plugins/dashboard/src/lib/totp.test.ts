@@ -38,8 +38,8 @@ describe('totp rfc6238', () => {
         const secret = generateTotpSecret();
         const code = generateTotp(secret);
         assert.equal(verifyTotpWithReplayProtection('u1', secret, code), true);
-        // same counter with window 0 style check on second exact - still may pass within window
-        // wrong code still fails
+
+
         assert.equal(verifyTotpWithReplayProtection('u1', secret, '111111'), false);
     });
 });

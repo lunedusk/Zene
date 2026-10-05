@@ -1,6 +1,6 @@
-/**
- * Dynamic document metadata from runtime identity — never hardcode product name.
- */
+
+
+
 
 import { getIdentity } from '../identity/store.js';
 

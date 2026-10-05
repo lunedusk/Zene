@@ -818,10 +818,10 @@ export default class SecurityCommand extends BaseCommand {
 
 
 
-    // --- Phase 1 punish ---
 
 
-    // --- helpers ---
+
+
 
     public async requireBit(
         interaction: ChatInputCommandInteraction,

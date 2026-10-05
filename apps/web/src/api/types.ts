@@ -1,4 +1,4 @@
-/** Typed Dashboard API contracts consumed by the frontend (additive, matches backend envelopes). */
+
 
 export interface ApiSuccess<T> {
   ok: true;

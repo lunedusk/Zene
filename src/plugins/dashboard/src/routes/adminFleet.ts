@@ -9,7 +9,7 @@ import { resolveActorPermissions } from '#core/permissions/capabilities.js';
 export default class AdminFleetRoute extends BaseRoute {
     public readonly basePath = '/api/dash/admin/fleet';
 
-    
+
     /**
      * @openapi
      * /api/dash/admin/fleet/status:
@@ -61,7 +61,7 @@ protected register(): void {
             BITS.BOT_SHARD_VIEW,
             BITS.BOT_CROSSHOST_VIEW,
         ]);
-        // Do not treat fleet.restart as implying worker.restart or shard.shift.
+
         const fleetRestart = requireAuthedAnyBit(this.heart, [
             BITS.BOT_FLEET_RESTART,
             BITS.BOT_CROSSHOST_MANAGE,
@@ -87,8 +87,8 @@ protected register(): void {
         );
         this.router.post(
             '/restart',
-            // Handler branches on body.scope; middleware allows either fleet or worker restart bits.
-            // Handler still enforces the specific bit via fresh resolve for worker vs fleet.
+
+
             ...requireAuthedAnyBit(this.heart, [
                 BITS.BOT_FLEET_RESTART,
                 BITS.BOT_WORKER_RESTART,
@@ -181,7 +181,7 @@ protected register(): void {
             if (!machineId) {
                 throw new HttpError(400, 'bad_request', 'machineId required for worker restart');
             }
-            // machineId is a selector — existence is validated by shutdownMachine / control plane.
+
         } else if (!isOwner && !bits.has(BITS.BOT_FLEET_RESTART) && !bits.has(BITS.BOT_CROSSHOST_MANAGE)) {
             throw new HttpError(403, 'forbidden', 'fleet restart requires bot.fleet.restart');
         }

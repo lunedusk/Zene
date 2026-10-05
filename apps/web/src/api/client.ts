@@ -1,7 +1,7 @@
-/**
- * Typed Dashboard API client — browser talks only to /api/dash/*.
- * Never retries unsafe mutations. Backend remains the authorization authority.
- */
+
+
+
+
 
 import { DashApiError, type ApiResult } from './types.js';
 import { logger } from '../lib/logger.js';
@@ -19,7 +19,7 @@ export interface RequestOptions {
   retrySafe?: boolean;
 }
 
-/** Technical storage key — not product branding. */
+
 export const SESSION_STORAGE_KEY = 'dash.session';
 
 function buildQuery(query?: RequestOptions['query']): string {
@@ -146,7 +146,7 @@ export class DashApiClient {
     return this.request('/me');
   }
 
-  /** Runtime bot identity from Dashboard public API. */
+
   getPublicConfig(): Promise<unknown> {
     return this.request('/public/bot-info', { retrySafe: true });
   }

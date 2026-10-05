@@ -1,7 +1,7 @@
-/**
- * Pure SSE delivery authorization policy (no logger / EventBus).
- * Shared by dashEvents and unit tests.
- */
+
+
+
+
 
 export type DashSseEventTypeForPolicy =
     | 'registry.updated'
@@ -27,11 +27,11 @@ export interface SseDeliveryEvent {
     readonly sensitivity?: DashEventSensitivity;
 }
 
-/**
- * Event authorization (delivery layer).
- * Heartbeats and registry.updated go to any authenticated connection.
- * Guild-scoped events require bot-wide server view / owner (Phase 1 minimum).
- */
+
+
+
+
+
 export function clientMayReceive(client: SseDeliveryClient, event: SseDeliveryEvent): boolean {
     if (event.type === 'heartbeat' || event.type === 'registry.updated' || event.type === 'theme.updated') {
         return true;

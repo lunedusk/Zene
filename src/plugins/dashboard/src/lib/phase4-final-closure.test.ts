@@ -1,6 +1,6 @@
-/**
- * Phase 4 absolute final closure tests.
- */
+
+
+
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
@@ -69,7 +69,7 @@ describe('phase4 final: realtime mid-connection authorization', () => {
         });
         const afterAuth = received.length;
 
-        // revoke
+
         currentBits = new Set();
         bumpRealtimeAuthRevision();
         publishDashboardEventWithAuthRefresh({
@@ -80,7 +80,7 @@ describe('phase4 final: realtime mid-connection authorization', () => {
         const afterRevoke = received.length;
         assert.equal(afterRevoke, afterAuth, 'should not deliver after revocation');
 
-        // restore
+
         currentBits = new Set(['bot.servers.view']);
         bumpRealtimeAuthRevision();
         publishDashboardEventWithAuthRefresh({
@@ -120,7 +120,7 @@ describe('phase4 final: Redis Cross-Host transport', () => {
         await new Promise((r) => setTimeout(r, 300));
         assert.ok(got.some((g) => g.id === 'page.redis-1'), 'subscriber must receive upsert');
 
-        // duplicate messageId must not double-apply
+
         const before = got.length;
         await harness.transport.publish('search.index', {
             messageId: msgId,
@@ -142,12 +142,12 @@ describe('phase4 final: OpenAPI generation pipeline', () => {
     it('generates and validates dashboard OpenAPI from route JSDoc', async () => {
         const result = await generateDashboardOpenApiSpec();
         assert.equal(result.inventoryOk, true);
-        // Hard ok requires paths from swagger scan
+
         if (!result.ok && result.errors.includes('swagger-jsdoc_unavailable')) {
             assert.fail('swagger-jsdoc must be available in project dependencies');
         }
         assert.ok(result.pathCount >= 0);
-        // Inventory validity is required
+
         assert.equal(result.inventoryOk, true);
     });
 });
@@ -179,11 +179,11 @@ describe('phase4 final: Better Auth production path', () => {
             baseURL: 'http://localhost:3000',
             trustedOrigins: ['http://localhost:5173'],
         });
-        // PACKAGE_MISSING or ADAPTER/INIT is environment-dependent; must not throw
+
         if (enabled.ok) {
             assert.ok(typeof enabled.handle.handler === 'function');
             assert.ok(typeof enabled.handle.getSession === 'function');
-            // no session on empty request
+
             const sess = await enabled.handle.getSession({ headers: {} });
             assert.equal(sess, null);
         } else {

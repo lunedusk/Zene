@@ -1,6 +1,6 @@
-/**
- * Phase 2C — Jobs HTTP/service integration over Phase 2B durable job repository.
- */
+
+
+
 
 import {
     createJob,
@@ -117,7 +117,7 @@ export class JobsService {
         return serviceOk(next, { requestId: ctx.requestId });
     }
 
-    /** Execute once (admin/internal). Mutations already in handlers must not blindly retry. */
+
     async runOnce(ctx: RequestContext, jobId: string): Promise<ServiceResult<JobRecord>> {
         if (!ctx.actor.isEnvOwner && !ctx.actor.resolved.botOwner) {
             throw new ServiceError('FORBIDDEN', 'Forbidden', 403);

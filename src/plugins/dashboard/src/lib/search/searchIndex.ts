@@ -1,7 +1,7 @@
-/**
- * Phase 2C — Minimal in-process search index (derived state).
- * Not an authorization authority; queries always re-authorize via searchAuthz.
- */
+
+
+
+
 
 import type { SearchCandidate, SearchResultKind } from './searchAuthz.js';
 
@@ -41,10 +41,10 @@ export function listSearchEntries(): SearchIndexEntry[] {
     return [...entries.values()];
 }
 
-/**
- * Candidate retrieval only — caller MUST authorize.
- * Stable order: kind asc, title asc, id asc.
- */
+
+
+
+
 export function querySearchCandidates(query: string, options?: { kinds?: readonly SearchResultKind[]; limit?: number }): SearchCandidate[] {
     const q = query.trim().toLowerCase();
     const tokens = q ? tokenize(q) : [];
@@ -65,7 +65,7 @@ export function querySearchCandidates(query: string, options?: { kinds?: readonl
     return list.slice(0, limit).map(({ updatedAt: _u, tokens: _t, ...c }) => c);
 }
 
-/** Seed minimal static candidates for docs/pages when index empty (safe public-ish kinds). */
+
 export function ensureDefaultSearchSeed(): void {
     if (entries.size > 0) return;
     upsertSearchEntry({ id: 'dash.home', kind: 'page', title: 'Dashboard Home' });

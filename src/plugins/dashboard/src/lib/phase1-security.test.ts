@@ -1,8 +1,8 @@
-/**
- * Phase 1 dashboard security unit tests.
- * Imports only pure modules to avoid logger/secretManager ESM init cycles.
- * Run: npx tsx --test src/plugins/dashboard/src/lib/phase1-security.test.ts
- */
+
+
+
+
+
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

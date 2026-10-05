@@ -1,6 +1,6 @@
-/**
- * Phase 4 — Distributed job claim using durable KV compare-and-set semantics.
- */
+
+
+
 
 import { kvGet, kvSet } from '../../../../dash-data/src/lib/store.js';
 import { getJob, updateJob, type JobRecord } from '../../../../dash-data/src/repositories/jobRepository.js';
@@ -19,9 +19,9 @@ function leaseToken(ownerId: string, jobId: string, at: number): string {
     return `${ownerId}:${jobId}:${at}`;
 }
 
-/**
- * Attempt exclusive claim. Returns null if another worker holds a valid lease.
- */
+
+
+
 export async function claimJob(
     jobId: string,
     ownerId: string,
@@ -51,7 +51,7 @@ export async function claimJob(
         token: leaseToken(ownerId, jobId, now),
     };
 
-    // Re-check race
+
     const race = await kvGet(NS_LEASE, jobId);
     if (race && typeof race === 'object') {
         const other = race as JobLeaseRecord;
@@ -98,7 +98,7 @@ export async function releaseLease(jobId: string, ownerId: string, token: string
 }
 
 export async function recoverExpiredLeases(now = Date.now()): Promise<string[]> {
-    // Index of active leases is optional; callers pass known running jobs
+
     return [];
     void now;
 }

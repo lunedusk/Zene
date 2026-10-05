@@ -1,6 +1,6 @@
-/**
- * Phase 5 — secret redaction regression (core logger path).
- */
+
+
+
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

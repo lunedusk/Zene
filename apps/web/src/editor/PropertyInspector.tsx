@@ -1,6 +1,6 @@
-/**
- * Schema-driven property inspector for editor selection.
- */
+
+
+
 
 import type { WidgetInstance, Breakpoint } from '../widgets/types.js';
 import type { NavEditorItem } from './navigationDraft.js';

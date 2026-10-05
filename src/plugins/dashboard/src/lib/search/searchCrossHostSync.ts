@@ -1,7 +1,7 @@
-/**
- * Phase 4 — Search index Cross-Host peer application.
- * Worker A publishes; Worker B subscribers apply into durable index.
- */
+
+
+
+
 
 import {
     publishCrossHost,
@@ -18,13 +18,13 @@ export type SearchSyncWorkerContext = {
     unsubscribe?: () => void;
 };
 
-/**
- * Subscribe this worker to search index events from peers.
- * Idempotent application via durable store.
- */
+
+
+
+
 export function startSearchIndexPeerSubscriber(worker: SearchSyncWorkerContext): () => void {
     const unsub = subscribeCrossHostChannel(CHANNEL, async (env: CrossHostEnvelope) => {
-        if (env.sourceWorkerId === worker.workerId) return; // ignore self
+        if (env.sourceWorkerId === worker.workerId) return;
         if (env.type !== 'search.index.upsert' && env.type !== 'search.index.remove') return;
         await applyRemoteSearchIndexEvent({ type: env.type, payload: env.payload });
     });
@@ -32,9 +32,9 @@ export function startSearchIndexPeerSubscriber(worker: SearchSyncWorkerContext):
     return unsub;
 }
 
-/**
- * Local mutation + Cross-Host fanout.
- */
+
+
+
 export async function mutateSearchAndPropagate(
     workerId: string,
     op: 'upsert' | 'remove',

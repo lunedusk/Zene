@@ -79,7 +79,7 @@ export async function replyCv2Text(
                     flags: ephemeral ? MessageFlags.Ephemeral : undefined,
                 });
             } else if (interaction.deferred || interaction.replied) {
-                // Ephemeral can't be set when editing an existing reply.
+
                 await interaction.editReply({ content: options.content });
             } else {
                 await interaction.reply({
@@ -88,7 +88,7 @@ export async function replyCv2Text(
                 });
             }
         } catch {
-            // Swallow — caller often uses .catch(() => undefined) patterns for ephemeral UX.
+
         }
     }
 }

@@ -31,7 +31,7 @@ describe('logger safety', () => {
     assert.equal(s?.apiKey, '[redacted]');
     assert.equal(s?.clientSecret, '[redacted]');
     assert.equal(s?.requestId, 'r1');
-    // Harmless identifiers preserved
+
     assert.equal(s?.tokenCount, 3);
     assert.equal(s?.tokenType, 'Bearer');
   });

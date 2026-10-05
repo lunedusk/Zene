@@ -79,9 +79,9 @@ export function evaluateCapability(ctx: AuthorizationContext): AuthorizationDeci
         };
     }
 
-    // Hierarchy applies only when a concrete target is supplied.
-    // Capability possession (bits / bot.owner) is evaluated first; callers that
-    // mutate a member must pass target + resolved target permissions.
+
+
+
     if (def.requiresTargetHierarchy && def.targetType === 'member' && ctx.target) {
         const target = ctx.target;
         if (!target.id || !target.resolved) {

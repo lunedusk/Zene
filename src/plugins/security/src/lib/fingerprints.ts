@@ -26,10 +26,10 @@ function hexSlice(buf: Buffer, start: number, end: number): string {
     return buf.subarray(start, end).toString('hex');
 }
 
-/**
- * Staged match: size → header/footer → partial bytes → blake3.
- * Returns matching entry id or null. Early-exit on mismatch at each stage.
- */
+
+
+
+
 export async function matchImageBuffer(
     buffer: Buffer,
     entries: readonly SpamSignatureEntry[],
@@ -65,7 +65,7 @@ export async function matchImageBuffer(
 
     const hasher = await ensureBlake3();
     if (!hasher) {
-        // Without blake3, accept strongest non-hash match if only one candidate remains with size+headers.
+
         return stage.length === 1 ? stage[0]! : null;
     }
 
@@ -134,13 +134,13 @@ export async function loadSpamSignatures(pluginRoot: string): Promise<SpamSignat
             return parsed as SpamSignaturesFile;
         }
     } catch {
-        /* missing or invalid */
+
     }
     return { version: 1, entries: [] };
 }
 
 export function resolvePluginRootFromMeta(importMetaUrl: string): string {
     const here = path.dirname(fileURLToPath(importMetaUrl));
-    // .../src/lib → plugin root is ../..
+
     return path.resolve(here, '../..');
 }

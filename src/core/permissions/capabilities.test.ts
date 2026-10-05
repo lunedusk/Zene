@@ -1,8 +1,8 @@
-/**
- * Phase 1 capability security tests.
- * Run with: npx tsx --test src/core/permissions/capabilities.test.ts
- * (or node --import tsx --test when available)
- */
+
+
+
+
+
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

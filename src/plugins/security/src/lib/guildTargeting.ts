@@ -26,9 +26,9 @@ export function normalizeGuildIdList(input: GuildIdInput): {
     return { all, ids: Array.from(new Set(ids)) };
 }
 
-/**
- * Parse a slash option string: space/comma-separated snowflakes or the token "all".
- */
+
+
+
 export function parseGuildsOption(
     raw: string | null | undefined,
     fallbackGuildId: string | null,
@@ -50,17 +50,17 @@ async function isBotOwner(heart: IHeart, userId: string): Promise<boolean> {
     try {
         if (await heart.permissions.hasBit(userId, BOT_BITS.OWNER)) return true;
     } catch {
-        /* permissions may not be ready in edge cases */
+
     }
     return false;
 }
 
-/**
- * Resolve Discord guild owner id for authz.
- * Local guilds use cache.ownerId. Cross-Host placement lookup does not return
- * Discord ownerId — remote non–bot-owner multi-guild targets soft-fail unless
- * the guild is on this process.
- */
+
+
+
+
+
+
 async function resolveOwnerId(
     heart: IHeart,
     guildId: string,
@@ -76,7 +76,7 @@ async function resolveOwnerId(
             return { ownerId: fetched.ownerId, reachable: true };
         }
     } catch {
-        /* not on this process or unknown */
+
     }
 
     if (heart.crossHost.isAvailable()) {
@@ -88,7 +88,7 @@ async function resolveOwnerId(
                 return { ownerId: null, reachable: false };
             }
             const info = await fetchGuildOwner(guildId);
-            // Placement known; Discord ownerId is not on this endpoint.
+
             if (info.machineId) {
                 return { ownerId: null, reachable: true };
             }
@@ -101,13 +101,13 @@ async function resolveOwnerId(
     return { ownerId: null, reachable: false };
 }
 
-/**
- * Decide which of the requested guilds the actor may act on.
- *
- * - `bot.owner` → all requested guilds
- * - otherwise → only guilds where the actor is the Discord server owner
- *   (`server.owner` synthetic bit). Soft-fail the rest.
- */
+
+
+
+
+
+
+
 export async function resolveAuthorizedGuilds(
     heart: IHeart,
     actorUserId: string,
@@ -155,7 +155,7 @@ export async function resolveAuthorizedGuilds(
         }
 
         if (ownerId == null) {
-            // Reachable placement but no owner id (remote CH) → cannot prove server ownership.
+
             denied.push({
                 guildId,
                 allowed: false,

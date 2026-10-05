@@ -1,6 +1,6 @@
-/**
- * Phase 2C — Analytics ingest policy (pure). Operational ≠ marketing storage keys.
- */
+
+
+
 
 import type {
     AnalyticsEventEnvelope,
@@ -73,7 +73,7 @@ export function buildMarketingEvent(input: {
     };
 }
 
-/** Only explicitly allowlisted metrics may be public. */
+
 export function isPublicMetricAllowed(
     metricId: string,
     configs: readonly PublicTelemetryMetricConfig[],

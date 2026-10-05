@@ -17,11 +17,11 @@ export function getDashboardAdapter(): SqlAdapter {
     return adapter;
 }
 
-/**
- * Test-only: install an isolated SQLite backend for alias "main" and open the dashboard adapter.
- * Uses a unique on-disk temp path so concurrent suites do not share state with production.
- * Does not use the caller's production database.
- */
+
+
+
+
+
 export async function installIsolatedDashboardTestBackend(options?: {
     readonly alias?: string;
     readonly filepath?: string;
@@ -46,7 +46,7 @@ export async function installIsolatedDashboardTestBackend(options?: {
     return { alias, filepath };
 }
 
-/** Test-only: drop the cached adapter so the next call re-resolves. */
+
 export function resetDashboardAdapterForTests(): void {
     adapter = null;
 }
@@ -211,16 +211,16 @@ export async function setServerPluginConfig(
     );
 }
 
-/** Document shape used by dashboard routes (former NovaDB docs). */
+
 export type DashDoc = Record<string, unknown> & { _id?: string };
 
-/**
- * Surreal-backed collection with the NovaCollection surface used by dashboard routes:
- * `upsert`, `get`, `delete`, async `scan(start, end)`.
- *
- * Each logical document is a Surreal record `table:⟨key⟩` plus a string `key` field
- * for range scans (prefix queries on former Nova `_id` values).
- */
+
+
+
+
+
+
+
 export class SurrealDocCollection {
     public constructor(
         private readonly db: import('surrealdb').Surreal,

@@ -1,6 +1,6 @@
-/**
- * Editor draft state — never silently becomes published production config.
- */
+
+
+
 
 import { logger } from '../lib/logger.js';
 import {
@@ -138,7 +138,7 @@ export class EditorSession {
     return canRedo(this.history);
   }
 
-  /** Local mark only — publish must call Dashboard API. */
+
   markPublished(versionLabel?: string): void {
     const d = this.draft;
     this.history = createHistory({

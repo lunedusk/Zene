@@ -1,6 +1,6 @@
 import type { NavigationItem } from './types.js';
 
-/** Platform concept labels — product brand comes from runtime identity, not these strings. */
+
 export const defaultNavigation: NavigationItem[] = [
   {
     id: 'dash.home',

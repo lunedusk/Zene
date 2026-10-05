@@ -1,7 +1,7 @@
-/**
- * Widget framework — frontend representation compatible with Dashboard SDK surfaces.
- * Authorization remains backend-authoritative; visibility fields are UX projection only.
- */
+
+
+
+
 
 export type WidgetSize = 'sm' | 'md' | 'lg' | 'xl' | 'full';
 
@@ -17,7 +17,7 @@ export interface WidgetDefinition {
   dataSource?: string;
   refreshPolicy?: 'manual' | 'interval' | 'realtime';
   refreshIntervalMs?: number;
-  /** UX-only; backend must still authorize data fetches. */
+
   visibility?: unknown;
   pluginId?: string;
   version?: string;

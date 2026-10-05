@@ -1,6 +1,6 @@
-/**
- * Owner editor for public site sections — same override/publish pipeline as layouts.
- */
+
+
+
 
 import { useEffect, useState } from 'react';
 import { Button, Card, EmptyState, ErrorState, Input, LoadingState, Stack } from '../../design-system/primitives.js';
@@ -23,7 +23,7 @@ export function PublicSiteEditorPage() {
     setLoading(true);
     setError(null);
     try {
-      // Current draft or published via override current endpoint
+
       const cur = (await apiClient.request<{ payload?: PublicSiteConfig } | null>('/owner/overrides/current', {
         query: TARGET,
       })) as { payload?: PublicSiteConfig } | null;
@@ -82,7 +82,7 @@ export function PublicSiteEditorPage() {
     const b = sorted[j]!;
     const ao = a.order;
     updateSection(a.id, { order: b.order });
-    // need both in one setState
+
     setSite((prev) => {
       if (!prev) return prev;
       return {

@@ -846,7 +846,7 @@ export default class AdminCommand extends BaseCommand {
                 );
             }
         } catch {
-            
+
         }
 
         if (!guildAccess.isReady()) {
@@ -972,7 +972,7 @@ export default class AdminCommand extends BaseCommand {
             if (core?.guildGate?.enabled === false) {
                 return this.replyContainer(interaction, false, this.t('commands.admin.titles.system'), this.t('commands.admin.gate.disabled'));
             }
-        } catch { /* continue */ }
+        } catch {                }
         if (!guildGate.isReady()) {
             return this.replyContainer(
                 interaction,
@@ -1484,7 +1484,7 @@ export default class AdminCommand extends BaseCommand {
                     emoji_command: HelpUtils.getEmoji(this.heart, 'command'),
                 }).replace(/\n+/g, ' · ');
             } catch {
-                /* keep registry summary */
+
             }
         } catch {
             ecosystemLine = '';

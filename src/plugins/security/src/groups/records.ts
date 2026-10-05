@@ -157,7 +157,7 @@ export async function handleWarnsList(host: SecurityCmdHost, interaction: ChatIn
                         proofUrl = String((parsed as Record<string, unknown>).proofUrl);
                     }
                 } catch {
-                    /* ignore */
+
                 }
             }
             return proofUrl ? `${base} | proof: ${proofUrl}` : base;
@@ -300,6 +300,3 @@ export async function handleNotesList(host: SecurityCmdHost, interaction: ChatIn
             lines,
         );
     }
-
-    // --- violations ---
-

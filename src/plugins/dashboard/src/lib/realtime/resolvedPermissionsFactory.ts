@@ -1,7 +1,7 @@
-/**
- * Canonical ResolvedPermissions construction for Dashboard realtime/authz helpers.
- * Matches src/core/types/permissions.ts — no incomplete objects, no casts.
- */
+
+
+
+
 
 import type { ResolvedPermissions } from '#core/types/permissions.js';
 import type { RealtimeActor } from './subscriptionAuthz.js';
@@ -40,7 +40,7 @@ export function makeRealtimeActor(input: {
     };
 }
 
-/** Explicit deny snapshot after permission revocation / failed refresh. */
+
 export function makeDeniedRealtimeActor(userId: string): RealtimeActor {
     return makeRealtimeActor({
         userId,

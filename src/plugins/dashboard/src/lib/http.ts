@@ -81,7 +81,7 @@ export function err(
     });
 }
 
-/** Optimistic concurrency: client expectedVersion must match current. */
+
 export function assertExpectedVersion(expected: number | undefined, current: number): void {
     if (expected === undefined) return;
     if (expected !== current) {
@@ -103,16 +103,16 @@ export interface IdempotencyRecord {
     expiresAt: number;
 }
 
-/** Hash a payload for idempotency conflict detection. */
+
 export function hashIdempotencyPayload(payload: unknown): string {
     return createHash('sha256').update(JSON.stringify(payload ?? null)).digest('hex');
 }
 
-/**
- * In-memory idempotency primitive (Phase 1 contract).
- * Same key + same hash → replay; same key + different hash → conflict.
- * Not durable across process restarts — wire to storage in a later phase if required.
- */
+
+
+
+
+
 const idempotencyStore = new Map<string, IdempotencyRecord>();
 
 export function idempotencyLookup(options: {
@@ -158,7 +158,7 @@ export function idempotencyStoreResult(
     });
 }
 
-/** Async job contract shape (types only — no fake endpoints). */
+
 export interface AsyncJobAccepted {
     jobId: string;
     status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
@@ -230,7 +230,7 @@ export function guarded<Req extends Request = Request>(
     };
 }
 
-/** Map Phase 2A ServiceError to HTTP (hideExistence → 404). */
+
 export function sendServiceError(res: Response, e: unknown, heart: IHeart): void {
     if (e && typeof e === 'object' && (e as { name?: string }).name === 'ServiceError') {
         const se = e as {

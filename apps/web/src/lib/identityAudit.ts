@@ -1,7 +1,7 @@
-/**
- * Automated dynamicity helpers — flag suspicious user-facing identity patterns.
- * Technical package names are allowlisted.
- */
+
+
+
+
 
 const ALLOWED_TECHNICAL = [
   '@lunedusk/zene',

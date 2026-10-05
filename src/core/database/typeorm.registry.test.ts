@@ -1,7 +1,7 @@
-/**
- * Phase 5 — TypeORM registry regression (API surface used by DatabaseManager).
- * Does not require a live DB: validates connect options construction path is typed.
- */
+
+
+
+
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,12 +17,12 @@ describe('typeorm dependency and SqlRegistry surface', () => {
         };
         const v = pkg.dependencies.typeorm;
         assert.ok(v, 'typeorm must be a direct dependency');
-        // TypeORM 1.0+ is the current major line (2026); reject accidental 0.2-era pins
+
         assert.match(v, /\^?1\./);
     });
 
     it('typeorm module exports ormDB SqlRegistry', async () => {
-        // Dynamic import may fail without node_modules — still assert source exports exist
+
         const src = readFileSync(
             path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'typeorm.ts'),
             'utf8',

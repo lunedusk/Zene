@@ -1,7 +1,7 @@
-/**
- * Phase 4 — Data-rights provider registry.
- * Each persistence domain registers export/delete handlers.
- */
+
+
+
+
 
 import type { DataRightsKind, DataRightsProviderResult } from '../../../dash-data/src/repositories/dataRightsRepository.js';
 
@@ -25,7 +25,7 @@ export interface DataRightsProviderDeclaration {
     readonly sensitive: boolean;
     readonly supportsExport: boolean;
     readonly supportsDelete: boolean;
-    /** Legal retention: skip hard delete and report retention_exception */
+
     readonly legalRetention?: boolean;
     readonly pluginId?: string;
 }
@@ -106,7 +106,7 @@ export async function runDataRightsProviders(
     return results;
 }
 
-/** Built-in dashboard override provider (non-destructive placeholder export). */
+
 export function registerBuiltinDashboardProviders(): void {
     registerDataRightsProvider({
         providerId: 'dashboard.owner_overrides',

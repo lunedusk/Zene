@@ -1,7 +1,7 @@
-/**
- * Phase 2C — Search authorization filter (pure).
- * Index is derived state; authorization is authoritative on every result.
- */
+
+
+
+
 
 import type { ResolvedPermissions } from '#core/types/permissions.js';
 
@@ -41,7 +41,7 @@ function hasBit(a: SearchActor, bit: string): boolean {
     return a.resolved.bits.has(bit);
 }
 
-/** Per-candidate authorization — omit unauthorized entirely (no visible:false leak). */
+
 export function authorizeSearchCandidate(actor: SearchActor, c: SearchCandidate): boolean {
     if (c.hidden) return false;
     if (c.ownerOnly) {
@@ -65,7 +65,7 @@ export function authorizeSearchCandidate(actor: SearchActor, c: SearchCandidate)
     if (c.requiredBits && c.requiredBits.length > 0) {
         return c.requiredBits.some((b) => hasBit(actor, b));
     }
-    // Default: authenticated actor may see generic pages/docs/commands/settings without extra bits
+
     return true;
 }
 
@@ -76,7 +76,7 @@ export function filterSearchResults(
     return candidates.filter((c) => authorizeSearchCandidate(actor, c));
 }
 
-/** Facet/count must use the same filter — never pre-auth counts. */
+
 export function authorizedCount(actor: SearchActor, candidates: readonly SearchCandidate[]): number {
     return filterSearchResults(actor, candidates).length;
 }

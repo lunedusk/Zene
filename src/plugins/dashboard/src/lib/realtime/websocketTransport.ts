@@ -1,7 +1,7 @@
-/**
- * Phase 4 — WebSocket transport attached to the transport-neutral Dashboard broker.
- * Same authorization / event contract as SSE. Does not bypass the broker.
- */
+
+
+
+
 
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
@@ -17,14 +17,14 @@ import type { RealtimeActor } from './subscriptionAuthz.js';
 import { authorizeSubscription } from './subscriptionAuthz.js';
 
 export interface WebSocketTransportOptions {
-    /** Path to accept upgrades on, default /api/dash/events/ws */
+
     path?: string;
-    /**
-     * Resolve actor from the upgrade request (must already be authenticated).
-     * Return null to reject the connection.
-     */
+
+
+
+
     resolveActor: (req: IncomingMessage) => Promise<RealtimeActor | null>;
-    /** Max concurrent WS clients per process */
+
     maxClients?: number;
 }
 
@@ -48,7 +48,7 @@ type WsModule = {
     WebSocket: { OPEN: number };
 };
 
-/** Canonical scope identity for dedupe (SubscriptionScope has no single `id` field). */
+
 export function subscriptionScopeKey(s: SubscriptionScope): string {
     return [
         s.kind,
@@ -67,11 +67,11 @@ function scopesEqual(a: SubscriptionScope, b: SubscriptionScope): boolean {
 
 let installed = false;
 
-/**
- * Attach WebSocket upgrade handling to an existing HTTP server.
- * Uses the `ws` package when available; otherwise returns disabled.
- * Load via runtime Function import so TypeScript does not require `ws` types at compile time.
- */
+
+
+
+
+
 export async function attachDashboardWebSocketTransport(
     server: HttpServer,
     options: WebSocketTransportOptions,
@@ -158,7 +158,7 @@ export async function attachDashboardWebSocketTransport(
                             try {
                                 ws.close(1000, 'broker_close');
                             } catch {
-                                /* ignore */
+
                             }
                         },
                     };
@@ -200,7 +200,7 @@ export async function attachDashboardWebSocketTransport(
                                 });
                             }
                         } catch {
-                            /* ignore malformed */
+
                         }
                     });
 
@@ -215,7 +215,7 @@ export async function attachDashboardWebSocketTransport(
                 try {
                     socket.destroy();
                 } catch {
-                    /* ignore */
+
                 }
             }
         })();

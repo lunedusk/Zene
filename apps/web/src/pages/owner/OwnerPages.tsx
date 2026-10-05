@@ -181,7 +181,7 @@ export function OwnerLayoutEditorPage() {
         <Button
           variant="primary"
           onClick={() => {
-            // Publish is API-backed; local mark is draft UX only until API wired.
+
             session.markPublished(`local-${Date.now()}`);
             rerender();
           }}

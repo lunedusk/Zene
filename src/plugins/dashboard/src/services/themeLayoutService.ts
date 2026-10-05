@@ -1,7 +1,7 @@
-/**
- * Phase 2A — Theme/layout domain service.
- * Route → ThemeLayoutService → layoutThemeRepository → store.
- */
+
+
+
+
 
 import type { DashLayoutDoc, LayoutScope } from '../../../dash-data/src/lib/store.js';
 import { layoutThemeRepository } from '../../../dash-data/src/repositories/layoutThemeRepository.js';
@@ -35,15 +35,15 @@ export class ThemeLayoutService {
         );
     }
 
-    /**
-     * Read theme for any authenticated session that can view dash (bot.theme.manage OR broader view).
-     * GET paths often use theme.manage bit historically; keep capability theme.manage for writes,
-     * allow read with bot.theme.manage bits via capability dashboard.theme.manage (same bits).
-     */
+
+
+
+
+
     async getThemePublicAuthed(
         ctx: RequestContext,
     ): Promise<ServiceResult<{ tokens: Record<string, unknown>; version: number }>> {
-        // Viewing theme tokens is still gated — use theme.manage capability (maps to bot.theme.manage).
+
         await assertCapability(ctx, 'dashboard.theme.manage');
         const theme = await layoutThemeRepository.getTheme();
         return serviceOk(

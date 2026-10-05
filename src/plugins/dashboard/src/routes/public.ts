@@ -85,7 +85,7 @@ export default class PublicRoute extends BaseRoute {
     }
 
     private async changelog(_req: Request, res: Response): Promise<void> {
-        // Published changelog via owner override if present; never invent releases
+
         const published = await getPublishedOverride('changelog', 'default');
         const items =
             published && published.payload && typeof published.payload === 'object'
@@ -95,7 +95,7 @@ export default class PublicRoute extends BaseRoute {
     }
 
     private async telemetry(req: Request, res: Response): Promise<void> {
-        // Accept-only; do not echo secrets; rate-limit is outer middleware responsibility
+
         const body = req.body;
         if (body && typeof body === 'object' && !Array.isArray(body)) {
             const event = typeof (body as { event?: unknown }).event === 'string' ? (body as { event: string }).event : 'unknown';
@@ -105,8 +105,8 @@ export default class PublicRoute extends BaseRoute {
     }
 
     private async authCapabilities(_req: Request, res: Response): Promise<void> {
-        // Reflect what this deployment actually exposes — no fake Better Auth claims
-        const hasBetterAuthPkg = true; // declared in package.json; runtime server may still be deferred
+
+        const hasBetterAuthPkg = true;
         ok(res, {
             supportsDiscordOAuth: true,
             supportsPassword: false,

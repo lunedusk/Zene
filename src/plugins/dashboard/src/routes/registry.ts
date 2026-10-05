@@ -58,7 +58,7 @@ export default class DashRegistryRoute extends BaseRoute {
     private async snapshot(req: DashRequest, res: Response): Promise<void> {
         const session = req.dashSession!;
         const userId = session.payload.userId;
-        // Authoritative permission resolve (not token bits alone)
+
         const actor = await resolveActorPermissions(userId);
         const data = await buildRegistrySnapshot({
             bits: actor.resolved.bits,

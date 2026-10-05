@@ -51,11 +51,11 @@ describe('phase4 better auth schema', () => {
         assert.equal(isLegacyAuthAllowed(), false);
         setAuthCutoverPhase(2);
         assert.equal(getAuthCutoverPhase(), 2);
-        assert.equal(BETTER_AUTH_SCHEMA_VERSION, 2); // v2: canonical better-auth table names
+        assert.equal(BETTER_AUTH_SCHEMA_VERSION, 2);
     });
 
     it('schema ensure returns structured result without throwing', async () => {
-        // May fail adapter in test env — must not throw
+
         const r = await ensureBetterAuthSchema();
         assert.ok(r.ok === true || r.ok === false);
         if (!r.ok) {
@@ -253,7 +253,7 @@ describe('phase4 account security', () => {
                 code,
             );
             assert.equal(conf.ok, true);
-            // wrong code rejected after enroll complete
+
             await assert.rejects(
                 async () => accountSecurityService.verifyMfaCode(ctx, '000000'),
             );

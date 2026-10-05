@@ -1,6 +1,6 @@
-/**
- * Public homepage — published CMS sections from /api/dash/public/site.
- */
+
+
+
 
 import { useEffect, useMemo, useState } from 'react';
 import { Card, EmptyState, ErrorState, LoadingState, Stack } from '../../design-system/primitives.js';

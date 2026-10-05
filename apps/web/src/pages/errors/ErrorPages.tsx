@@ -1,6 +1,6 @@
-/**
- * Configurable error surfaces — runtime identity, no stack traces.
- */
+
+
+
 
 import { Link, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';

@@ -1,7 +1,7 @@
-/**
- * Phase 2B — subscription + delivery authorization (pure policy).
- * Uses Phase 1 capability satisfaction via bit sets / owner flags.
- */
+
+
+
+
 
 import type { ResolvedPermissions } from '#core/types/permissions.js';
 import type { DashboardEvent, SubscriptionScope } from './eventContract.js';
@@ -17,7 +17,7 @@ function hasAnyBit(resolved: ResolvedPermissions, bits: readonly string[]): bool
     return bits.some((b) => resolved.bits.has(b));
 }
 
-/** Subscribe-time: can actor open this scope? */
+
 export function authorizeSubscription(actor: RealtimeActor, scope: SubscriptionScope): boolean {
     if (actor.isEnvOwner || actor.resolved.botOwner || actor.resolved.bits.has('bot.owner')) {
         return true;
@@ -48,29 +48,29 @@ export function authorizeSubscription(actor: RealtimeActor, scope: SubscriptionS
             return hasAnyBit(actor.resolved, ['bot.plugins.view', 'bot.plugins.manage']);
         case 'job':
         case 'data_rights':
-            // Own resources checked at delivery; subscribe requires authenticated actor only if self-scoped.
+
             return true;
         default:
             return false;
     }
 }
 
-/**
- * Delivery-time: can actor receive THIS event now?
- * Does not assume subscription authorization still holds for resource details.
- */
+
+
+
+
 export function authorizeEventDelivery(actor: RealtimeActor, event: DashboardEvent): boolean {
     if (actor.isEnvOwner || actor.resolved.botOwner || actor.resolved.bits.has('bot.owner')) {
         return true;
     }
     const res = event.resource;
     if (!res) {
-        // Global heartbeats / registry without resource — require authenticated session only.
+
         return true;
     }
     if (res.guildId) {
         if (hasAnyBit(actor.resolved, ['bot.servers.view', 'bot.servers.manage'])) return true;
-        // Without guild membership cache in pure policy, deny guild-scoped to non-bot-wide viewers.
+
         return false;
     }
     switch (res.type) {
@@ -98,7 +98,7 @@ export function authorizeEventDelivery(actor: RealtimeActor, event: DashboardEve
     }
 }
 
-/** Scope matches event resource (subscription filter). */
+
 export function scopeMatchesEvent(scope: SubscriptionScope, event: DashboardEvent): boolean {
     const res = event.resource;
     if (scope.kind === 'registry') {
@@ -113,7 +113,7 @@ export function scopeMatchesEvent(scope: SubscriptionScope, event: DashboardEven
     if (scope.kind === 'fleet') {
         return res?.type === 'fleet' || res?.type === 'worker' || res?.type === 'shard';
     }
-    // registry/theme/layout/fleet already handled above; remaining scopes need a resource.
+
     if (!res) return false;
     if (scope.kind === 'guild') {
         return !!scope.guildId && res.guildId === scope.guildId;

@@ -1,7 +1,7 @@
-/**
- * Phase 4 — Production Better Auth enable path (safe defaults).
- * Does not enable without validated secret + native SQL driver for dashboard backend.
- */
+
+
+
+
 
 import { createBetterAuthServer, type BetterAuthServerHandle } from './betterAuthServer.js';
 import {
@@ -27,10 +27,10 @@ export type ProductionBaEnableResult =
 
 const MIN_SECRET_LEN = 32;
 
-/**
- * Enable Better Auth only when configuration is production-safe.
- * Never logs the secret.
- */
+
+
+
+
 export async function enableBetterAuthProduction(input: {
     readonly secret: string | undefined;
     readonly baseURL: string;

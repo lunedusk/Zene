@@ -1,6 +1,6 @@
-/**
- * Phase 2C/4 — Rate-limit Express middleware wired to risk classification + distributed store.
- */
+
+
+
 
 import type { Response, NextFunction } from 'express';
 import type { DashRequest } from '../authz.js';
@@ -52,7 +52,7 @@ export function rateLimit(risk: RouteRiskClass) {
     };
 }
 
-/** Exposed for tests */
+
 export function getRateLimiterForTests(): LocalRateLimiter {
     return limiter;
 }

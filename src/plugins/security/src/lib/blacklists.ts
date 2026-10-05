@@ -3,11 +3,11 @@ import type { BlacklistEntry, BlacklistKind } from './types.js';
 const MAX_PATTERN_LEN = 200;
 const MAX_REGEX_LEN = 120;
 
-/** Reject obviously catastrophic regex constructs. */
+
 export function isSafeRegexPattern(pattern: string): boolean {
     if (pattern.length > MAX_REGEX_LEN) return false;
-    if (/\(\?[^)]*\)/.test(pattern)) return false; // no groups with options we don't want
-    // nested quantifiers / unbounded repeats
+    if (/\(\?[^)]*\)/.test(pattern)) return false;
+
     if (/(\+|\*|\{\d+,?\})\{/.test(pattern)) return false;
     if (/(\+|\*)\+/.test(pattern)) return false;
     if (/\.\*[^\n]{0,5}\.\*/.test(pattern)) return false;
@@ -30,7 +30,7 @@ export function normalizeBlacklistPattern(kind: BlacklistKind, raw: string): str
     }
     if (trimmed.length > MAX_PATTERN_LEN) return null;
     if (kind === 'word') return trimmed.toLowerCase();
-    // link: store hostname or full substring lowercased
+
     return trimmed.toLowerCase();
 }
 
@@ -48,7 +48,7 @@ export function matchLinkBlacklist(content: string, entries: readonly BlacklistE
     if (!content || entries.length === 0) return null;
     const urls = content.match(/https?:\/\/[^\s<>\]]+/gi) ?? [];
     if (urls.length === 0) {
-        // also check bare domains
+
         const lower = content.toLowerCase();
         for (const e of entries) {
             if (e.kind !== 'link') continue;

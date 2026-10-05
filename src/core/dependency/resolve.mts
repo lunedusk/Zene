@@ -40,7 +40,7 @@ export async function resolve(
         let parentPath = '';
         try {
             parentPath = fileURLToPath(context.parentURL);
-        } catch { /* ignore */ }
+        } catch {              }
 
         const pluginMatch = parentPath.replace(/\\/g, '/').match(/\/plugins\/([^/]+)/);
 
@@ -71,7 +71,7 @@ export async function resolve(
             let parentPath = '';
             try {
                 parentPath = fileURLToPath(context.parentURL);
-            } catch { /* ignore */ }
+            } catch {              }
 
             const pluginMatch = parentPath.replace(/\\/g, '/').match(/\/plugins\/([^/]+)/);
             if (pluginMatch) {

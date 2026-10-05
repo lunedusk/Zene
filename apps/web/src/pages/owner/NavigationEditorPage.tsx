@@ -33,7 +33,7 @@ export function NavigationEditorPage() {
           setLayoutId(layout.id || 'global-main');
           setLayoutVersion(typeof layout.version === 'number' ? layout.version : undefined);
           if (Array.isArray(layout.navOrder) && layout.navOrder.length) {
-            // Reorder draft to match saved navOrder where ids exist
+
             let next = draftFromItems(defaultNavigation);
             const order = layout.navOrder as string[];
             const map = new Map(next.items.map((i) => [i.id, i]));

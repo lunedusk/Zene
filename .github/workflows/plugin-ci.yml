@@ -16,8 +16,6 @@ on:
 permissions:
   contents: write
 
-# Never let two runs on the same plugin branch race each other — concurrent
-# pushes to the same branch are a classic source of divergence.
 concurrency:
   group: plugin-ci-${{ github.ref_name }}
   cancel-in-progress: false
@@ -35,7 +33,6 @@ jobs:
         run: |
           set -euo pipefail
           BRANCH="${GITHUB_REF_NAME}"
-          # plugin-template is a mirror, not a real plugin branch — never sign/tag it here.
           if [ "$BRANCH" = "plugin-template" ]; then
             echo "::error::Plugin CI must not run on plugin-template (it is a mirror branch)."
             exit 1
@@ -48,7 +45,6 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          # Node 20 is deprecated on GitHub-hosted runners; 22 matches engines >=20
           node-version: '22'
 
       - name: Resolve plugin name
@@ -79,8 +75,6 @@ jobs:
           set -euo pipefail
           npm install
           npx tsc --noEmit
-          # pack script is: node --import ./core/dependency/index.mjs ./scripts/manifestPacker.js
-          # those paths only exist after compile + copy-assets
           npm run build
           test -f core/dependency/index.mjs
           test -f scripts/manifestPacker.js
@@ -128,9 +122,6 @@ jobs:
           fi
           git commit -m "chore(plugin): sign ${PLUGIN} manifest.nvx"
 
-          # Push must be fast-forward. If the branch moved under us, FAIL loudly
-          # instead of `|| true` — a swallowed push failure is how divergence
-          # went unnoticed before. Rebase once on the current remote tip, retry.
           if ! git push origin "HEAD:${GITHUB_REF_NAME}"; then
             echo "::warning::Push rejected — remote moved. Rebasing on origin/${GITHUB_REF_NAME} and retrying."
             git fetch origin "${GITHUB_REF_NAME}"

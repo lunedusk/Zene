@@ -278,5 +278,5 @@ export async function getAuditRecordById(id: string): Promise<AuditRecord | null
 }
 
 export function resetAuditAdapterCache(): void {
-    // Surreal client is process-scoped via surrealDB registry; nothing to clear.
+
 }

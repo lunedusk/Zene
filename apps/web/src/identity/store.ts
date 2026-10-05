@@ -30,7 +30,7 @@ export function subscribeIdentity(fn: (i: DashboardApplicationIdentity) => void)
   return () => listeners.delete(fn);
 }
 
-/** Normalize partial API payload into identity contract. */
+
 export function identityFromApiPayload(raw: unknown): DashboardApplicationIdentity {
   const base = genericIdentityFallback();
   if (!raw || typeof raw !== 'object') return base;

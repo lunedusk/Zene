@@ -1,10 +1,10 @@
 import type { IHeart } from '#core/heart/index.js';
 import type SecurityStoreHandler from '../handlers/store.js';
 
-/**
- * Resolve the shared quarantine role for a guild.
- * Preference: verify settings → raid settings → null.
- */
+
+
+
+
 export async function resolveQuarantineRoleId(
     heart: IHeart,
     guildId: string,
@@ -21,9 +21,9 @@ export async function resolveQuarantineRoleId(
     return null;
 }
 
-/**
- * Keep raid + verify quarantine role IDs in sync when one side is set.
- */
+
+
+
 export async function syncQuarantineRoleId(
     heart: IHeart,
     guildId: string,

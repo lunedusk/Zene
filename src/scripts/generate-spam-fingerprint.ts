@@ -132,7 +132,7 @@ async function main(): Promise<void> {
         const parsed = JSON.parse(raw) as FileShape;
         if (parsed && Array.isArray(parsed.entries)) file = parsed;
     } catch {
-        /* create new */
+
     }
 
     const next: Entry[] = [...file.entries];

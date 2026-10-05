@@ -1,7 +1,7 @@
-/**
- * Phase 2B — Trusted owner TSX build/runtime contract (no sandbox inversion).
- * Owner TSX is intentionally trusted; this module tracks metadata, compatibility, and publish safety.
- */
+
+
+
+
 
 export interface TsxArtifactMeta {
     readonly artifactId: string;
@@ -26,7 +26,7 @@ export interface TsxCompileResult {
 }
 
 export function contentHash(source: string): string {
-    // Lightweight stable hash for foundation (not crypto-secret).
+
     let h = 0;
     for (let i = 0; i < source.length; i++) h = (Math.imul(31, h) + source.charCodeAt(i)) | 0;
     return `h${(h >>> 0).toString(16)}`;
@@ -40,7 +40,7 @@ export function checkTsxCompatibility(input: {
     requiredRuntime: string;
 }): { ok: true } | { ok: false; reason: string } {
     if (input.dashSdkCompat !== input.requiredSdk && !input.requiredSdk.startsWith(input.dashSdkCompat)) {
-        // Allow major.minor prefix match
+
         if (!input.requiredSdk.startsWith(input.dashSdkCompat.split('.')[0] ?? '')) {
             return { ok: false, reason: 'SDK_INCOMPATIBLE' };
         }
@@ -54,10 +54,10 @@ export function checkTsxCompatibility(input: {
     return { ok: true };
 }
 
-/**
- * Compile step is a pure validation gate in 2B foundation.
- * Production publish must only accept validated artifacts; failures never replace published.
- */
+
+
+
+
 export function compileTsxDraft(input: {
     artifactId: string;
     authorUserId: string;
@@ -86,7 +86,7 @@ export function compileTsxDraft(input: {
         };
         return { ok: false, meta, error: 'EMPTY_SOURCE' };
     }
-    // Trusted path: accept syntactically non-empty source as compiled draft in foundation.
+
     const meta: TsxArtifactMeta = {
         artifactId: input.artifactId,
         authorUserId: input.authorUserId,

@@ -212,7 +212,7 @@ export interface SpamSignaturesFile {
     readonly entries: readonly SpamSignatureEntry[];
 }
 
-// --- Phase 4: anti-nuke / raid / verify ---
+
 
 export type AntiNukeEventKey =
     | 'guildUpdate'

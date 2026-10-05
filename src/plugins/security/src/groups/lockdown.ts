@@ -124,7 +124,7 @@ export async function handleLockdown(host: SecurityCmdHost,
             return;
         }
 
-        // on
+
         if (await host.denyIfCooldown(interaction, guildId, 'lockdown')) return;
         const pauseInvites = interaction.options.getBoolean('pause_invites') ?? true;
         const lockChannels = interaction.options.getBoolean('lock_channels') ?? true;
@@ -167,6 +167,3 @@ export async function handleLockdown(host: SecurityCmdHost,
             }),
         );
     }
-
-    // --- purge / snipe / lock / slowmode ---
-

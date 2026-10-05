@@ -1,6 +1,6 @@
-/**
- * Durable scheduled owner-override publication — registers on JobsService path.
- */
+
+
+
 
 import {
     registerJobHandler,
@@ -32,7 +32,7 @@ export function ensureScheduledPublishHandlerRegistered(): void {
         if (!current) {
             return { ok: false as const, error: 'override_not_found', retry: false };
         }
-        // Idempotent: already published at/after expected version
+
         if (
             typeof payload.expectedVersion === 'number' &&
             current.state === 'published' &&
@@ -56,9 +56,9 @@ export function ensureScheduledPublishHandlerRegistered(): void {
     });
 }
 
-/**
- * Enqueue durable scheduled publish. Survives process restart via job store + due index.
- */
+
+
+
 export async function enqueueScheduledPublish(input: {
     overrideId: string;
     scheduledAt: number;
@@ -81,14 +81,14 @@ export async function enqueueScheduledPublish(input: {
         requestId: input.requestId,
         maxAttempts: 5,
     });
-    // Defer until scheduledAt
+
     const { updateJob } = await import('../../../dash-data/src/repositories/jobRepository.js');
     await updateJob(job.jobId, { nextAttemptAt: input.scheduledAt, status: 'queued' });
     await registerDueIndex(job.jobId, input.scheduledAt);
     return { ...job, nextAttemptAt: input.scheduledAt };
 }
 
-/** Worker tick — call from existing job poller / heartbeat. */
+
 export async function runScheduledPublishTick(): Promise<JobRecord[]> {
     ensureScheduledPublishHandlerRegistered();
     return processDueJobs(Date.now());

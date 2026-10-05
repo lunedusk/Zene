@@ -29,7 +29,7 @@ export function isAntiNukePunishment(value: string): value is AntiNukePunishment
     );
 }
 
-/** Conservative defaults — all disabled until staff enables a rule. */
+
 export function defaultAntiNukeRule(
     guildId: string,
     eventKey: AntiNukeEventKey,
@@ -49,9 +49,9 @@ export function defaultAntiNukeRule(
     };
 }
 
-/** Map Discord audit log action type numbers to our keys (discord.js AuditLogEvent). */
+
 export const AUDIT_TO_EVENT: Readonly<Record<number, AntiNukeEventKey | undefined>> = {
-    1: 'guildUpdate', // GuildUpdate
+    1: 'guildUpdate',
     10: 'channelCreate',
     12: 'channelDelete',
     30: 'roleCreate',
@@ -61,12 +61,12 @@ export const AUDIT_TO_EVENT: Readonly<Record<number, AntiNukeEventKey | undefine
     62: 'emojiDelete',
     90: 'stickerCreate',
     92: 'stickerDelete',
-    50: 'webhookUpdate', // WebhookCreate
-    51: 'webhookUpdate', // WebhookUpdate
-    52: 'webhookUpdate', // WebhookDelete
+    50: 'webhookUpdate',
+    51: 'webhookUpdate',
+    52: 'webhookUpdate',
     20: 'memberKick',
-    22: 'memberBan', // MemberBanAdd
+    22: 'memberBan',
     21: 'memberPrune',
-    25: 'memberRoleMass', // MemberRoleUpdate
+    25: 'memberRoleMass',
     73: 'messageBulkDelete',
 };

@@ -55,7 +55,7 @@ export class DatabaseManager {
         const hasEntities = config.entities && config.entities.length > 0;
 
         await this.withRetry(async () => {
-            // Prefer scheme extraction that tolerates embedded paths (rocksdb://./data/…)
+
             let protocol = extractUriProtocol(config.uri);
             if (!protocol) {
                 try {

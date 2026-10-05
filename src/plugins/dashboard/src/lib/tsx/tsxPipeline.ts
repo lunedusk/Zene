@@ -1,7 +1,7 @@
-/**
- * Phase 4 — Trusted TSX pipeline (NOT sandboxed).
- * Compile → compatibility → artifact identity → publish gate → runtime isolation boundary.
- */
+
+
+
+
 
 import {
     checkTsxCompatibility,
@@ -110,10 +110,10 @@ export function rollbackTsxArtifact(artifactId: string, previous: TsxArtifactMet
     disabled.delete(artifactId);
 }
 
-/**
- * Runtime isolation: wrap execution so thrown errors do not escape the boundary.
- * Still trusted (not sandboxed) — this only contains failures.
- */
+
+
+
+
 export function runTsxIsolated<T>(fn: () => T): { ok: true; value: T } | { ok: false; error: string } {
     try {
         return { ok: true, value: fn() };

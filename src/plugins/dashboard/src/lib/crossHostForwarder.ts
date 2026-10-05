@@ -1,7 +1,7 @@
-/**
- * Phase 4 — Cross-Host Dashboard request forwarder.
- * Forwards guild-scoped operations to the owning worker; never trusts client worker selection.
- */
+
+
+
+
 
 import {
     resolveDataPlaneRoute,
@@ -15,7 +15,7 @@ export interface ForwardHeaders {
     readonly requestId: string;
     readonly correlationId?: string;
     readonly authorizationSubject: string;
-    /** Internal service token — never from the browser */
+
     readonly serviceAuthorization?: string;
 }
 
@@ -39,16 +39,16 @@ export type ForwardResult<T> =
       };
 
 export interface WorkerEndpointResolver {
-    /** Resolve workerId → base URL for internal Dashboard API */
+
     resolveBaseUrl(workerId: string): string | null;
 }
 
 export type LocalHandler<T> = () => Promise<T>;
 
-/**
- * Execute a guild-scoped operation locally or forward to the owning worker.
- * Non-idempotent mutations are not auto-retried on STALE_ROUTE.
- */
+
+
+
+
 export async function executeOnOwningWorker<T>(
     input: ForwardRequest,
     deps: ResourceRouterDeps,
@@ -72,7 +72,7 @@ export async function executeOnOwningWorker<T>(
             const reval = revalidateAfterAwait(resolved.resolved.route, deps, input.headers.requestId);
             if (!reval.ok) {
                 if (shouldRetryOnStale(input.dataPlane)) {
-                    // One safe re-resolve for reads / idempotent ops
+
                     const again = resolveDataPlaneRoute(input.dataPlane, deps, localWorkerId);
                     if (again.ok && again.resolved.local) {
                         const data2 = await localHandler();
@@ -178,10 +178,10 @@ export async function executeOnOwningWorker<T>(
     }
 }
 
-/**
- * Reject client-supplied worker/shard ownership claims.
- * Routing always uses ShardMap — these headers are diagnostic only.
- */
+
+
+
+
 export function assertNoClientWorkerAuthority(headers: Record<string, string | string[] | undefined>): {
     ok: true;
 } | { ok: false; code: 'CLIENT_WORKER_SPOOF'; message: string } {

@@ -17,10 +17,10 @@ function key(guildId: string, actorId: string, op: CooldownOp): string {
     return `cd:${guildId}:${actorId}:${op}`;
 }
 
-/**
- * Action cooldowns via heart.cache.ns (local TTL + Redis when available).
- * Returns remaining ms if limited, otherwise null.
- */
+
+
+
+
 export async function checkActionCooldown(
     heart: IHeart,
     guildId: string,

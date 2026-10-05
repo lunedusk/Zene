@@ -1,7 +1,7 @@
-/**
- * Phase 2B — transport-neutral Dashboard realtime broker.
- * SSE is one sink; WebSocket can attach later without changing domain events.
- */
+
+
+
+
 
 import type { Response } from 'express';
 import {
@@ -20,15 +20,15 @@ import { makeDeniedRealtimeActor } from './resolvedPermissionsFactory.js';
 
 export interface BrokerClient {
     readonly id: string;
-    /**
-     * Mutable so delivery-time auth can refresh the actor snapshot
-     * (permission changes) without replacing the client registration.
-     */
+
+
+
+
     actor: RealtimeActor;
-    /** Auth revision at connect; bump forces re-check. */
+
     authRevision: number;
     scopes: SubscriptionScope[];
-    /** Last event id delivered (for resume hints). */
+
     lastEventId?: string;
     write: (event: DashboardEvent) => boolean;
     close: () => void;
@@ -46,14 +46,14 @@ export interface BrokerPublishInput {
 let sequence = 0;
 let authRevision = 1;
 const clients = new Map<string, BrokerClient>();
-/** Small in-memory ring for Last-Event-ID resume within this process (not durable history). */
+
 const recent: DashboardEvent[] = [];
 const RECENT_MAX = 100;
 
-/**
- * Optional resolver: when global authRevision advances past client.authRevision,
- * re-resolve actor from Zene PermissionsManager (or test double) before delivery.
- */
+
+
+
+
 export type ActorRefreshFn = (userId: string) => RealtimeActor | null | Promise<RealtimeActor | null>;
 let actorRefresh: ActorRefreshFn | null = null;
 
@@ -85,8 +85,8 @@ export function publishDashboardEvent(input: BrokerPublishInput): DashboardEvent
     if (recent.length > RECENT_MAX) recent.shift();
 
     for (const [id, client] of clients) {
-        // Refresh when global revision advanced. Sync resolvers apply immediately;
-        // async resolvers update actor for subsequent events.
+
+
         if (actorRefresh && client.authRevision < authRevision) {
             applyActorRefresh(id, client, actorRefresh);
         }
@@ -96,7 +96,7 @@ export function publishDashboardEvent(input: BrokerPublishInput): DashboardEvent
             try {
                 client.close();
             } catch {
-                /* ignore */
+
             }
         } else {
             client.lastEventId = event.eventId;
@@ -133,10 +133,10 @@ function applyActorRefresh(
     client.authRevision = authRevision;
 }
 
-/**
- * Synchronous publish after ensuring all clients have refreshed actors for current revision.
- * Prefer this in tests and when actorRefresh is synchronous.
- */
+
+
+
+
 export function publishDashboardEventWithAuthRefresh(input: BrokerPublishInput): DashboardEvent {
     if (actorRefresh) {
         for (const [id, client] of clients) {
@@ -155,10 +155,10 @@ export function publishDashboardEventWithAuthRefresh(input: BrokerPublishInput):
 }
 
 function clientMayReceive(client: BrokerClient, event: DashboardEvent): boolean {
-    // Delivery-time authorization against current actor snapshot (refreshed when revision advances).
+
     if (!authorizeEventDelivery(client.actor, event)) return false;
     if (client.scopes.length === 0) {
-        // Compatibility: no explicit scopes → registry/theme/heartbeat only (Phase 1-like).
+
         const t = event.type;
         return (
             t === 'heartbeat' ||
@@ -211,19 +211,19 @@ export function removeClientsForUser(userId: string): void {
             try {
                 c.close();
             } catch {
-                /* ignore */
+
             }
             clients.delete(id);
         }
     }
 }
 
-/** Resume: return recent events after lastEventId that client may still receive. */
+
 export function eventsAfter(lastEventId: string | undefined, client: BrokerClient): DashboardEvent[] {
     if (!lastEventId) return [];
     const idx = recent.findIndex((e) => e.eventId === lastEventId);
     if (idx < 0) {
-        // Missed history — caller should invalidate/refetch; return empty.
+
         return [];
     }
     return recent.slice(idx + 1).filter((e) => clientMayReceive(client, e));
@@ -233,7 +233,7 @@ export function brokerClientCount(): number {
     return clients.size;
 }
 
-/** SSE write helper */
+
 export function createSseWriter(res: Response): (event: DashboardEvent) => boolean {
     return (event: DashboardEvent) => {
         try {

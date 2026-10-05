@@ -1,6 +1,6 @@
-/**
- * Shared public-site chrome — runtime identity + published navigation when available.
- */
+
+
+
 
 import { Link, Outlet } from 'react-router-dom';
 import { useEffect, useState } from 'react';
@@ -43,7 +43,7 @@ export function PublicShell() {
           );
         }
       } catch {
-        /* keep fallback */
+
       }
     })();
   }, [id.botName]);

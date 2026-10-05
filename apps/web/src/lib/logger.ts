@@ -1,6 +1,6 @@
-/**
- * Structured frontend logger — never logs secrets or auth material.
- */
+
+
+
 
 export type LogLevel = 'off' | 'error' | 'warn' | 'info' | 'debug';
 
@@ -12,10 +12,10 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
   debug: 4,
 };
 
-/**
- * Sensitive key match — avoids false positives like tokenCount / tokenType
- * by requiring the sensitive stem to be a standalone segment or the full key.
- */
+
+
+
+
 const SENSITIVE_KEY =
   /^(?:access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?token|sessionkey|authorization|cookie|set-cookie|password|secret|client[_-]?secret|api[_-]?key|apikey|credential|credentials|bearer|otp|totp|recovery(?:[_-]?code(?:s)?)?|token)$/i;
 
@@ -51,7 +51,7 @@ function sanitizeValue(value: unknown, keyHint?: string): unknown {
     return value.map((item) => sanitizeValue(item));
   }
   if (typeof value === 'object') {
-    // Plain object (and Error-like): copy enumerable own props safely
+
     const src = value as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(src)) {
@@ -69,7 +69,7 @@ export function sanitizeFields(fields?: Record<string, unknown>): Record<string,
 
 function isDevMode(): boolean {
   try {
-    // Typed via vite/client (src/vite-env.d.ts + tsconfig types)
+
     return import.meta.env.DEV === true;
   } catch {
     return false;
@@ -89,7 +89,7 @@ function defaultLevel(): LogLevel {
       return fromStorage;
     }
   } catch {
-    /* ignore */
+
   }
   if (isDevMode()) return 'debug';
   return 'warn';
@@ -102,7 +102,7 @@ export function setLogLevel(level: LogLevel): void {
   try {
     localStorage.setItem('dash.logLevel', level);
   } catch {
-    /* ignore */
+
   }
 }
 
@@ -120,7 +120,7 @@ let sink: Sink = (level, event, fields) => {
   else console.debug(payload);
 };
 
-/** Test hook */
+
 export function setLoggerSink(next: Sink | null): void {
   sink =
     next ??
@@ -136,7 +136,7 @@ export function setLoggerSink(next: Sink | null): void {
 function emit(level: LogLevel, event: string, fields?: Record<string, unknown>): void {
   if (LEVEL_ORDER[currentLevel] === 0) return;
   if (LEVEL_ORDER[currentLevel] < LEVEL_ORDER[level]) return;
-  // Redact before sink — sinks never see secrets
+
   sink(level, event, sanitizeFields(fields));
 }
 

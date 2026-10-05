@@ -1,7 +1,7 @@
-/**
- * Phase 4 — In-process Cross-Host transport boundary for integration tests and single-process fanout.
- * Production Cross-Host uses Redis pub/sub; this abstraction is the contract both share.
- */
+
+
+
+
 
 export type CrossHostEnvelope = {
     readonly messageId: string;
@@ -54,7 +54,7 @@ export async function publishCrossHost(
         sequence,
     };
     if (seenMessageIds.has(env.messageId)) {
-        return env; // dedupe publish
+        return env;
     }
     seenMessageIds.add(env.messageId);
     if (seenMessageIds.size > SEEN_MAX) {

@@ -211,6 +211,3 @@ export async function handlePunish(host: SecurityCmdHost,
         );
         await host.replyActionResult(interaction, op, target, result, durationMs, proof);
     }
-
-    // --- Phase 2: warn / notes ---
-

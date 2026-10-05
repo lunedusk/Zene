@@ -1,7 +1,7 @@
-/**
- * Phase 4 — SearchService: candidate retrieval + authorization filter + pagination.
- * Repository never authorizes; this layer does.
- */
+
+
+
+
 
 import type { RequestContext } from '../requestContext.js';
 import { ServiceError, serviceOk, type ServiceResult } from '../requestContext.js';
@@ -29,7 +29,7 @@ export interface SearchPage {
     readonly items: SearchCandidate[];
     readonly page: number;
     readonly limit: number;
-    /** Count AFTER authorization filtering — never pre-auth count. */
+
     readonly totalAuthorized: number;
     readonly backend: 'durable' | 'memory_fallback';
 }
@@ -47,13 +47,13 @@ export async function searchAuthorized(
 
     if (backendStatus === 'ok') {
         await ensureDurableSearchSeed();
-        // Over-fetch so post-authz pagination is meaningful
+
         candidates = await durableQueryCandidates(input.q, {
             kinds: input.kinds,
             limit: Math.min(500, limit * page + limit),
         });
     } else {
-        // Explicit degradation: memory seed only — still authorize; do not pretend durable authority
+
         ensureDefaultSearchSeed();
         candidates = querySearchCandidates(input.q, {
             kinds: input.kinds,

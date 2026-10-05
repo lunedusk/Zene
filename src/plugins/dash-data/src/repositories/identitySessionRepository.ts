@@ -1,6 +1,6 @@
-/**
- * Phase 2B — Identity/session persistence via dash-data KV (survives restart).
- */
+
+
+
 
 import { kvGet, kvSet, kvDel, newId } from '../lib/store.js';
 import type {
@@ -133,7 +133,7 @@ export async function setSudo(sessionId: string, durationMs: number): Promise<Se
     return next;
 }
 
-/** List is not indexed; for foundation, store user→sessions set optionally. */
+
 export async function revokeAllSessionsForUser(userId: string, knownSessionIds: string[]): Promise<number> {
     let n = 0;
     for (const id of knownSessionIds) {

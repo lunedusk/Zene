@@ -1,7 +1,7 @@
-/**
- * Phase 2C pure-module tests.
- * npx tsx --test src/plugins/dashboard/src/lib/phase2c-platform.test.ts
- */
+
+
+
+
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

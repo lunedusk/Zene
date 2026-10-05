@@ -1,6 +1,6 @@
-/**
- * Phase 4 — Orchestrator-authoritative worker registration with Cross-Host HMAC.
- */
+
+
+
 
 import {
     createChallenge,

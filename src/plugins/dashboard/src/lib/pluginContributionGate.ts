@@ -1,6 +1,6 @@
-/**
- * Phase 4 — Unified integrity gate for all privileged plugin contribution execution paths.
- */
+
+
+
 
 import { assertPluginMayExecute, getPluginRuntimeIntegrity, setPluginRuntimeIntegrity, listRuntimeIntegrity } from './pluginRuntimeGate.js';
 import type { PluginIntegrityInput } from './pluginIntegrity.js';
@@ -22,9 +22,9 @@ export type ContributionGateResult =
     | { ok: true; pluginId: string; kind: ContributionKind }
     | { ok: false; pluginId: string; kind: ContributionKind; state: string; reasons: readonly string[] };
 
-/**
- * Must be called before any privileged plugin contribution executes.
- */
+
+
+
 export function gatePluginContribution(pluginId: string, kind: ContributionKind): ContributionGateResult {
     const r = assertPluginMayExecute(pluginId);
     if (!r.ok) {
@@ -39,9 +39,9 @@ export function gatePluginContribution(pluginId: string, kind: ContributionKind)
     return { ok: true, pluginId, kind };
 }
 
-/**
- * Re-evaluate integrity (e.g. after hot reload / hash change).
- */
+
+
+
 export function refreshPluginIntegrity(pluginId: string, input: PluginIntegrityInput): ContributionGateResult {
     setPluginRuntimeIntegrity(pluginId, input);
     return gatePluginContribution(pluginId, 'lifecycle');
@@ -54,7 +54,7 @@ export function requirePluginContribution(pluginId: string, kind: ContributionKi
     }
 }
 
-/** Audit helper: list known runtime integrity states */
+
 export function auditPluginIntegrityStates(): Array<{
     pluginId: string;
     state: string;

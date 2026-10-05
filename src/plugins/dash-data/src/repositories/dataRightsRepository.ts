@@ -1,6 +1,6 @@
-/**
- * Phase 2B — Data-rights request foundation (durable KV).
- */
+
+
+
 
 import { kvGet, kvSet, newId } from '../lib/store.js';
 
@@ -27,7 +27,7 @@ export interface DataRightsRequest {
     requestId: string;
     userId: string;
     kind: DataRightsKind;
-    /** null = full account; guild id = server-scoped */
+
     guildId: string | null;
     status: DataRightsStatus;
     requestedAt: number;
@@ -38,9 +38,9 @@ export interface DataRightsRequest {
     completedAt?: number;
     failure?: string;
     providerResults?: DataRightsProviderResult[];
-    /** recoverability window end (eligible data removed, recoverable until) */
+
     recoverabilityUntil?: number;
-    /** restricted notice-only until */
+
     restrictedUntil?: number;
 }
 
@@ -87,7 +87,7 @@ export async function updateDataRightsRequest(
 
 export type DataRightsProvider = {
     providerId: string;
-    /** Returns whether this provider handles the scope. */
+
     supports: (req: DataRightsRequest) => boolean;
     deleteEligible: (req: DataRightsRequest) => Promise<DataRightsProviderResult>;
     exportEligible?: (req: DataRightsRequest) => Promise<DataRightsProviderResult>;
@@ -103,7 +103,7 @@ export function listDataRightsProviders(): readonly DataRightsProvider[] {
     return providers;
 }
 
-/** Built-in dashboard store provider registration helper for deletion of dash-scoped rows later. */
+
 export function ensureBuiltinDataRightsProviders(): void {
     if (providers.some((p) => p.providerId === 'dashboard.kv_marker')) return;
     registerDataRightsProvider({

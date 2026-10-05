@@ -1,6 +1,6 @@
-/**
- * Registry-driven plugin contribution renderer with failure isolation.
- */
+
+
+
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Card, EmptyState, ErrorState } from '../design-system/primitives.js';

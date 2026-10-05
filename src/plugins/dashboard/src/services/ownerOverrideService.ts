@@ -1,6 +1,6 @@
-/**
- * Owner override publish / preview / schedule service.
- */
+
+
+
 
 import { createHash } from 'node:crypto';
 import type { RequestContext, ServiceResult } from '../lib/requestContext.js';
@@ -26,7 +26,7 @@ function contentHash(payload: unknown): string {
 }
 
 function previewSecret(ctx: RequestContext): string {
-    // Prefer process env; fall back to deterministic non-production marker (must be set in prod).
+
     const fromEnv = process.env['DASH_PREVIEW_SECRET'] ?? process.env['BETTER_AUTH_SECRET'];
     if (fromEnv && fromEnv.length >= 16) return fromEnv;
     return `dev-preview-secret-${ctx.actor.userId}`;
@@ -98,7 +98,7 @@ export class OwnerOverrideService {
         return serviceOk(list, { requestId: ctx.requestId });
     }
 
-    /** Restore → draft-like restored state from history. */
+
     async restore(
         ctx: RequestContext,
         targetKind: string,
@@ -110,7 +110,7 @@ export class OwnerOverrideService {
         return serviceOk(rec, { requestId: ctx.requestId });
     }
 
-    /** Rollback → new published version from history via publish pipeline. */
+
     async rollback(
         ctx: RequestContext,
         targetKind: string,

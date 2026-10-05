@@ -8,10 +8,10 @@ import { clientMayReceive as policyClientMayReceive } from './sseDeliveryPolicy.
 
 const log = getLogger('DashEvents');
 
-/**
- * Transport-neutral event catalog (Phase 1).
- * WebSocket must later consume the same types and authz machinery.
- */
+
+
+
+
 export type DashSseEventType =
     | 'registry.updated'
     | 'surface.invalidate'
@@ -27,7 +27,7 @@ export type DashEventResourceScope = 'global' | 'user' | 'guild' | 'plugin' | 's
 export type DashEventSensitivity = 'public' | 'authenticated' | 'guild' | 'owner' | 'admin';
 
 export interface DashSsePayload {
-    /** Stable event id for dedupe / reconnect. */
+
     eventId: string;
     type: DashSseEventType;
     version?: number;
@@ -46,7 +46,7 @@ interface SseClient {
     id: string;
     res: Response;
     userId: string;
-    /** Snapshot at connect; refreshed on permission.changed when possible. */
+
     bits: ReadonlySet<string>;
     isEnvOwner: boolean;
     authRevision: number;
@@ -117,7 +117,7 @@ export function addSseClient(client: Omit<SseClient, 'authRevision'> & { authRev
     };
 }
 
-/** Drop or refresh clients after permission invalidation. */
+
 export function refreshSseClientAuth(
     userId: string,
     next: { bits: ReadonlySet<string>; isEnvOwner: boolean },
@@ -137,7 +137,7 @@ export function removeSseClientsForUser(userId: string): void {
             try {
                 client.res.end();
             } catch {
-                /* ignore */
+
             }
             clients.delete(id);
         }

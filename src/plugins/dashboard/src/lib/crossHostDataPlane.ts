@@ -1,8 +1,8 @@
-/**
- * Phase 4 — Dashboard Cross-Host data-plane helper.
- * Uses authoritative resolveResourceRoute / revalidateResourceRoute.
- * Clients never select workers.
- */
+
+
+
+
+
 
 import {
     resolveResourceRoute,
@@ -18,7 +18,7 @@ export interface DataPlaneRequest {
     readonly guildId: string;
     readonly operation: DataPlaneOperation;
     readonly requestId: string;
-    /** Idempotent mutations may be safely retried once after STALE_ROUTE */
+
     readonly idempotent?: boolean;
 }
 
@@ -37,10 +37,10 @@ export type DataPlaneError = {
     readonly requestId: string;
 };
 
-/**
- * Resolve where a guild-scoped Dashboard resource lives.
- * `localWorkerId` compares to route.workerId to decide local vs forward.
- */
+
+
+
+
 export function resolveDataPlaneRoute(
     req: DataPlaneRequest,
     deps: ResourceRouterDeps,
@@ -62,10 +62,10 @@ export function resolveDataPlaneRoute(
     };
 }
 
-/**
- * After an await, revalidate before applying mutation results.
- * Mutating non-idempotent ops must NOT auto-retry side effects on STALE_ROUTE.
- */
+
+
+
+
 export function revalidateAfterAwait(
     captured: ResourceRouteOk,
     deps: ResourceRouterDeps,

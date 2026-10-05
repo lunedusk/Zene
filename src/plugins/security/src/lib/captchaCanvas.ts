@@ -17,10 +17,10 @@ export function randomCaptchaCode(length = 6): string {
     return out;
 }
 
-/**
- * Render a distorted captcha PNG. Uses `canvas` when available.
- * Throws if canvas cannot be loaded so the caller can surface a clear error.
- */
+
+
+
+
 export async function renderCaptchaPng(code?: string): Promise<CaptchaImageResult> {
     const text = (code ?? randomCaptchaCode(6)).toUpperCase();
 
@@ -43,7 +43,7 @@ export async function renderCaptchaPng(code?: string): Promise<CaptchaImageResul
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // Background noise
+
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, width, height);
     for (let i = 0; i < 40; i++) {
@@ -58,7 +58,7 @@ export async function renderCaptchaPng(code?: string): Promise<CaptchaImageResul
         ctx.fillRect(Math.random() * width, Math.random() * height, 2, 2);
     }
 
-    // Characters with jitter / rotation
+
     const step = width / (text.length + 1);
     for (let i = 0; i < text.length; i++) {
         const ch = text[i] ?? '';
@@ -70,7 +70,7 @@ export async function renderCaptchaPng(code?: string): Promise<CaptchaImageResul
         ctx.font = `bold ${28 + Math.floor(Math.random() * 8)}px Sans`;
         ctx.fillStyle = randomColor(180, 255);
         ctx.fillText(ch, -10, 10);
-        // partial cover bar
+
         if (Math.random() > 0.45) {
             ctx.fillStyle = `rgba(26,26,46,${0.35 + Math.random() * 0.25})`;
             ctx.fillRect(-12, -6, 22, 8);
@@ -78,7 +78,7 @@ export async function renderCaptchaPng(code?: string): Promise<CaptchaImageResul
         ctx.restore();
     }
 
-    // Foreground scribble
+
     for (let i = 0; i < 6; i++) {
         ctx.strokeStyle = randomColor(100, 180);
         ctx.lineWidth = 1 + Math.random() * 2;

@@ -67,7 +67,7 @@ export class ApplyEngine {
             try {
                 fs.unlinkSync(archivePath);
             } catch {
-                /* ignore */
+
             }
         }
         return dest;
@@ -134,7 +134,7 @@ export class ApplyEngine {
                     try {
                         fs.rmSync(dir, { recursive: true, force: true });
                     } catch {
-                        /* ignore */
+
                     }
                     throw new Error(
                         `createBackup failed copying core/: ${(e as Error).message}. Apply aborted.`,
@@ -260,7 +260,7 @@ export class ApplyEngine {
                 };
             }
         } catch {
-            /* ignore */
+
         }
 
         const rehashFiles = walkLocal().filter((f) => !shouldHardExclude(f));
@@ -356,7 +356,7 @@ export class ApplyEngine {
                 try {
                     fs.rmSync(coreOld, { recursive: true, force: true });
                 } catch {
-                    /* ignore */
+
                 }
             }
         }
@@ -409,7 +409,7 @@ export class ApplyEngine {
         try {
             await execFileAsync('npm', ['run', 'clean'], { cwd: process.cwd(), timeout: 60_000 });
         } catch {
-            /* optional */
+
         }
         await execFileAsync('npm', ['run', 'build'], {
             cwd: process.cwd(),
@@ -433,7 +433,7 @@ export class ApplyEngine {
                 fs.rmSync(e.full, { recursive: true, force: true });
             }
         } catch {
-            /* ignore */
+
         }
     }
 }

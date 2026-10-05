@@ -24,11 +24,11 @@ const UNIT_MS: Record<string, number> = {
 
 const TOKEN_RE = /(\d+)\s*([a-zA-Z]+)/g;
 
-/**
- * Parse human duration strings such as "10m", "1h30m", "2 days", "90".
- * Bare numbers are treated as seconds.
- * Returns null when the input is empty or unparseable.
- */
+
+
+
+
+
 export function parseDurationMs(input: string | null | undefined): number | null {
     if (input == null) return null;
     const raw = input.trim().toLowerCase();
@@ -57,10 +57,10 @@ export function parseDurationMs(input: string | null | undefined): number | null
     return total;
 }
 
-/** Discord timeout max is 28 days. */
+
 export const MAX_TIMEOUT_MS = 28 * 86_400_000;
 
-/** Soft upper bound for tempban scheduling (90 days). */
+
 export const MAX_TEMPBAN_MS = 90 * 86_400_000;
 
 export function clampTimeoutMs(ms: number): number {

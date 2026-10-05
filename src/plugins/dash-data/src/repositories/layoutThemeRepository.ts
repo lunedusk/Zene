@@ -1,7 +1,7 @@
-/**
- * Phase 2A — Layout/theme repository boundary over dash-data store.
- * Routes must not call SQL helpers for this domain; use this repository / ThemeLayoutService.
- */
+
+
+
+
 
 import {
     getLayout,
@@ -15,7 +15,7 @@ import {
 export interface ThemeDocument {
     tokens: Record<string, unknown>;
     updatedAt: number;
-    /** Optimistic concurrency token (epoch seconds from store). */
+
     version: number;
 }
 

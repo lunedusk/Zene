@@ -1,6 +1,6 @@
-/**
- * Server roles — GET /api/dash/servers/:guildId/roles (or list via permissions surface)
- */
+
+
+
 
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
@@ -29,7 +29,7 @@ export function ServerRolesPage() {
     setError(null);
     logger.debug('dashboard.table.load', { resource: 'roles', guildId });
     try {
-      // Prefer guild-scoped roles endpoint when present
+
       const data = (await apiClient.request<unknown>(`/servers/${encodeURIComponent(guildId)}/roles`)) as unknown;
       const list = Array.isArray(data)
         ? (data as RoleRow[])

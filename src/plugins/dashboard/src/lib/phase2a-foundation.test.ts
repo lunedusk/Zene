@@ -1,7 +1,7 @@
-/**
- * Phase 2A foundation unit tests (pure modules / no logger boot).
- * Run: npx tsx --test src/plugins/dashboard/src/lib/phase2a-foundation.test.ts
- */
+
+
+
+
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

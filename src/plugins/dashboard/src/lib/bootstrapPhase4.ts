@@ -1,6 +1,6 @@
-/**
- * Phase 4 — Dashboard startup wiring: schema ensure, Redis rate-limit, Better Auth init.
- */
+
+
+
 
 import { redisDB } from '#core/database/redis.js';
 import { ensureBetterAuthSchema, setAuthCutoverPhase, getAuthCutoverPhase } from '../auth/betterAuthSchema.js';
@@ -18,9 +18,9 @@ export interface Phase4BootstrapResult {
     readonly cutoverPhase: number;
 }
 
-/**
- * Attempt to bind Redis main client from known Cross-Host / main aliases.
- */
+
+
+
 export function wireRateLimitRedisFromRegistry(): boolean {
     for (const alias of ['crosshost', 'main', 'default']) {
         const clients = redisDB.tryGet(alias);
@@ -37,7 +37,7 @@ export function wireRateLimitRedisFromRegistry(): boolean {
     return false;
 }
 
-/** Call after Redis reconnect so limiters recover without process restart. */
+
 export function rewireRateLimitRedis(): boolean {
     return wireRateLimitRedisFromRegistry();
 }
@@ -77,7 +77,7 @@ export async function bootstrapPhase4(options?: {
             });
             if (init.ok) {
                 betterAuth = { ok: true, message: 'initialized' };
-                // Handler mount is performed by AuthRoute / plugin when handle is stored
+
                 (globalThis as { __zeneBetterAuthHandle?: typeof init.handle }).__zeneBetterAuthHandle =
                     init.handle;
             } else {

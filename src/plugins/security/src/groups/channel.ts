@@ -218,6 +218,3 @@ export async function handleSlowmode(host: SecurityCmdHost, interaction: ChatInp
             await host.replyText(interaction, host.t('commands.security.slowmode.fail'));
         }
     }
-
-    // --- Phase 3: AutoMod ---
-

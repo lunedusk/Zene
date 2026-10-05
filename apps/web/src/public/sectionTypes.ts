@@ -1,4 +1,4 @@
-/** Mirrors backend public site schema for the SPA renderer/editor. */
+
 
 export type PublicSectionType =
   | 'hero'

@@ -1,7 +1,7 @@
-/**
- * Pure registry projection (no logger / secretManager / plugin loader).
- * Used by dashRegistry and by unit tests to avoid ESM init cycles.
- */
+
+
+
+
 
 import type {
     DashRegistryDiagnostics,
@@ -12,10 +12,10 @@ import type {
     DashSurfaceExternal,
 } from '#core/types/dashSdk.js';
 
-/**
- * Project an internal snapshot to the browser-safe external registry.
- * Unauthorized surfaces are omitted entirely (no visibleEstimate: false leak).
- */
+
+
+
+
 export function projectExternalRegistry(snapshot: DashRegistrySnapshot): DashRegistryExternalSnapshot {
     const plugins: DashRegistryPluginExternal[] = [];
     for (const p of snapshot.plugins) {
@@ -63,9 +63,9 @@ export function projectExternalRegistry(snapshot: DashRegistrySnapshot): DashReg
     };
 }
 
-/**
- * Diagnostics view — must be gated by dashboard.registry.diagnostics capability.
- */
+
+
+
 export function projectRegistryDiagnostics(snapshot: DashRegistrySnapshot): DashRegistryDiagnostics {
     const surfaces: DashSurfaceDiagnostic[] = [];
     for (const p of snapshot.plugins) {

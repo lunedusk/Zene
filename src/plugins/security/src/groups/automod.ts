@@ -94,7 +94,7 @@ export async function handleAutoMod(host: SecurityCmdHost,
             return;
         }
 
-        
+
         if (sub === 'blacklist') {
             if (!canManage) {
                 await host.replyText(
@@ -172,7 +172,7 @@ export async function handleAutoMod(host: SecurityCmdHost,
                     createdAt: Date.now(),
                     actorId: interaction.user.id,
                 });
-                // enable matching filter toggle
+
                 const filterKey =
                     kind === 'word'
                         ? 'wordBlacklist'
@@ -527,5 +527,3 @@ if (sub === 'status') {
             );
         }
     }
-
-

@@ -1,7 +1,7 @@
-/**
- * Signed, expiring, non-indexable preview tokens.
- * Preview tokens are NOT dashboard sessions and grant only scoped draft visibility.
- */
+
+
+
+
 
 import { createHmac, timingSafeEqual, randomBytes } from 'node:crypto';
 

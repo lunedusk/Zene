@@ -1,6 +1,6 @@
-/**
- * Phase 2C — Search service: query → candidates → authorize → project.
- */
+
+
+
 
 import type { RequestContext } from '../lib/requestContext.js';
 import { serviceOk, type ServiceResult } from '../lib/requestContext.js';
@@ -48,7 +48,7 @@ export class SearchService {
             isEnvOwner: ctx.actor.isEnvOwner,
             resolved: ctx.actor.resolved,
         };
-        // Over-fetch then filter (authorization is authoritative).
+
         const candidates = querySearchCandidates(input.q ?? '', {
             kinds: input.kinds,
             limit: 200,
@@ -79,7 +79,7 @@ export class SearchService {
         );
     }
 
-    /** Index maintenance API for other services (derived). */
+
     indexUpsert(c: SearchCandidate): void {
         upsertSearchEntry(c);
     }

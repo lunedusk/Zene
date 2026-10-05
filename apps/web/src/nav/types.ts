@@ -1,4 +1,4 @@
-/** Navigation registry — unauthorized items must be omitted, never CSS-hidden. */
+
 
 export type VisibilityLeaf =
   | { type: 'bit'; bit: string }

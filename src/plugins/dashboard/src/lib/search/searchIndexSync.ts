@@ -1,7 +1,7 @@
-/**
- * Phase 4 — Search index Cross-Host synchronization via EventBus-style publish hooks.
- * Workers observe the same durable store; mutations emit index events for peers.
- */
+
+
+
+
 
 import { durableUpsertTracked, durableRemove } from './durableSearchRepository.js';
 import type { SearchCandidate, SearchResultKind } from './searchAuthz.js';
@@ -32,9 +32,9 @@ export async function publishSearchRemove(kind: SearchResultKind, id: string): P
     });
 }
 
-/**
- * Apply a remote index event into the durable store (idempotent).
- */
+
+
+
 export async function applyRemoteSearchIndexEvent(event: {
     type: string;
     payload?: unknown;

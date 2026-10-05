@@ -137,7 +137,7 @@ export interface DashRegistrySnapshot {
     plugins: DashRegistryPluginEntry[];
 }
 
-// ─── Dashboard SDK V2 foundation (Phase 1) ───────────────────────────────────
+
 
 export type DashSdkSchemaVersion = 1 | 2;
 
@@ -262,7 +262,7 @@ export function toExternalSurface(s: DashSurfaceResolved): DashSurfaceExternal {
     };
 }
 
-// ─── Phase 2B visibility + widget auth expansion ─────────────────────────────
+
 
 export type VisibilityLeaf =
     | { type: 'bit'; bit: string }

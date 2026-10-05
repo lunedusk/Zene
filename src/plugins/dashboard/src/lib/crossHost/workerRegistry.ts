@@ -1,7 +1,7 @@
-/**
- * Phase 4 — Authoritative Cross-Host worker endpoint registry.
- * Orchestrator is the authority; clients never supply worker endpoints.
- */
+
+
+
+
 
 import { kvGet, kvSet } from '../../../../dash-data/src/lib/store.js';
 
@@ -17,7 +17,7 @@ export interface WorkerEndpointRecord {
     readonly zeneVersion?: string;
     readonly capabilities?: readonly string[];
     readonly tlsRequired?: boolean;
-    /** Expiry absolute ms; heartbeat extends. */
+
     readonly expiresAt: number;
 }
 
@@ -50,7 +50,7 @@ export async function registerWorker(input: {
     if (!input.machineId || !input.endpoint) {
         throw new Error('machineId and endpoint required');
     }
-    // Reject client-looking loopback spoof patterns only if empty — real validation is orchestrator-signed
+
     const now = Date.now();
     const ttl = input.ttlMs ?? DEFAULT_TTL_MS;
     const rec: WorkerEndpointRecord = {
@@ -83,7 +83,7 @@ export async function heartbeatWorker(
     if (!cur) return null;
     if (cur.state === 'disabled') return cur;
     if (generation < cur.generation) {
-        // stale generation — reject heartbeat
+
         return { ...cur, state: 'stale' };
     }
     const now = Date.now();
@@ -148,14 +148,14 @@ export async function listWorkers(): Promise<WorkerEndpointRecord[]> {
     return out;
 }
 
-/** Endpoint resolver for Cross-Host forwarder */
+
 export function createWorkerEndpointResolver(): {
     resolveBaseUrl(workerId: string): string | null;
 } {
     const cache = new Map<string, string>();
     return {
         resolveBaseUrl(workerId: string): string | null {
-            // Synchronous cache only — callers needing freshness should await resolveWorkerEndpoint
+
             return cache.get(workerId) ?? null;
         },
     };

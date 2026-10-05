@@ -112,7 +112,7 @@ export async function ensureRoleLinkSchema(db: SqlAdapter): Promise<void> {
         try {
             await db.exec(`DROP INDEX IF EXISTS idx_perm_role_links_unique`);
         } catch {
-            /* index may not exist */
+
         }
     }
 

@@ -60,7 +60,7 @@ export function checkEveryoneHere(message: Message): AutoModHit | null {
     if (message.mentions.everyone) {
         return { filter: 'everyoneHere', detail: 'everyone_or_here' };
     }
-    // discord.js sets mentions.everyone for @everyone and @here
+
     const content = message.content ?? '';
     if (/(^|\s)@(everyone|here)\b/i.test(content)) {
         return { filter: 'everyoneHere', detail: 'everyone_or_here_text' };
@@ -105,10 +105,10 @@ export function checkAttachments(message: Message, settings: AutoModSettings): A
     return null;
 }
 
-/**
- * Run enabled content/mention filters in a fixed cheap-first order.
- * knownSpam and duplicates are handled by the AutoMod handler (async / stateful).
- */
+
+
+
+
 export function runSyncFilters(
     message: Message,
     settings: AutoModSettings,

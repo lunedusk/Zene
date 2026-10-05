@@ -50,9 +50,9 @@ export default class AntiNukeHandler extends BaseHandler {
         return this.upsertRule(next);
     }
 
-    /**
-     * Process a resolved audit action for anti-nuke.
-     */
+
+
+
     public async handleAction(input: {
         guild: Guild;
         eventKey: AntiNukeEventKey;
@@ -61,7 +61,7 @@ export default class AntiNukeHandler extends BaseHandler {
     }): Promise<void> {
         const { guild, eventKey, actorId } = input;
         if (!actorId || actorId === this.heart.client.user?.id) return;
-        if (actorId === guild.ownerId) return; // Discord server owner always protected
+        if (actorId === guild.ownerId) return;
 
         const rule = await this.getRule(guild.id, eventKey);
         if (!rule.enabled) return;
@@ -78,7 +78,7 @@ export default class AntiNukeHandler extends BaseHandler {
             for (const roleId of rule.whitelistRoleIds) {
                 if (member.roles.cache.has(roleId)) return;
             }
-            // Bit holders of antinuke manage are exempt
+
             try {
                 const has = await this.heart.permissions.hasBit(
                     actorId,
@@ -87,7 +87,7 @@ export default class AntiNukeHandler extends BaseHandler {
                 );
                 if (has) return;
             } catch {
-                /* ignore */
+
             }
         }
 

@@ -99,7 +99,7 @@ export default class RaidGuardHandler extends BaseHandler {
         }
 
         if (!raidActive && settings.joinRoleId && !settings.enabled) {
-            // join role only when raid guard not managing joins aggressively
+
         }
 
         if (!raidActive && settings.joinRoleId) {

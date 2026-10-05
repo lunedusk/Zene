@@ -279,5 +279,5 @@ export async function getErrorOccurrenceById(id: string): Promise<ErrorOccurrenc
 }
 
 export function resetErrorAdapterCache(): void {
-    // Surreal client is process-scoped via surrealDB registry.
+
 }

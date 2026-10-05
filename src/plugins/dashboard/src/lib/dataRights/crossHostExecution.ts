@@ -1,6 +1,6 @@
-/**
- * Phase 4 — Data-rights execution with local + remote (Cross-Host) providers.
- */
+
+
+
 
 import {
     runDataRightsProviders,
@@ -27,9 +27,9 @@ export function aggregateProviderResults(results: readonly DataRightsProviderRes
     return { status: 'partial', results };
 }
 
-/**
- * Register a provider that executes on a remote worker via Cross-Host request/response.
- */
+
+
+
 export function registerRemoteDataRightsProvider(input: {
     providerId: string;
     remoteWorkerId: string;
@@ -85,9 +85,9 @@ async function remoteCall(
     });
 }
 
-/**
- * Worker-side handler: respond to remote data-rights requests.
- */
+
+
+
 export function startDataRightsRemoteWorker(
     workerId: string,
     handlers: {

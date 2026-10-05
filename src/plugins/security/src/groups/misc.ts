@@ -170,6 +170,3 @@ export async function handleStatus(host: SecurityCmdHost, interaction: ChatInput
         });
         await host.replyText(interaction, text);
     }
-
-    // --- helpers ---
-

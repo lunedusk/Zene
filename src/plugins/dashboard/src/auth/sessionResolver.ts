@@ -1,9 +1,9 @@
-/**
- * Phase 4 — Unified session resolution (legacy dash session + Better Auth parallel).
- *
- * Migration phase 2: both authorities may authenticate a request.
- * Authorization always runs through Zene after identity is established.
- */
+
+
+
+
+
+
 
 import type { Request } from 'express';
 import {
@@ -24,10 +24,10 @@ export interface ResolvedDashboardSession {
     readonly authorization: AuthorizationBridgeResult | null;
 }
 
-/**
- * Structural request surface for identity resolution.
- * Express `Request` satisfies this; tests may construct it without casts.
- */
+
+
+
+
 export type SessionIdentityRequest = {
     headers: {
         authorization?: string | string[];
@@ -59,10 +59,10 @@ function readCookie(req: SessionIdentityRequest, name: string): string | null {
     return null;
 }
 
-/**
- * Optional hook installed when Better Auth server is configured.
- * Returns BridgedAuthIdentity or null if cookie/session invalid.
- */
+
+
+
+
 let betterAuthResolver:
     | ((req: SessionIdentityRequest) => Promise<BridgedAuthIdentity | null>)
     | null = null;
@@ -94,21 +94,21 @@ function identityFromDashSessionAttachment(
     });
 }
 
-/**
- * Resolve session from request without performing Zene authorization.
- * Prefer Better Auth when resolver is registered and succeeds; fall back to legacy.
- *
- * Order:
- *   1. Better Auth resolver (when registered)
- *   2. Gateway-verified `req.dashSession` (no raw token required)
- *   3. Raw Bearer / X-Dash-Session / cookie present but unverified here → none
- *      (gateway must attach dashSession after verification)
- */
+
+
+
+
+
+
+
+
+
+
 export async function resolveSessionIdentity(req: SessionIdentityRequest): Promise<{
     authority: SessionAuthority;
     identity: BridgedAuthIdentity | null;
 }> {
-    // Phase 2+: try Better Auth first when wired
+
     if (betterAuthResolver) {
         try {
             const ba = await betterAuthResolver(req);
@@ -116,12 +116,12 @@ export async function resolveSessionIdentity(req: SessionIdentityRequest): Promi
                 return { authority: 'better_auth', identity: ba };
             }
         } catch {
-            // fall through to legacy
+
         }
     }
 
-    // Legacy: gateway middleware attaches verified dashSession — do not require a raw token
-    // Cutover phase 4 (BA-only) disables legacy issuer acceptance.
+
+
     if (isLegacyAuthAllowed()) {
         const fromAttachment = identityFromDashSessionAttachment(req);
         if (fromAttachment) {
@@ -129,24 +129,24 @@ export async function resolveSessionIdentity(req: SessionIdentityRequest): Promi
         }
     }
 
-    // Optional signal that a client presented credentials without gateway verification yet
+
     const token =
         readBearer(req) ??
         (typeof req.headers['x-dash-session'] === 'string' ? req.headers['x-dash-session'] : null) ??
         readCookie(req, 'dash_session');
 
     if (token) {
-        // Token present but not verified on this request object — resolver does not decode JWTs.
-        // Callers must run gateway verification first so dashSession is attached.
+
+
         return { authority: 'none', identity: null };
     }
 
     return { authority: 'none', identity: null };
 }
 
-/**
- * Full resolve: identity + fresh Zene authorization.
- */
+
+
+
 export async function resolveAuthenticatedRequest(req: SessionIdentityRequest): Promise<ResolvedDashboardSession> {
     const { authority, identity } = await resolveSessionIdentity(req);
     if (!identity) {
@@ -156,9 +156,9 @@ export async function resolveAuthenticatedRequest(req: SessionIdentityRequest): 
     return { authority, identity, authorization };
 }
 
-/**
- * Build identity from explicit Better Auth user/session (used by BA handler callbacks).
- */
+
+
+
 export function identityFromBetterAuthUser(input: {
     authUserId: string;
     sessionId: string;

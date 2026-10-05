@@ -38,7 +38,7 @@ export function clearPendingHealth(): void {
     try {
         if (fs.existsSync(PENDING_HEALTH)) fs.unlinkSync(PENDING_HEALTH);
     } catch {
-        /* ignore */
+
     }
 }
 
@@ -69,7 +69,7 @@ export function clearApplyState(): void {
     try {
         if (fs.existsSync(APPLY_STATE)) fs.unlinkSync(APPLY_STATE);
     } catch {
-        /* ignore */
+
     }
 }
 

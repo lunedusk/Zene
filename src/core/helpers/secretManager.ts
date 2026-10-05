@@ -52,9 +52,9 @@ export class SecretManager {
     public getOptional(key: string, fallback?: string): string | undefined {
         const value = process.env[key];
         if (value !== undefined && value !== '') return value;
-        // Explicit second argument always wins (including '').
+
         if (arguments.length >= 2) return fallback;
-        // Auto-fallback from defaults registry when key is registered.
+
         if (hasDefault(key)) return defaultString(key);
         return undefined;
     }
@@ -89,7 +89,7 @@ export class SecretManager {
             return false;
         }
 
-        // Env unset: prefer registry, then call-site fallback.
+
         const fromRegistry = defaultBoolean(key);
         if (fromRegistry !== undefined) return fromRegistry;
         return fallback;

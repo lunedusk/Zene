@@ -1,6 +1,6 @@
-/**
- * Targeted realtime invalidation — does not reload the whole app.
- */
+
+
+
 
 import { eventInvalidationKeys, type DashboardEvent } from './sseClient.js';
 import { logger } from '../lib/logger.js';

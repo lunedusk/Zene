@@ -10,7 +10,7 @@ import type AutoModHandler from './autoMod.js';
 import type RaidGuardHandler from './raidGuard.js';
 import type VerifyHandler from './verify.js';
 
-/** Safe anti-nuke preset: only high-signal destructive events, conservative thresholds. */
+
 const SAFE_ANTINUKE_EVENTS: readonly AntiNukeEventKey[] = [
     'channelDelete',
     'roleDelete',
@@ -169,7 +169,7 @@ export default class SetupWizardHandler extends BaseHandler {
                 updatedAt: Date.now(),
             });
         }
-        // Explicitly do not enable guildUpdate / roleCreate / etc.
+
         await this.refreshPanel(interaction);
         await emitSecurityEvent(this.heart, SECURITY_EVENTS.SETUP_ANTINUKE_SAFE, {
             guildId,

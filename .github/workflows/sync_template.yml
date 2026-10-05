@@ -42,43 +42,30 @@ jobs:
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
           echo "Making plugin-template match $TAG (linear, no force-push)"
 
-          # Make sure the tag actually exists locally before we rely on it.
           if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
             git fetch --tags origin "${TAG}"
           fi
           git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null \
             || { echo "::error::Tag ${TAG} not found"; exit 1; }
 
-          # Check out the existing plugin-template branch, or create it from the
-          # tag on the very first run (nothing to preserve in that case).
           if git ls-remote --exit-code --heads origin plugin-template >/dev/null 2>&1; then
             git checkout -B plugin-template origin/plugin-template
           else
             git checkout -B plugin-template "${TAG}"
           fi
 
-          # Make the working tree identical to the tag's tree WITHOUT rewriting
-          # history: replace tracked contents with the tag, then drop anything
-          # the tag no longer has. This is the key difference from reset --hard —
-          # we commit *onto* plugin-template instead of moving the branch pointer.
           git read-tree -u --reset "${TAG}"
 
-          # Stamp which core version this template is based on.
           echo "${TAG}" > .core-version
           git add -A
 
-          # Commit only if something actually changed (re-running the same tag
-          # is a no-op and should exit cleanly, not error).
           if git diff --cached --quiet; then
             echo "plugin-template already matches ${TAG}; nothing to do."
             exit 0
           fi
           git commit -m "chore: sync plugin-template to ${TAG}"
 
-          # Clear the GITHUB_TOKEN header injected by actions/checkout so our PAT
-          # is used (needed to push workflow files).
           git config --unset-all http.https://github.com/.extraheader || true
 
-          # Push with the PAT. No --force: history is linear so this fast-forwards.
           git remote set-url origin "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git"
           git push origin plugin-template

@@ -9,7 +9,7 @@ export function getThemeMode(): ThemeMode {
     const v = localStorage.getItem(THEME_KEY);
     if (v === 'light' || v === 'dark' || v === 'system') return v;
   } catch {
-    /* ignore */
+
   }
   return 'system';
 }
@@ -24,7 +24,7 @@ export function setThemeMode(mode: ThemeMode): void {
   try {
     localStorage.setItem(THEME_KEY, mode);
   } catch {
-    /* ignore */
+
   }
   const resolved = resolveTheme(mode);
   document.documentElement.dataset.theme = resolved;

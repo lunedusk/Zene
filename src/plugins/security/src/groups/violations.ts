@@ -112,6 +112,3 @@ export async function handleViolations(host: SecurityCmdHost,
             );
         }
     }
-
-    // --- lockdown ---
-

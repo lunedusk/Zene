@@ -88,8 +88,8 @@ function redactNode(value: unknown, seen: WeakMap<object, unknown>): unknown {
     seen.set(value, clone);
 
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-        // Sensitive *keys* always redact the value entirely (nested password/token/etc.).
-        // sanitizeString is reserved for non-sensitive keys whose *content* embeds secrets.
+
+
         if (SENSITIVE_KEY_PATTERN.test(key)) {
             clone[key] = '[REDACTED]';
             continue;

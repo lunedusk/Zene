@@ -1,10 +1,10 @@
-/**
- * Phase 4 — Better Auth server factory.
- *
- * Runtime-loads `better-auth@1.7.x`. Database is the native driver for the same
- * Dashboard SQL backend (sqliteDB / pg pool) — not a second identity database.
- * Authorization remains Zene-only after session resolution.
- */
+
+
+
+
+
+
+
 
 import {
     BETTER_AUTH_TARGET_VERSION,
@@ -23,10 +23,10 @@ import { resolveBetterAuthNativeDatabase } from './betterAuthDatabase.js';
 export interface BetterAuthServerHandle {
     readonly version: typeof BETTER_AUTH_TARGET_VERSION;
     readonly migrationPhase: 2;
-    /** Express-compatible handler (mount under /api/dash/auth/*). */
+
     readonly handler: (req: Request, res: unknown) => Promise<void> | void;
     readonly getSession: (req: SessionIdentityRequest) => Promise<BridgedAuthIdentity | null>;
-    /** Real Better Auth API surface for lifecycle operations (register/login/revoke). */
+
     readonly api: BetterAuthApiSurface;
 }
 
@@ -43,7 +43,7 @@ interface BetterAuthSessionView {
     user?: { id: string; email?: string | null; name?: string | null };
 }
 
-/** Result body from better-auth signInEmail / signUpEmail (1.7.x). */
+
 export type BetterAuthSignResult = {
     redirect?: boolean;
     token?: string;
@@ -52,7 +52,7 @@ export type BetterAuthSignResult = {
     session?: { id: string; token?: string; userId?: string };
 };
 
-/** When returnHeaders: true, better-auth wraps as { headers, response }. */
+
 export type BetterAuthSignResultWithHeaders = {
     headers: Headers;
     response: BetterAuthSignResult;
@@ -110,13 +110,13 @@ function headersFromSessionRequest(req: SessionIdentityRequest): Headers {
     return headers;
 }
 
-/**
- * Construct Better Auth against the native SQL driver for the dashboard backend.
- * Pass `database` only when already resolved; otherwise resolves from dash-data backend.
- */
+
+
+
+
 export async function createBetterAuthServer(input: {
     config: BetterAuthBoundaryConfig;
-    /** Native better-sqlite3 Database or pg Pool — not SqlAdapter. */
+
     database?: unknown;
 }): Promise<BetterAuthInitResult> {
     if (!input.config.secret || input.config.secret.length < 16) {
@@ -241,7 +241,7 @@ export async function createBetterAuthServer(input: {
     };
 }
 
-/** Runtime marker when BA is live (session resolver already registers on success). */
+
 export function markAuthMigrationPhase2(): void {
-    /* sessionResolver uses presence of betterAuthResolver as phase-2 signal */
+
 }

@@ -1,10 +1,10 @@
-/**
- * Canonical frontend application identity (deployment-facing, not technical package identity).
- * Source hierarchy: owner config → runtime Dashboard API → generic platform fallback (never a fixed product name).
- */
+
+
+
+
 
 export interface DashboardApplicationIdentity {
-  /** Display name of the bot/application (e.g. "ExampleBot"). */
+
   botName: string;
   applicationName?: string;
   description?: string;
@@ -27,7 +27,7 @@ export interface DashboardApplicationIdentity {
 
 export const IDENTITY_SCHEMA_VERSION = 1 as const;
 
-/** Generic fallback — not a product brand name. */
+
 export function genericIdentityFallback(): DashboardApplicationIdentity {
   return {
     botName: 'Dashboard',

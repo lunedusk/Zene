@@ -1,6 +1,6 @@
-/**
- * Phase 4 — Plugin dashboard contribution integrity & compatibility gate.
- */
+
+
+
 
 export type PluginTrustState =
     | 'trusted'
@@ -18,11 +18,11 @@ export interface PluginIntegrityInput {
     readonly requiredSdkRange?: string;
     readonly manifestHash?: string;
     readonly expectedManifestHash?: string;
-    /**
-     * true = signature verified
-     * false = signature failed
-     * undefined = signature not evaluated (treat as untrusted but allow non-sensitive policy path)
-     */
+
+
+
+
+
     readonly signatureValid?: boolean;
     readonly disabled?: boolean;
     readonly quarantined?: boolean;
@@ -38,11 +38,11 @@ function semverMajor(v: string): string {
     return (v.replace(/^v/, '').split('.')[0] ?? '0') || '0';
 }
 
-/**
- * Evaluate whether a plugin may register dashboard contributions.
- * Invalid / incompatible / quarantined / disabled / failed-signature plugins
- * must not partially register dangerous surfaces.
- */
+
+
+
+
+
 export function evaluatePluginIntegrity(input: PluginIntegrityInput): PluginIntegrityResult {
     const reasons: string[] = [];
 
@@ -80,18 +80,18 @@ export function evaluatePluginIntegrity(input: PluginIntegrityInput): PluginInte
         return { state: 'incompatible', acceptContributions: false, reasons };
     }
 
-    // signatureValid is true | undefined here (false already returned).
+
     if (input.signatureValid === true) {
         return { state: 'trusted', acceptContributions: true, reasons };
     }
 
-    // Signature not evaluated — contributions allowed only under explicit policy;
-    // default: accept non-sensitive surfaces but mark untrusted.
+
+
     reasons.push('signature_not_evaluated');
     return { state: 'untrusted', acceptContributions: true, reasons };
 }
 
-/** Filter contribution list based on integrity result. */
+
 export function filterContributionsByIntegrity<T>(
     integrity: PluginIntegrityResult,
     contributions: readonly T[],

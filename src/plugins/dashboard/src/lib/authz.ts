@@ -18,10 +18,10 @@ function gateway(heart: IHeart): GatewayManager | undefined {
     return heart.system.handler.$get('api', 'manager') as GatewayManager | undefined;
 }
 
-/**
- * Apply API gateway middleware. For non-public dashboard routers, fail closed
- * when the gateway handler is unavailable (Phase 1 security).
- */
+
+
+
+
 export function applyGateway(heart: IHeart, router: Router, options?: { requireGateway?: boolean }): void {
     const api = gateway(heart);
     if (!api) {
@@ -40,7 +40,7 @@ export function applyGateway(heart: IHeart, router: Router, options?: { requireG
     api.applyMiddleware(router);
 }
 
-/** Attach a correlation id if missing. */
+
 export function ensureRequestId(req: DashRequest, res: Response, next: NextFunction): void {
     const existing = req.header('x-request-id') ?? req.header('x-correlation-id');
     const id = typeof existing === 'string' && existing.length > 0 ? existing : randomUUID();
@@ -49,10 +49,10 @@ export function ensureRequestId(req: DashRequest, res: Response, next: NextFunct
     next();
 }
 
-/**
- * Central 401 / 403 / 404 policy.
- * existence-sensitive + unauthorized → 404; ordinary forbidden → 403; no session → 401.
- */
+
+
+
+
 export function sendAuthzFailure(
     res: Response,
     heart: IHeart,
@@ -71,10 +71,10 @@ export function sendAuthzFailure(
     err(res, 403, code ?? 'forbidden', message ?? heart.assets.lang.get(heart.id, 'errors.forbidden'));
 }
 
-/**
- * Require an actor semantic capability using PermissionsManager.cachedResolve
- * (not token-embedded bits alone).
- */
+
+
+
+
 export function requireCapability(
     heart: IHeart,
     capabilityId: ActorCapabilityId,
@@ -129,7 +129,7 @@ export function requireAuthedCapability(
     return [requireSession(heart), requireCapability(heart, capabilityId, options)];
 }
 
-/** Fresh permission bits for the session user (authoritative cache path). */
+
 export async function resolveSessionPermissions(
     userId: string,
     guildId?: string,
@@ -173,10 +173,10 @@ export function requireSession(heart: IHeart) {
     };
 }
 
-/**
- * Phase 1: bit checks use PermissionsManager.cachedResolve (fresh), not token-embedded bits alone.
- * Token bits are no longer authoritative for sensitive route gates.
- */
+
+
+
+
 export function requireBit(heart: IHeart, bit: string) {
     return async (req: DashRequest, res: Response, next: NextFunction): Promise<void> => {
         const verified = req.dashSession;
@@ -253,7 +253,7 @@ export function requireGuildBit(heart: IHeart, bit: string, crossServerBit?: str
                 return;
             }
             try {
-                // Resolve with guild context so server-scoped bits are current.
+
                 const actor = await resolveActorPermissions(verified.payload.userId, guildId);
                 if (actor.resolved.botOwner || actor.resolved.bits.has(BOT_OWNER_BIT)) {
                     next();
@@ -263,10 +263,10 @@ export function requireGuildBit(heart: IHeart, bit: string, crossServerBit?: str
                     next();
                     return;
                 }
-                // Token guild scope may constrain, but never grants authority by itself.
+
                 const tokenGuild = verified.payload.guildId;
                 if (tokenGuild && tokenGuild !== guildId) {
-                    // Scoped token for another guild cannot act here even if bits somehow overlap.
+
                     sendAuthzFailure(res, heart, 'forbidden');
                     return;
                 }

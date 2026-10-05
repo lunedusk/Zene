@@ -1,6 +1,6 @@
-/**
- * Canonical session bootstrap — session storage is transport only; permissions from API.
- */
+
+
+
 
 import { apiClient, SESSION_STORAGE_KEY } from '../api/client.js';
 import { DashApiError, type SessionUser } from '../api/types.js';
@@ -49,7 +49,7 @@ export function setSessionToken(token: string | null): void {
     if (token) sessionStorage.setItem(SESSION_STORAGE_KEY, token);
     else sessionStorage.removeItem(SESSION_STORAGE_KEY);
   } catch {
-    /* ignore */
+
   }
 }
 

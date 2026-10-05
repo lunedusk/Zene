@@ -1,7 +1,7 @@
-/**
- * SSE realtime client foundation — transport-neutral types; SSE is the 3A transport.
- * Backend authorizes delivery; frontend only suppresses stale UI application.
- */
+
+
+
+
 
 export interface DashboardEvent {
   eventId: string;
@@ -58,8 +58,8 @@ export class RealtimeClient {
     const token = this.getToken?.();
     const params = new URLSearchParams();
     if (this.scopes.length) params.set('scopes', this.scopes.join(','));
-    // EventSource cannot set custom headers; token via query only if backend accepts it,
-    // otherwise cookie/session same-origin. Prefer same-origin credentials path.
+
+
     let url = this.url;
     const qs = params.toString();
     if (qs) url += (url.includes('?') ? '&' : '?') + qs;
@@ -87,7 +87,7 @@ export class RealtimeClient {
       this.handleRaw(msg.data, msg.lastEventId || undefined);
     };
 
-    // Named events
+
     for (const name of ['registry.updated', 'theme.updated', 'layout.updated', 'heartbeat', 'job.created', 'job.cancelled']) {
       this.es.addEventListener(name, (ev) => {
         const e = ev as MessageEvent;
@@ -147,7 +147,7 @@ export class RealtimeClient {
   }
 }
 
-/** Map event types to resource invalidation keys (extensible). */
+
 export function eventInvalidationKeys(event: DashboardEvent): string[] {
   const keys: string[] = [`event:${event.type}`];
   if (event.resource?.type) keys.push(`resource:${event.resource.type}`);

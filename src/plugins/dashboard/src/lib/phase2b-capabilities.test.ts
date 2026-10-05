@@ -1,7 +1,7 @@
-/**
- * Phase 2B pure-module tests.
- * Run: npx tsx --test src/plugins/dashboard/src/lib/phase2b-capabilities.test.ts
- */
+
+
+
+
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

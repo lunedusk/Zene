@@ -1,6 +1,6 @@
-/**
- * Editor-local undo/redo — distinct from server immutable versions.
- */
+
+
+
 
 export interface HistoryState<T> {
   past: T[];

@@ -1,7 +1,7 @@
-/**
- * Layout engine — pure functions for grid placement validation.
- * No third-party DnD library; CSS grid + explicit move/resize APIs.
- */
+
+
+
+
 
 import type { Breakpoint, LayoutBreakpointState, WidgetInstance } from '../widgets/types.js';
 
@@ -23,7 +23,7 @@ export function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
-/** Detect overlap between two axis-aligned grid rectangles. */
+
 export function overlaps(a: WidgetInstance, b: WidgetInstance): boolean {
   if (a.instanceId === b.instanceId) return false;
   const aRight = a.col + a.colSpan;

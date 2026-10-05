@@ -1,6 +1,6 @@
-/**
- * Phase 2C — Explicit Dashboard cache class definitions (policy, not a mega-cache).
- */
+
+
+
 
 export type CacheClass =
     | 'public'
@@ -18,7 +18,7 @@ export interface CacheClassPolicy {
     readonly class: CacheClass;
     readonly scope: CacheScope;
     readonly defaultTtlSec: number;
-    /** Keys must include these dimensions when present. */
+
     readonly keyDimensions: readonly string[];
     readonly notes: string;
 }
@@ -89,7 +89,7 @@ export function cacheKey(parts: Record<string, string | number | undefined>): st
         .join('|');
 }
 
-/** Guard: never mix user A data into user B key. */
+
 export function assertAuthSensitiveKey(userId: string, key: string): void {
     if (!key.includes(`userId=${userId}`)) {
         throw new Error('CACHE_KEY_MISSING_USER');

@@ -1,17 +1,17 @@
-/**
- * Phase 4 — Better Auth schema on the Dashboard SQL backend (same DB file/pool).
- * Table/column names match better-auth@1.7 default Kysely/SQLite expectations.
- */
+
+
+
+
 
 import { ensureDashboardAdapter } from '../../../dash-data/src/lib/store.js';
 import type { SqlAdapter } from '#core/database/sqlAdapter.js';
 
 export const BETTER_AUTH_SCHEMA_VERSION = 2 as const;
 
-/**
- * Canonical better-auth core tables (default model names).
- * Column names use the library's expected identifiers for SQLite validation.
- */
+
+
+
+
 export const BETTER_AUTH_TABLES = ['user', 'session', 'account', 'verification'] as const;
 
 export type BetterAuthTable = (typeof BETTER_AUTH_TABLES)[number];
@@ -84,9 +84,9 @@ export interface SchemaEnsureError {
     readonly message: string;
 }
 
-/**
- * Idempotent schema ensure — CREATE IF NOT EXISTS only. Never drops tables.
- */
+
+
+
 export async function ensureBetterAuthSchema(
     adapter?: SqlAdapter,
 ): Promise<SchemaEnsureResult | SchemaEnsureError> {
@@ -150,10 +150,10 @@ export async function readBetterAuthSchemaVersion(adapter?: SqlAdapter): Promise
     }
 }
 
-/**
- * Config flag for migration phase cutover.
- * 2 = parallel, 3 = BA preferred + controlled legacy, 4 = BA-only.
- */
+
+
+
+
 export type AuthCutoverPhase = 2 | 3 | 4;
 
 let cutoverPhase: AuthCutoverPhase = 2;

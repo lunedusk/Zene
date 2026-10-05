@@ -18,7 +18,7 @@ function assertEnvOwner(req: DashRequest): void {
 export default class AdminThemeRoute extends BaseRoute {
     public readonly basePath = '/api/dash/admin';
 
-    
+
     /**
      * @openapi
      * /api/dash/admin/theme:
@@ -90,7 +90,7 @@ protected register(): void {
     }
 
     private async getTheme(req: DashRequest, res: Response): Promise<void> {
-        // Phase 2A: service → repository (no route-level SQL for this path).
+
         const { buildRequestContext } = await import('../lib/requestContext.js');
         const { ThemeLayoutService } = await import('../services/themeLayoutService.js');
         const { ServiceError } = await import('../lib/requestContext.js');
@@ -127,10 +127,10 @@ protected register(): void {
                 body.tokens && typeof body.tokens === 'object' && !Array.isArray(body.tokens)
                     ? (body.tokens as Record<string, unknown>)
                     : (body as Record<string, unknown>);
-            // Strip control fields if client sent envelope
+
             if ('expectedVersion' in tokens) delete tokens.expectedVersion;
             if ('tokens' in body && body.tokens) {
-                /* tokens already extracted */
+
             }
             const svc = new ThemeLayoutService(this.heart);
             const result = await svc.putTheme(ctx, { tokens, expectedVersion });

@@ -1,6 +1,6 @@
-/**
- * Canonical public site section schema — shared by editor, preview, and published renderer.
- */
+
+
+
 
 export type PublicSectionType =
     | 'hero'
@@ -56,7 +56,7 @@ export interface PublicCtaSection extends PublicSectionBase {
     href?: string;
 }
 
-/** Screenshots / media gallery — items carry media URL in `icon` (stable field name across FE/BE). */
+
 export interface PublicScreenshotsSection extends PublicSectionBase {
     type: 'screenshots';
     items: Array<{ id: string; title?: string; description?: string; icon?: string }>;

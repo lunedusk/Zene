@@ -1,6 +1,6 @@
-/**
- * Public section renderer — shared by homepage, preview, and CMS defaults.
- */
+
+
+
 
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -73,7 +73,7 @@ function StatsBlock({ title, description }: { title?: string; description?: stri
 
 function ScreenshotsBlock({ section }: { section: PublicSection }) {
   const items = (section.items ?? []).filter((i) => i.icon || i.title);
-  // icon field reused as media URL when present; never invent URLs
+
   if (items.length === 0) {
     return (
       <section>

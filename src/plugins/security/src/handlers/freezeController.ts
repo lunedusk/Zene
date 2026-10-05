@@ -15,7 +15,7 @@ import type {
 } from '../lib/types.js';
 import type SecurityStoreHandler from './store.js';
 
-/** Discord API max for invites_disabled_until is 24 hours. Refresh slightly before. */
+
 const INVITE_PAUSE_MS = 24 * 60 * 60 * 1000;
 const INVITE_REFRESH_BEFORE_MS = 60 * 60 * 1000;
 
@@ -37,10 +37,10 @@ export default class FreezeControllerHandler extends BaseHandler {
         return (await this.store()?.getFreezeState(guildId)) ?? null;
     }
 
-    /**
-     * Enable lockdown/freeze with selected filters.
-     * Uses guild.disableInvites(true) when pauseInvites is set (24h API max; refreshed by scheduler).
-     */
+
+
+
+
     public async enable(
         guild: Guild,
         actor: SecurityActor,
@@ -159,10 +159,10 @@ export default class FreezeControllerHandler extends BaseHandler {
         return { ok: true };
     }
 
-    /**
-     * Re-apply disableInvites for active freezes nearing the 24h API window.
-     * Called by scheduler.
-     */
+
+
+
+
     public async refreshInvitePauses(): Promise<number> {
         const store = this.store();
         if (!store) return 0;
@@ -265,7 +265,7 @@ export default class FreezeControllerHandler extends BaseHandler {
             if (!ch.manageable) continue;
 
             try {
-                // Only clear lockdown denies on @everyone — do not replace other role overwrites.
+
                 await ch.permissionOverwrites.edit(
                     target,
                     {
@@ -287,7 +287,7 @@ export default class FreezeControllerHandler extends BaseHandler {
         }
     }
 
-    /** Lock a single channel (@everyone cannot send). */
+
     public async lockChannel(
         channel: GuildChannel & { permissionOverwrites: GuildChannel['permissionOverwrites'] },
         reason?: string,

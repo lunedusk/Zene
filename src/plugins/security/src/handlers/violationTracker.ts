@@ -69,10 +69,10 @@ export default class ViolationTrackerHandler extends BaseHandler {
         return this.set(guildId, userId, 0, actorId);
     }
 
-    /**
-     * Decay points for users with no activity for `cleanDays`.
-     * Returns number of users decayed.
-     */
+
+
+
+
     public async processStrikeExpiry(
         cleanDays: number = DEFAULT_CLEAN_DAYS,
         decayPoints: number = DEFAULT_DECAY_POINTS,

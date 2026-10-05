@@ -1,6 +1,6 @@
-/**
- * Phase 5 — Chaos / failure boundary regressions.
- */
+
+
+
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

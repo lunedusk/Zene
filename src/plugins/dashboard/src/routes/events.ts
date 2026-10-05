@@ -15,7 +15,7 @@ const log = getLogger('DashEventsRoute');
 export default class DashEventsRoute extends BaseRoute {
     public readonly basePath = '/api/dash/events';
 
-    
+
     /**
      * @openapi
      * /api/dash/events/sse:
@@ -60,7 +60,7 @@ protected register(): void {
             throw new HttpError(401, 'unauthorized', 'session required');
         }
 
-        // Prefer PermissionsManager resolve for delivery filter; fall back to token bits.
+
         let bits: Set<string>;
         let isEnvOwner: boolean;
         try {

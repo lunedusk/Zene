@@ -1,6 +1,6 @@
-/**
- * Phase 2C — Rate-limit classification policy (pure). Complements authorization; does not replace it.
- */
+
+
+
 
 export type RouteRiskClass =
     | 'public_read'
@@ -41,7 +41,7 @@ export function ruleForRisk(risk: RouteRiskClass): RateLimitRule {
     return r;
 }
 
-/** In-memory token bucket for foundation / unit tests. Distributed limits need Redis in production. */
+
 export class LocalRateLimiter {
     private readonly hits = new Map<string, number[]>();
 
@@ -64,7 +64,7 @@ export class LocalRateLimiter {
     }
 }
 
-/** Sensitive ops that should also require sudo when session model is active. */
+
 export const SUDO_REQUIRED_OPERATIONS = [
     'owner.change',
     'permissions.mutate',

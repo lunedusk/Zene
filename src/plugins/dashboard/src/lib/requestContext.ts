@@ -1,6 +1,6 @@
-/**
- * Phase 2A — RequestContext and service result contracts.
- */
+
+
+
 
 import type { VerifiedToken } from '#core/manager/token.js';
 import type { ResolvedPermissions } from '#core/types/permissions.js';
@@ -83,7 +83,7 @@ export function serviceOk<T>(data: T, meta?: Record<string, unknown>): ServiceRe
     return meta ? { ok: true, data, meta } : { ok: true, data };
 }
 
-/** Narrow ServiceResult to success data or rethrow the ServiceError. */
+
 export function unwrapServiceResult<T>(result: ServiceResult<T>): T {
     if (!result.ok) {
         throw result.error;
@@ -129,10 +129,10 @@ export function toPageResult<T>(items: T[], total: number, p: PageParams): PageR
     };
 }
 
-/**
- * Build RequestContext from an authenticated DashRequest.
- * Always resolves permissions via PermissionsManager (not token bits alone).
- */
+
+
+
+
 export async function buildRequestContext(
     req: DashRequest,
     options?: {
@@ -177,9 +177,9 @@ function cryptoRandomId(): string {
     if (typeof globalThis.crypto?.randomUUID === 'function') {
         return globalThis.crypto.randomUUID();
     }
-    // Node crypto without relying on Math.random for the full identifier.
+
     try {
-        // Dynamic import pattern avoided for sync helper — use require in CJS interop path.
+
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const nodeCrypto = require('node:crypto') as { randomUUID: () => string };
         return nodeCrypto.randomUUID();

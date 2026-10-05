@@ -14,10 +14,10 @@ import {
     VERIFY_SUBMIT_PREFIX,
 } from '../handlers/verify.js';
 
-/**
- * Button + modal handlers for captcha verification.
- * Discord event name is a no-op placeholder; buttons/modals are registered on the class.
- */
+
+
+
+
 export default class VerifyInteractionsEvent extends BaseEvent<[unknown]> {
     public readonly name = 'clientReady';
     public readonly once = true;
@@ -103,6 +103,6 @@ export default class VerifyInteractionsEvent extends BaseEvent<[unknown]> {
     ]);
 
     public async execute(): Promise<void> {
-        // Registration only via buttons/modals maps.
+
     }
 }

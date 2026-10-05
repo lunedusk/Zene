@@ -106,7 +106,7 @@ export class GatewayShard extends EventEmitter {
             try {
                 ws.close(1000, 'shard destroyed');
             } catch {
-                /* ignore */
+
             }
         }
         this.emit('disconnect', 1000, 'destroyed', false);
@@ -140,7 +140,7 @@ export class GatewayShard extends EventEmitter {
                 try {
                     this.ws?.terminate();
                 } catch {
-                    /* ignore */
+
                 }
             }, CONNECT_TIMEOUT_MS);
             connectTimer.unref?.();
@@ -369,7 +369,7 @@ export class GatewayShard extends EventEmitter {
             try {
                 this.ws?.close(1001, 'missing heartbeat ack');
             } catch {
-                /* ignore */
+
             }
             return;
         }
@@ -377,7 +377,7 @@ export class GatewayShard extends EventEmitter {
         try {
             this.send(GatewayOpcode.Heartbeat, this.sequence);
         } catch {
-            /* socket gone */
+
         }
     }
 

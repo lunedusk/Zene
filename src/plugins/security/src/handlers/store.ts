@@ -238,7 +238,7 @@ export default class SecurityStoreHandler extends BaseHandler {
         `);
 
 
-        // Best-effort column adds for upgraded installs (sqlite/postgres).
+
         const alterCols = [
             'actionTempRole INTEGER NOT NULL DEFAULT 0',
             'tempRoleId TEXT',
@@ -260,7 +260,7 @@ export default class SecurityStoreHandler extends BaseHandler {
                 try {
                     await db.exec(`ALTER TABLE security_automod_settings ADD COLUMN ${col}`);
                 } catch {
-                    /* column may already exist */
+
                 }
                 void name;
             }
@@ -471,7 +471,7 @@ export default class SecurityStoreHandler extends BaseHandler {
         await db.run(`DELETE FROM security_tempbans WHERE id = ?`, [id]);
     }
 
-    // --- Phase 2: infractions list / delete ---
+
 
     public async listInfractions(input: {
         guildId: string;
@@ -585,7 +585,7 @@ export default class SecurityStoreHandler extends BaseHandler {
         return true;
     }
 
-    // --- Phase 2: violations ---
+
 
     public async getViolation(guildId: string, userId: string): Promise<ViolationRow | null> {
         const db = this.db();
@@ -709,7 +709,7 @@ export default class SecurityStoreHandler extends BaseHandler {
         }));
     }
 
-    // --- Phase 2: freeze / lockdown state ---
+
 
     public async getFreezeState(guildId: string): Promise<FreezeStateRow | null> {
         const db = this.db();
@@ -870,7 +870,7 @@ export default class SecurityStoreHandler extends BaseHandler {
         };
     }
 
-    // --- Phase 3: AutoMod settings ---
+
 
     public async getAutoModSettings(guildId: string): Promise<AutoModSettings | null> {
         const db = this.db();
@@ -1099,7 +1099,7 @@ export default class SecurityStoreHandler extends BaseHandler {
         };
     }
 
-    // --- Phase 4: anti-nuke / raid / verify ---
+
 
     public async getAntiNukeRule(guildId: string, eventKey: string): Promise<AntiNukeRule | null> {
         const db = this.db();
@@ -1347,7 +1347,7 @@ export default class SecurityStoreHandler extends BaseHandler {
         };
     }
 
-    // --- Phase 6: blacklists + temp roles ---
+
 
     public async listBlacklist(guildId: string, kind?: BlacklistKind): Promise<BlacklistEntry[]> {
         const db = this.db();
@@ -1394,7 +1394,7 @@ export default class SecurityStoreHandler extends BaseHandler {
             const deleted = await db.mongoCollection('security_blacklists').deleteOne({ guildId, id });
             return deleted > 0;
         }
-        // SqlAdapter.run returns void; verify by presence before delete.
+
         const existing = await db.get(
             `SELECT id FROM security_blacklists WHERE guildId = ? AND id = ?`,
             [guildId, id],

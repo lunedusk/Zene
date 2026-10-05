@@ -1,7 +1,7 @@
-/**
- * Phase 4 — Runtime integrity gate before privileged dashboard contribution execution.
- * Registry filtering is necessary but not sufficient; this blocks execution.
- */
+
+
+
+
 
 import {
     evaluatePluginIntegrity,
@@ -26,15 +26,15 @@ export function clearPluginRuntimeIntegrity(pluginId: string): void {
     runtimeState.delete(pluginId);
 }
 
-/**
- * Throws / returns denial if plugin may not execute privileged contribution code.
- */
+
+
+
 export function assertPluginMayExecute(
     pluginId: string,
 ): { ok: true } | { ok: false; state: PluginTrustState; reasons: readonly string[] } {
     const r = runtimeState.get(pluginId);
     if (!r) {
-        // Unknown → deny privileged execution until integrity evaluated
+
         return { ok: false, state: 'invalid', reasons: ['integrity_not_evaluated'] };
     }
     if (!r.acceptContributions) {

@@ -1,7 +1,7 @@
-/**
- * RFC 6238 TOTP — HMAC-SHA1, 30s step, 6 digits (default).
- * Secrets are never logged.
- */
+
+
+
+
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
@@ -107,7 +107,7 @@ export function buildOtpAuthUri(input: {
     return `otpauth://totp/${issuer}:${account}?secret=${input.secretBase32}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
 }
 
-/** Simple replay guard: last accepted counter per user (in-memory process scope). */
+
 const lastAcceptedCounter = new Map<string, number>();
 
 export function verifyTotpWithReplayProtection(
@@ -121,11 +121,11 @@ export function verifyTotpWithReplayProtection(
     const counter = Math.floor(now / 1000 / step);
     if (!verifyTotp(secretBase32, code, options)) return false;
     const last = lastAcceptedCounter.get(userId);
-    // Accept only if we cannot prove it's an older already-used counter in the same window
+
     if (last !== undefined && counter <= last && options?.window === 0) {
         return false;
     }
-    // Mark current counter as used when exact step matches
+
     const exact = generateTotp(secretBase32, { ...options, nowMs: now });
     if (exact === code) {
         lastAcceptedCounter.set(userId, counter);
