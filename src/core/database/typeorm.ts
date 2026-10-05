@@ -5,34 +5,73 @@ import { getLogger } from '#core/utils/logger.js';
 const log = getLogger('SqlRegistry');
 const isProd = process.env.NODE_ENV === 'production';
 
+function buildDataSourceOptions(
+    protocol: string,
+    uri: string,
+    entities: Function[],
+    poolSize: number,
+): DataSourceOptions {
+    const pathname = (() => {
+        try {
+            return new URL(uri).pathname.replace(/^\//, '');
+        } catch {
+            return '';
+        }
+    })();
+
+    const common = {
+        synchronize: !isProd,
+        logging: false as const,
+        entities,
+    };
+
+    switch (protocol) {
+        case 'postgres':
+        case 'postgresql':
+            return {
+                type: 'postgres',
+                url: uri,
+                ...common,
+                extra: { max: poolSize },
+            };
+        case 'mysql':
+            return {
+                type: 'mysql',
+                url: uri,
+                ...common,
+                extra: { max: poolSize },
+            };
+        case 'mariadb':
+            return {
+                type: 'mariadb',
+                url: uri,
+                ...common,
+                extra: { max: poolSize },
+            };
+        case 'sqlite':
+            return {
+                type: 'better-sqlite3',
+                database: pathname,
+                ...common,
+            };
+        default:
+            throw new Error(`Unsupported ORM dialect: ${protocol}`);
+    }
+}
+
 export class SqlRegistry {
     private engines = new Map<string, DataSource>();
 
-    public async connect(alias: string, uri: string, entities: any[] = [], poolSize: number = 10): Promise<void> {
+    public async connect(alias: string, uri: string, entities: Function[] = [], poolSize: number = 10): Promise<void> {
         if (this.engines.has(alias)) return;
 
         const url = new URL(uri);
         const protocol = url.protocol.replace(':', '');
 
-        let dbType: DataSourceOptions['type'];
-        
-        if (['postgres', 'postgresql'].includes(protocol)) dbType = 'postgres';
-        else if (protocol === 'mysql') dbType = 'mysql';
-        else if (protocol === 'mariadb') dbType = 'mariadb';
-        else if (protocol === 'sqlite') dbType = 'better-sqlite3';
-        else throw new Error(`Unsupported ORM dialect: ${protocol}`);
+        const options = buildDataSourceOptions(protocol, uri, entities, poolSize);
+        const dbType = options.type;
 
         log.info(`Initializing TypeORM (${dbType}) for: [${alias}]`);
-
-        const options: DataSourceOptions = {
-            type: dbType as any, 
-            url: dbType === 'better-sqlite3' ? undefined : uri,
-            database: dbType === 'better-sqlite3' ? url.pathname.replace(/^\//, '') : undefined,
-            synchronize: !isProd,
-            logging: false,
-            entities: entities,
-            extra: dbType !== 'better-sqlite3' ? { max: poolSize } : undefined,
-        };
 
         const engine = new DataSource(options);
         await engine.initialize();
