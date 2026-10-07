@@ -102,8 +102,22 @@ nodeDependenciesLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
+/**
+ * Boot priority (Phase 1A). Field id 10 / vtable offset 24.
+ * Absent on legacy artifacts packed before priority was signed.
+ */
+priority():number {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
+}
+
+/** True when the signed table carried an explicit priority field. */
+hasPriority():boolean {
+  return this.bb!.__offset(this.bb_pos, 24) !== 0;
+}
+
 static startZeneManifest(builder:flatbuffers.Builder) {
-  builder.startObject(10);
+  builder.startObject(11);
 }
 
 static addId(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset) {
@@ -168,6 +182,10 @@ static createNodeDependenciesVector(builder:flatbuffers.Builder, data:flatbuffer
 
 static startNodeDependenciesVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
+}
+
+static addPriority(builder:flatbuffers.Builder, priority:number) {
+  builder.addFieldInt32(10, priority, -2147483648);
 }
 
 static endZeneManifest(builder:flatbuffers.Builder):flatbuffers.Offset {

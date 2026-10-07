@@ -1,3 +1,6 @@
+import { assertNoActiveDependents } from '#core/lifecycle/index.js';
+import { verifyDependencyClosure } from '#core/helpers/integrity/dependencyClosure.js';
+import { assertExecutionAuthorized } from '#core/helpers/integrity/authenticatedContext.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -104,6 +107,8 @@ export class PluginManager extends EventEmitter {
             const id = plugin.manifest.id;
             
             try {
+                assertExecutionAuthorized(id);
+                await verifyDependencyClosure(id, plugin.dir);
                 await DependencyLoader.installFromPackageJson(plugin.dir, id, plugin.manifest.nodeDependencies);
                 await configLoader.syncPlugin(plugin.dir, id);
                 await langLoader.syncPlugin(plugin.dir, id);
@@ -131,6 +136,10 @@ export class PluginManager extends EventEmitter {
                 log.error(`[${id}] Failed during preload phase: ${err.message}`);
             }
         }
+    }
+
+    public getBootStatus(pluginId: string): PluginBootStatus | undefined {
+        return this.bootStatuses.get(pluginId);
     }
 
     public getPreloadedPluginDirs(): Array<{ dir: string; id: string }> {
@@ -187,28 +196,109 @@ export class PluginManager extends EventEmitter {
             log.info(`[${id}] Booting v${manifest.version}...`);
 
             try {
-                const scopedHeart = HeartFactory.create(id, baseClient);
-                const instance: BasePlugin = new PluginClass();
-                instance._injectCore(scopedHeart); 
-                
-                instance._setState(PluginState.Setup);
-                if (typeof instance.onSetup === 'function') {
-                    await this.withTimeout(instance.onSetup(), id, 'onSetup()');
+                const { resolvePluginRuntimePolicy, runtimeManager } = await import(
+                    '#core/runtime/manager.js'
+                );
+                const rtPolicy = resolvePluginRuntimePolicy(id);
+                const entryRelative = 'index.js';
+
+                // Single RuntimeManager path for every backend (including in-process).
+                if (rtPolicy.preferred === 'in-process' || rtPolicy.minimum === 'in-process') {
+                    const scopedHeart = HeartFactory.create(id, baseClient);
+                    const instance: BasePlugin = new PluginClass();
+                    instance._injectCore(scopedHeart);
+
+                    const { selection, handle } = await runtimeManager.establish({
+                        pluginId: id,
+                        pluginDir: dir,
+                        entryRelative,
+                        policy: {
+                            preferred: 'in-process',
+                            minimum: 'in-process',
+                            allowed: ['in-process'],
+                            allowFallback: false,
+                        },
+                        inProcessHooks: {
+                            setup: async () => {
+                                instance._setState(PluginState.Setup);
+                                if (typeof instance.onSetup === 'function') {
+                                    await this.withTimeout(instance.onSetup(), id, 'onSetup()');
+                                }
+                                await MiddlewareLoader.loadForPlugin(dir, id, scopedHeart);
+                                await EventLoader.loadForPlugin(dir, id, scopedHeart);
+                                await CommandLoader.loadForPlugin(dir, id, scopedHeart);
+                                await HandlerLoader.loadForPlugin(dir, id, scopedHeart);
+                                await RouteLoader.loadForPlugin(dir, id, scopedHeart);
+                            },
+                            enable: async () => {
+                                instance._setState(PluginState.Enabled);
+                                await this.withTimeout(instance.onEnable(), id, 'onEnable()');
+                            },
+                            disable: async () => {
+                                if (typeof instance.onDisable === 'function') {
+                                    await this.withTimeout(instance.onDisable(), id, 'onDisable()');
+                                }
+                                instance._setState(PluginState.Disabled);
+                            },
+                            unload: async () => {
+                                instance._setState(PluginState.Unloaded);
+                            },
+                        },
+                    });
+                    if (!selection.ok || !handle) {
+                        throw new Error(
+                            `RuntimeManager rejected in-process for ${id}: ${
+                                selection.ok === false ? selection.message : 'no handle'
+                            }`,
+                        );
+                    }
+                    await runtimeManager.lifecycle(id, 'setup');
+                    await runtimeManager.lifecycle(id, 'enable');
+                    this.registry.set(id, instance);
+                    this.bootStatuses.set(id, PluginBootStatus.Success);
+                    this.pluginDirs.set(id, dir);
+                    void import('#core/lifecycle/index.js')
+                        .then(({ lifecycleController, markArtifactVerified }) => {
+                            lifecycleController.setPhase(id, 'enabled');
+                            markArtifactVerified(id);
+                        })
+                        .catch(() => undefined);
+                } else {
+                    // Worker/Process/Container: shared host loads the same authorized entry artifact.
+                    const { selection, handle } = await runtimeManager.establish({
+                        pluginId: id,
+                        pluginDir: dir,
+                        entryRelative,
+                        policy: rtPolicy,
+                    });
+                    if (!selection.ok || !handle) {
+                        throw new Error(
+                            `RuntimeManager rejected for ${id}: ${
+                                selection.ok === false ? selection.message : 'no handle'
+                            }`,
+                        );
+                    }
+                    const setupRes = await runtimeManager.lifecycle(id, 'setup');
+                    const enableRes = await runtimeManager.lifecycle(id, 'enable');
+                    if (setupRes.type === 'host.lifecycle.result' && !setupRes.payload.ok) {
+                        throw new Error(setupRes.payload.error || 'setup failed');
+                    }
+                    if (enableRes.type === 'host.lifecycle.result' && !enableRes.payload.ok) {
+                        throw new Error(enableRes.payload.error || 'enable failed');
+                    }
+                    this.bootStatuses.set(id, PluginBootStatus.Success);
+                    this.pluginDirs.set(id, dir);
+                    log.info(
+                        `[${id}] Isolated runtime online level=${handle.level} id=${handle.id}`,
+                    );
+                    void import('#core/lifecycle/index.js')
+                        .then(({ lifecycleController, markArtifactVerified }) => {
+                            lifecycleController.setPhase(id, 'enabled');
+                            markArtifactVerified(id);
+                        })
+                        .catch(() => undefined);
                 }
-                
-                await MiddlewareLoader.loadForPlugin(dir, id, scopedHeart);
-                await EventLoader.loadForPlugin(dir, id, scopedHeart);
-                await CommandLoader.loadForPlugin(dir, id, scopedHeart);
-                await HandlerLoader.loadForPlugin(dir, id, scopedHeart);
-                await RouteLoader.loadForPlugin(dir, id, scopedHeart);
-                
 
-                instance._setState(PluginState.Enabled);
-                await this.withTimeout(instance.onEnable(), id, 'onEnable()');
-
-                this.registry.set(id, instance);
-                this.bootStatuses.set(id, PluginBootStatus.Success);
-                
                 const timeMs = (performance.now() - start).toFixed(2);
                 log.info(`[${id}] Successfully enabled in ${timeMs}ms.`);
                 void import('#core/manager/event.js')
@@ -252,6 +342,8 @@ export class PluginManager extends EventEmitter {
     }
 
     public async disable(pluginId: string): Promise<boolean> {
+        assertNoActiveDependents(pluginId, 'disable');
+        assertNoActiveDependents(pluginId, 'unload');
         const plugin = this.registry.get(pluginId);
         
         if (!plugin) {
@@ -259,14 +351,40 @@ export class PluginManager extends EventEmitter {
             return false;
         }
 
+        // Dependency awareness: warn if other enabled plugins declare this as a dependency.
+        for (const [otherId, other] of this.registry) {
+            if (otherId === pluginId) continue;
+            const deps = other.manifest.dependencies;
+            if (deps?.includes(pluginId) && other.isEnabled) {
+                log.warn(
+                    `[${pluginId}] Disable requested while dependent plugin '${otherId}' is still enabled. ` +
+                        `Disable dependents first for a clean dependency-aware teardown.`,
+                );
+            }
+        }
+
         log.info(`[${pluginId}] Initiating surgical deconstruction...`);
         const start = performance.now();
 
         try {
+            const { lifecycleController, resourceRegistry } = await import(
+                '#core/lifecycle/index.js'
+            );
+            lifecycleController.setPhase(pluginId, 'disabling');
+
             if (plugin.state === PluginState.Enabled) {
                 await this.withTimeout(plugin.onDisable(), pluginId, 'onDisable');
                 plugin._setState(PluginState.Disabled);
             }
+
+            // Phase 2B: explicit resource ownership cleanup (continues after failures)
+            const cleanup = await resourceRegistry.release(pluginId, 'disable');
+            if (cleanup.failures.length > 0) {
+                log.warn(
+                    `[${pluginId}] ${cleanup.failures.length}/${cleanup.attempted} owned resource(s) failed cleanup.`,
+                );
+            }
+
             const { interactionRegistry } = await import('#core/manager/interaction/registry.js');
             interactionRegistry.unregisterPlugin(pluginId);
             log.debug(`[${pluginId}] Purged Discord interactions.`);
@@ -282,8 +400,30 @@ export class PluginManager extends EventEmitter {
             await handlerRegistry.unregisterPlugin(pluginId);
             log.debug(`[${pluginId}] Purged handler registrations.`);
 
+            // Phase 2B: drop plugin-owned provider registrations (category::id with pluginId)
+            try {
+                const { providerRegistry } = await import('#core/provider/registry.js');
+                for (const reg of providerRegistry.list()) {
+                    if (reg.pluginId === pluginId) {
+                        providerRegistry.unregister(reg.category, reg.id);
+                        log.debug(
+                            `[${pluginId}] Unregistered provider ${reg.category}/${reg.id}`,
+                        );
+                    }
+                }
+            } catch (provErr: unknown) {
+                log.warn(
+                    `[${pluginId}] Provider registry cleanup issue: ${(provErr as Error).message}`,
+                );
+            }
+
+            // Full unload-owned resources after subsystem purge
+            await resourceRegistry.release(pluginId, 'unload');
+
             this.registry.delete(pluginId);
             this.bootStatuses.set(pluginId, PluginBootStatus.Pending);
+            lifecycleController.setPhase(pluginId, 'unloaded');
+            lifecycleController.clear(pluginId);
 
             const duration = (performance.now() - start).toFixed(2);
             log.info(`[${pluginId}] Deconstruction complete in ${duration}ms.`);
@@ -295,6 +435,12 @@ export class PluginManager extends EventEmitter {
             const err = error instanceof Error ? error : new Error(String(error));
             log.error(`[${pluginId}] Fatal error during teardown: ${err.message}`);
             plugin._setState(PluginState.Error);
+            try {
+                const { lifecycleController } = await import('#core/lifecycle/index.js');
+                lifecycleController.setPhase(pluginId, 'failed');
+            } catch {
+                /* ignore */
+            }
             return false;
         }
     }
@@ -353,6 +499,7 @@ export class PluginManager extends EventEmitter {
             log.info(`[${pluginId}] Commencing Hot-Reload Sequence...`);
             
             try {
+                assertNoActiveDependents(pluginId, 'reload');
                 if (this.registry.has(pluginId)) {
                     const disabled = await this.disable(pluginId);
                     if (!disabled) throw new Error(`Failed to gracefully disable plugin: ${pluginId}`);

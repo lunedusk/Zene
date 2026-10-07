@@ -1,34 +1,62 @@
-import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { getLogger } from '#core/utils/logger.js';
+import type { DependencyInstallBackend } from '#core/helpers/dependency/backends.js';
+import { selectDependencyInstallProvider } from '#core/provider/dependencyInstall.js';
+import { getAuthenticatedPluginContext } from '#core/helpers/integrity/authenticatedContext.js';
+import { verifyDependencyClosure } from '#core/helpers/integrity/dependencyClosure.js';
 
 const log = getLogger('DependencyLoader');
 
 export class DependencyLoader {
+    /**
+     * Install plugin nodeDependencies + package.json dependencies into a sandbox.
+     * Backend via Phase 2A provider registry (`dependency.install`);
+     * env PluginDependencyBackend / DependencyBackend still overrides.
+     * Does not claim signed lockfile reproducibility — that is a later metadata expansion.
+     */
     public static async installFromPackageJson(
         pluginDir: string,
         pluginId: string,
         nodeDependencies?: Record<string, string>,
+        backend: DependencyInstallBackend = selectDependencyInstallProvider(),
     ): Promise<void> {
+        // Phase 2E: authenticated closure must pass before any install attempt
+        await verifyDependencyClosure(pluginId, pluginDir);
+
+        const ctx = getAuthenticatedPluginContext(pluginId);
+        if (ctx?.profile === 'v2-authenticated' && ctx.dependencyLock?.lockfileDigest) {
+            // Trusted artifact with authenticated lock: do not perform network install at boot
+            log.info(
+                `[${pluginId}] Authenticated lock present; skipping network dependency install (closure verified).`,
+            );
+            return;
+        }
+
         const merged = await this.buildMergedDependencies(pluginDir, pluginId, nodeDependencies);
         const names = Object.keys(merged);
 
         if (names.length === 0) {
-            log.debug(`[${pluginId}] No external npm dependencies to install.`);
+            log.debug(`[${pluginId}] No external package dependencies to install.`);
             return;
         }
 
-        log.info(`[${pluginId}] Installing ${names.length} npm dependencies in sandbox...`);
+        log.info(
+            `[${pluginId}] Installing ${names.length} dependencies via backend=${backend.id}...`,
+        );
         const packagePath = path.join(pluginDir, 'package.json');
         const hasPackageJson = await fs.access(packagePath).then(() => true).catch(() => false);
         if (!hasPackageJson) await fs.writeFile(packagePath, JSON.stringify({ private: true }, null, 2));
         try {
-            await this.runNpmInstall(pluginDir, pluginId, merged);
+            await backend.install({
+                pluginDir,
+                pluginId,
+                deps: merged,
+            });
         } finally {
             if (!hasPackageJson) await fs.rm(packagePath, { force: true });
         }
-        log.info(`[${pluginId}] Dependencies successfully sandboxed.`);
+        log.info(`[${pluginId}] Dependencies successfully sandboxed (backend=${backend.id}).`);
     }
 
     private static async buildMergedDependencies(
@@ -79,64 +107,5 @@ export class DependencyLoader {
         }
 
         return merged;
-    }
-
-    private static runNpmInstall(
-        targetDir: string,
-        pluginId: string,
-        deps: Record<string, string>,
-    ): Promise<void> {
-        const specs = Object.entries(deps).map(([name, range]) => `${name}@${range}`);
-        const args = [
-            'install',
-            '--prefix',
-            targetDir,
-            ...specs,
-            '--no-save',
-            '--package-lock=false',
-            '--no-audit',
-            '--no-fund',
-            '--prefer-offline',
-        ];
-
-        return new Promise((resolve, reject) => {
-            const child = spawn('npm', args, {
-                cwd: process.cwd(),
-                stdio: 'ignore',
-                shell: process.platform === 'win32',
-                detached: process.platform !== 'win32',
-            });
-
-            const killTree = () => {
-                try {
-                    if (process.platform !== 'win32' && child.pid) {
-                        process.kill(-child.pid, 'SIGTERM');
-                    } else {
-                        child.kill('SIGTERM');
-                    }
-                } catch {
-                    try { child.kill('SIGKILL'); } catch { }
-                }
-            };
-
-            const timeout = setTimeout(() => {
-                killTree();
-                reject(new Error(`NPM Install timed out for plugin: ${pluginId}`));
-            }, 120000);
-
-            child.on('close', (code) => {
-                clearTimeout(timeout);
-                if (code === 0) {
-                    resolve();
-                } else {
-                    reject(new Error(`NPM Install failed with exit code ${code} for plugin: ${pluginId}`));
-                }
-            });
-
-            child.on('error', (err) => {
-                clearTimeout(timeout);
-                reject(new Error(`Failed to spawn NPM process: ${err.message}`));
-            });
-        });
     }
 }

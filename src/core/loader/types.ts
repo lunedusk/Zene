@@ -1,8 +1,11 @@
 import type { BasePlugin, PluginManifest } from '#core/bases/Plugin.js';
+import type { TrustDecision } from '#core/helpers/integrity/trustDecision.js';
 
 export interface DiscoveredPlugin {
     dir: string;
     manifest: PluginManifest;
+    /** Phase 1C: explicit trust outcome (trusted | bypassed | …). */
+    trust?: TrustDecision;
 }
 
 export interface PreloadedPlugin extends DiscoveredPlugin {
@@ -31,4 +34,6 @@ export interface IntegrityGateResult {
     readonly status: IntegrityStatus | null;
     /** When true, caller should skip this plugin directory. */
     readonly rejected: boolean;
+    /** Phase 1C: trust decision (present when a conclusive outcome was reached). */
+    readonly trust?: TrustDecision;
 }

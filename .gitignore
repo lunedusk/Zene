@@ -204,7 +204,10 @@ AGENTS.md
 !.github/scripts/
 !.github/scripts/bump-doc-versions.js
 
+**/**.test*
+
 .CODE_OF_CONDUCT.md
 .CONTRIBUTING.md
+.roo/**/*
 
 src/plugins/security/**/*

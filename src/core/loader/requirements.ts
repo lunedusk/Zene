@@ -38,6 +38,12 @@ export interface RegisterRequirements {
     envTruthy?: readonly string[];
     nodeVersion?: string;
     plugins?: readonly string[];
+    /**
+     * Phase 2C — required provider categories (Phase 2A registry).
+     * Component does not activate if category has no eligible provider.
+     * Not signed metadata; runtime requirement only.
+     */
+    providers?: readonly string[];
     all?: readonly RequirementFn[];
     any?: readonly RequirementFn[];
     when?: RequirementFn;
@@ -200,6 +206,24 @@ export async function evaluateRequirements(
             if (!ctx.plugins.isLoaded(id)) {
                 reasons.push(`plugin ${id} not loaded`);
             }
+        }
+    }
+
+    if (requirements.providers && requirements.providers.length > 0) {
+        try {
+            const { providerRegistry } = await import('#core/provider/registry.js');
+            for (const category of requirements.providers) {
+                const selected = providerRegistry.select(category);
+                if (!selected.ok) {
+                    reasons.push(
+                        `provider category '${category}' not available: ${selected.message}`,
+                    );
+                }
+            }
+        } catch (err: unknown) {
+            reasons.push(
+                `provider requirement check failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
         }
     }
 

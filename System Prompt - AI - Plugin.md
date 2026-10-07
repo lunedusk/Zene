@@ -369,6 +369,12 @@ Used as the unsigned fallback when no `manifest.nvx` is present. Must contain at
 > The `id` field is the **canonical plugin identifier**. It must be unique across all plugins and match the directory name. Mismatching this will silently break config file naming, lang key resolution, and registry lookups.
 >
 > `priority` controls boot order among independent plugins. Lower values load first (default `0`). Dependencies always override priority — if plugin B depends on A, A loads first regardless of their priority values.
+>
+> **Phase 1A — signed priority:** When the plugin is packed into `manifest.nvx`, `priority` is written into the signed FlatBuffer and is the **only** authority used by `sortDependencies` for certified plugins. Do **not** assume the class `manifest.priority` overrides a verified artifact. Legacy `.nvx` files packed before Phase 1A lack the field; they sort as `0` until repacked. Unsigned/bypass plugins may declare priority in `manifest.json` only when the operator allows uncertified loading — that value is **not** authenticated.
+>
+> **Phase 1B — canonical metadata (IMPLEMENTED):** Pack/unpack/signedMetadata/bypass share `canonicalMetadata.ts` (`signed` | `legacy-signed` | `bypass-unsigned`). Deterministic sorted deps / nodeDeps / ignoreHash. Emoji/icon stay unsigned. Later signed fields (providers, dashboard, data domains) are TARGET only.
+>
+> **Phase 1A — integrity `dist`:** Every `dist/` directory under the plugin tree is hashed (nested included). Source maps (`.map`), `.env`, logs, `node_modules`, `.data`, `logs`, and `configuration` remain excluded. After changing any file under `dist/`, repack. See **INTEGRITY.md**.
 > `zene_version` is what the release bundler and the client
 > updater use for compatibility. A `plugin-<id>-v*` tag is applied only when the
 > range satisfies the running/target core version. The client updater uses **tags
@@ -1871,7 +1877,7 @@ export const configSchema = z.object({
 23. The global `DiscordMiddleware` automatically resolves `%%...%%` placeholders across **all** Discord.js send surfaces (replies, edits, followUps, channel sends, webhook messages, presence, etc.). You never need to call `resolveGlobalPlaceholders()` in plugin code for Discord-bound strings.
 24. Do not use `buildComponentsV2` / `buildComponentsV2AutoWrap` / `buildComponentsV2Strict` and the `ComponentEngine` singleton interchangeably without understanding that each call to `buildComponentsV2` creates a fresh engine with no shared state, while `ComponentEngine` (the singleton) retains a global context that can be configured once via `ComponentEngine.configure(...)`.
 25. **Loader execution order is: EventLoader → CommandLoader → HandlerLoader → RouteLoader.** Handlers are available to routes within the same plugin during `register()`. Access them via `this.heart.system.handler.$get(pluginId, handlerName)` with a type-only import for the handler class.
-26. **Plugin boot priority** is controlled by `manifest.priority` (default `0`, lower loads first). Dependencies always override priority — a dependent plugin always loads after its dependencies regardless of priority values.
+26. **Plugin boot priority** is controlled by the **authenticated** `priority` from a verified `manifest.nvx` when present (default `0`, lower loads first). For unsigned/bypass loads only, `manifest.json` priority is used. Dependencies always override priority — a dependent plugin always loads after its dependencies regardless of priority values. AI authors MUST NOT assume an unsigned class field can override signed metadata.
 27. When a plugin needs REST API infrastructure (CORS, auth, security headers), declare `"dependencies": ["api"]` and use the API handler: `this.heart.system.handler.$get('api', 'manager')?.applyMiddleware(this.router)`. Never import middleware functions directly from another plugin's `src/lib/` directory.
 28. **Core plugins** (those shipped in the framework's `plugins/` directory, such as `permissions` and `api`) may import core manager singletons directly. Third-party plugins must access core systems through handler APIs.
 29. **Always wire the `PermissionCache` to the `PermissionsManager`** via `manager.setCache(cache)` during boot. Without this, all permission checks hit the database on every interaction.
@@ -2091,7 +2097,7 @@ Cross-Host is **env-gated** (`CROSS_HOST`). Plugins must not assume every proces
 
 ### Integrity `ignoreHash`
 
-Optional relative paths in the signed manifest / integrity payload. Those paths are excluded from hash generation and verification. Prefer for generated or environment-specific files only.
+Optional relative paths in the **signed** integrity payload (`ignore_hash` in the FlatBuffer). Those paths are excluded from hash generation and verification. Prefer for generated or environment-specific files only. Changing `ignoreHash` requires repacking and re-signing; an unsigned JSON-only change cannot alter the ignore list of a verified `.nvx`. Bypass (uncertified) loads may declare `ignoreHash` in `manifest.json` without authentication — production should not rely on that.
 
 ---
 

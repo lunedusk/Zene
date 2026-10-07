@@ -54,16 +54,33 @@ export async function discoverPlugins(
 
                     if (result.rejected || !result.manifest) return;
 
-                    if (result.status) {
-                        integrityById.set(result.manifest.id, result.status);
+                    const pluginId = result.manifest.id;
+                    // Phase 2E: reject-all on duplicate plugin IDs (not keep-first/keep-last).
+                    if (discovered.has(pluginId) || bootStatuses.get(pluginId) === BootStatus.Failed) {
+                        const prev = discovered.get(pluginId);
+                        log.error(
+                            `[${entry.name}] Duplicate plugin id '${pluginId}'` +
+                                (prev ? ` (also in '${prev.dir}')` : '') +
+                                `. REJECT-ALL: neither conflicting artifact will execute.`,
+                        );
+                        discovered.delete(pluginId);
+                        integrityById.delete(pluginId);
+                        pluginDirs.delete(pluginId);
+                        bootStatuses.set(pluginId, BootStatus.Failed);
+                        return;
                     }
 
-                    discovered.set(result.manifest.id, {
+                    if (result.status) {
+                        integrityById.set(pluginId, result.status);
+                    }
+
+                    discovered.set(pluginId, {
                         dir: pluginDir,
                         manifest: result.manifest,
+                        trust: result.trust,
                     });
-                    pluginDirs.set(result.manifest.id, pluginDir);
-                    bootStatuses.set(result.manifest.id, BootStatus.Pending);
+                    pluginDirs.set(pluginId, pluginDir);
+                    bootStatuses.set(pluginId, BootStatus.Pending);
                 } catch (error: unknown) {
                     const err = error as Error;
                     log.error(`[${entry.name}] CRITICAL LOAD ERROR: ${err.message}`);
@@ -83,16 +100,31 @@ export async function discoverPlugins(
  * Topological sort by dependencies, then priority.
  * Mutates `plugins` by deleting entries that fail dependency resolution.
  */
+/**
+ * Topological sort: dependencies first, then ascending priority among roots.
+ * Mutates `plugins` by removing entries that fail graph resolution.
+ * Dependency edges dominate priority: a dependent never loads before its deps.
+ */
 export function sortDependencies(
     plugins: Map<string, DiscoveredPlugin>,
 ): DiscoveredPlugin[] {
     const sorted: DiscoveredPlugin[] = [];
     const visited = new Set<string>();
     const visiting = new Set<string>();
+    const failed = new Set<string>();
 
     const visit = (pluginId: string, requiredBy?: string): void => {
+        if (failed.has(pluginId)) {
+            throw new Error(
+                `Dependency '${pluginId}' previously failed resolution` +
+                    (requiredBy ? ` (required by '${requiredBy}')` : ''),
+            );
+        }
         if (visiting.has(pluginId)) {
-            throw new Error(`Circular dependency detected: '${pluginId}' -> '${requiredBy}'`);
+            throw new Error(
+                `Circular dependency detected involving '${pluginId}'` +
+                    (requiredBy ? ` (via '${requiredBy}')` : ''),
+            );
         }
         if (visited.has(pluginId)) return;
 
@@ -101,7 +133,8 @@ export function sortDependencies(
         const plugin = plugins.get(pluginId);
         if (!plugin) {
             throw new Error(
-                `Missing required dependency: '${pluginId}' (Required by '${requiredBy}')`,
+                `Missing required dependency: '${pluginId}'` +
+                    (requiredBy ? ` (required by '${requiredBy}')` : ''),
             );
         }
 
@@ -119,10 +152,12 @@ export function sortDependencies(
     const orderedKeys = [...plugins.keys()].sort((a, b) => {
         const pa = plugins.get(a)!.manifest.priority ?? 0;
         const pb = plugins.get(b)!.manifest.priority ?? 0;
-        return pa - pb;
+        if (pa !== pb) return pa - pb;
+        return a.localeCompare(b);
     });
 
     for (const pluginId of orderedKeys) {
+        if (visited.has(pluginId) || failed.has(pluginId)) continue;
         try {
             visit(pluginId);
         } catch (error: unknown) {
@@ -130,9 +165,13 @@ export function sortDependencies(
             log.error(
                 `Dependency resolution failed for '${pluginId}': ${err.message}. Plugin will not load.`,
             );
+            failed.add(pluginId);
             plugins.delete(pluginId);
+            // Clear partial visit state so other roots can still resolve.
+            visiting.clear();
         }
     }
 
-    return sorted;
+    // Drop any sorted entries that were later marked failed (should not happen, defensive).
+    return sorted.filter((p) => !failed.has(p.manifest.id));
 }

@@ -3,10 +3,18 @@ import fs from 'node:fs/promises';
 import * as flatbuffers from 'flatbuffers';
 import { ZeneManifest } from '#core/flatbuffer/nova-x/system/nova-xmanifest.js';
 import type { PluginManifest } from '#core/bases/Plugin.js';
+import {
+    canonicalFromVerifiedFlatFields,
+    toPluginManifest,
+} from './canonicalMetadata.js';
 
 const MAGIC_HEADER = Buffer.from('NCPLUG', 'utf8');
 const SIGNATURE_LENGTH = 64;
 
+/**
+ * Read and verify signed plugin metadata without walking the integrity file tree.
+ * Uses the same canonical projection as PackageManager.unpackAndVerify for field authority.
+ */
 export async function readSignedManifestMetadata(
     filePath: string,
     publicKeyB64: string,
@@ -43,15 +51,29 @@ export async function readSignedManifestMetadata(
         if (name && version) nodeDependencies[name] = version;
     }
 
-    return {
+    const ignoreHashList: string[] = [];
+    const integrity = manifest.integrity();
+    if (integrity) {
+        for (let i = 0; i < integrity.ignoreHashLength(); i++) {
+            const p = integrity.ignoreHash(i);
+            if (p) ignoreHashList.push(p.replace(/\\/g, '/'));
+        }
+    }
+
+    const priorityAuthenticated = manifest.hasPriority();
+    const canonical = canonicalFromVerifiedFlatFields({
         id: manifest.id() ?? '',
         name: manifest.name() ?? '',
         version: manifest.version() ?? '',
         description: manifest.description() ?? undefined,
         author: manifest.author() ?? undefined,
+        dependencies,
         zene_version: manifest.zeneVersion() ?? undefined,
         node_version: manifest.nodeVersion() ?? undefined,
-        dependencies: dependencies.length > 0 ? dependencies : undefined,
-        nodeDependencies: Object.keys(nodeDependencies).length > 0 ? nodeDependencies : undefined,
-    };
+        nodeDependencies,
+        priorityAuthenticated,
+        priority: priorityAuthenticated ? manifest.priority() : undefined,
+        ignoreHash: ignoreHashList,
+    });
+    return toPluginManifest(canonical);
 }

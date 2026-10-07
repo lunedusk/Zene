@@ -1,4 +1,8 @@
 import { BUILTIN_PUBLIC_KEY } from '#core/defaults.js';
+import {
+    classifySignerKeySource,
+    type SignerKeySource,
+} from './trustDecision.js';
 
 export { BUILTIN_PUBLIC_KEY };
 
@@ -29,4 +33,21 @@ export function resolvePluginPublicKey(pluginId?: string): string {
         process.env.PublicKey?.trim() ||
         BUILTIN_PUBLIC_KEY
     );
+}
+
+/** Resolve key and classify source for Phase 1C trust diagnostics. */
+export function resolvePluginPublicKeyWithSource(pluginId?: string): {
+    readonly key: string;
+    readonly source: SignerKeySource;
+} {
+    const pluginKeys = readPluginPublicKeys();
+    const key = resolvePluginPublicKey(pluginId);
+    const source = classifySignerKeySource(
+        pluginId,
+        pluginKeys,
+        process.env.PublicKey,
+        BUILTIN_PUBLIC_KEY,
+        key,
+    );
+    return { key, source };
 }

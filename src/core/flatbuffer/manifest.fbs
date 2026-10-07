@@ -18,6 +18,10 @@ table NodeDependency {
   version: string;
 }
 
+// Field layout (additive only):
+// 0-9 existing, 10 priority (Phase 1A),
+// 11 signed_payload (Phase 2E JCS logical payload UTF-8),
+// 12 metadata_version, 13 canonicalization_version
 table ZeneManifest {
   id: string;
   name: string;
@@ -29,6 +33,10 @@ table ZeneManifest {
   node_version: string;
   integrity: IntegrityPayload;
   node_dependencies: [NodeDependency];
+  priority: int;
+  signed_payload: string;
+  metadata_version: int;
+  canonicalization_version: int;
 }
 
 root_type ZeneManifest;

@@ -29,6 +29,18 @@ Violating any of the following means your plugin will not be verified or signed,
 - A Lunedusk-signed manifest lets the plugin load **without** the boot warning: `BYPASS ACTIVE — loading plugin without cryptographic guarantees`.
 - Being listed in the official repo’s `plugins.txt` means any Zene user can install your plugin through the built-in auto-updater.
 
+### Canonical signed metadata (Phase 1A / 1B)
+
+Pack and verify share one canonical metadata normalizer (`canonicalMetadata.ts`). Signed vs legacy-signed vs bypass-unsigned authorities stay explicit.
+
+### Canonical signed metadata (Phase 1A)
+
+- Boot **`priority`** is part of the signed FlatBuffer inside `manifest.nvx`. New packs always embed it; discovery sorts by the verified value, not the class manifest alone.
+- **`dist/` trees are integrity-covered** (nested included). After changing built assets under `dist/`, repack the plugin.
+- `ignoreHash` paths are signed inside the integrity payload.
+- Legacy `.nvx` files without a priority field still verify file hashes but treat priority as unspecified (`0` at sort) until repacked.
+- See **INTEGRITY.md** for the full contract.
+
 ## Help & issues
 
 Report bugs or ask questions via GitHub Issues and Discussions:  

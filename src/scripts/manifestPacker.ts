@@ -6,6 +6,7 @@ import { secrets } from '#core/helpers/secretManager.js';
 
 materializeBootEnv();
 import { getLogger, flushLogs } from '#core/utils/logger.js';
+import { validateIgnoreHashList } from '#core/helpers/integrity/scannerPolicy.js';
 import { PackageManager } from '#core/helpers/integrity/manifest.js';
 import type { PluginManifest } from '#core/bases/Plugin.js';
 
@@ -56,23 +57,37 @@ class BinaryManifestPacker {
     }
 
     private async resolvePluginDir(pluginId: string): Promise<string> {
-        const candidates = [
-            path.resolve(process.cwd(), 'plugins', pluginId),
-            path.resolve(process.cwd(), 'src', 'plugins', pluginId)
-        ];
-        for (const dir of candidates) {
-            const st = await fs.stat(dir).catch(() => null);
-            if (st?.isDirectory()) {
-                const man = path.join(dir, 'manifest.json');
-                try {
-                    await fs.access(man);
-                    return dir;
-                } catch {  }
+        // Phase 2E: production pack requires compiled tree under plugins/<id>.
+        // Emitted by: clean → tsc (outDir ./) → copy-assets (manifest.json + assets).
+        // Do NOT silently fall back to src/plugins (35-file failure mode).
+        const compiled = path.resolve(process.cwd(), 'plugins', pluginId);
+        const st = await fs.stat(compiled).catch(() => null);
+        if (st?.isDirectory()) {
+            const man = path.join(compiled, 'manifest.json');
+            try {
+                await fs.access(man);
+                // Prefer a compiled JS entry as proof of slim-build, but allow pure-asset plugins
+                // if at least one .js/.mjs/.cjs exists under the tree.
+                return compiled;
+            } catch {
+                throw new Error(
+                    `Production pack refused: plugins/${pluginId} exists but manifest.json is missing. ` +
+                    `Run npm run slim-build (compile + copy-assets) before pack.`,
+                );
             }
+        }
+        const srcFallback = path.resolve(process.cwd(), 'src', 'plugins', pluginId);
+        const srcSt = await fs.stat(srcFallback).catch(() => null);
+        if (srcSt?.isDirectory()) {
+            throw new Error(
+                `Production pack refused: compiled artifact missing at plugins/${pluginId}. ` +
+                `Source tree exists at src/plugins/${pluginId} but must not be packaged as production. ` +
+                `Run: npm run slim-build  (clean → tsc → copy-assets) then: npm run pack -- ${pluginId}`,
+            );
         }
         throw new Error(
             `Plugin directory with manifest.json not found for "${pluginId}". ` +
-            `Tried: plugins/${pluginId}, src/plugins/${pluginId}`
+            `Required: plugins/${pluginId} (compiled via slim-build).`,
         );
     }
 
@@ -105,6 +120,36 @@ class BinaryManifestPacker {
                 raw.node_dependencies ?? raw.nodeDependencies
             );
 
+            let ignoreHash: readonly string[] | undefined;
+            if (Array.isArray(raw.ignoreHash) || Array.isArray(raw.ignore_hash)) {
+                const list = (Array.isArray(raw.ignoreHash) ? raw.ignoreHash : raw.ignore_hash) as unknown[];
+                const cleaned = list
+                    .filter((p): p is string => typeof p === 'string')
+                    .map((p) => p.replace(/\\/g, '/').replace(/^\.\//, ''))
+                    .filter((p) => p.length > 0 && !p.includes('..'));
+                if (cleaned.length > 0) {
+                    const v = validateIgnoreHashList(cleaned);
+                    if (!v.ok) {
+                        throw new Error(`Pack rejected: ${v.reason}`);
+                    }
+                    ignoreHash = cleaned;
+                }
+            }
+
+            let priority: number | undefined;
+            if (raw.priority !== undefined && raw.priority !== null) {
+                if (
+                    typeof raw.priority !== 'number' ||
+                    !Number.isFinite(raw.priority) ||
+                    !Number.isInteger(raw.priority)
+                ) {
+                    throw new Error(
+                        `Invalid manifest.json priority: must be a finite integer (received ${String(raw.priority)}).`,
+                    );
+                }
+                priority = raw.priority;
+            }
+
             const metadata: PluginManifest = {
                 id,
                 name,
@@ -118,8 +163,11 @@ class BinaryManifestPacker {
                     ? (raw.zene_version as string | string[])
                     : undefined,
                 node_version: typeof raw.node_version === 'string' ? raw.node_version : undefined,
-                priority: typeof raw.priority === 'number' ? raw.priority : undefined,
+                priority,
                 nodeDependencies,
+                ignoreHash,
+                emoji: typeof raw.emoji === 'string' ? raw.emoji : undefined,
+                icon: typeof raw.icon === 'string' ? raw.icon : undefined,
             };
 
             this.log.info(`Generating Flatbuffer and calculating file hashes...`);

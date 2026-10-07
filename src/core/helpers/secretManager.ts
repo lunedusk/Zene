@@ -1,7 +1,17 @@
-import { getLogger } from '#core/utils/logger.js';
+import { getLogger, type Logger } from '#core/utils/logger.js';
 import { defaultBoolean, defaultString, hasDefault } from '#core/defaults.js';
 
-const log = getLogger('SecretManager');
+/**
+ * Lazy logger: secretManager is imported by logger.ts for LogLevel/LogTZ.
+ * A top-level getLogger() here creates an ESM TDZ cycle
+ * (logger → secretManager → getLogger → getDefaultLevel not yet initialized).
+ * Defer until first log call so both production boot and unit-test entrypoints work.
+ */
+let _log: Logger | undefined;
+function log(): Logger {
+    if (!_log) _log = getLogger('SecretManager');
+    return _log;
+}
 
 export class VaultError extends Error {
     constructor(message: string) {
@@ -34,11 +44,11 @@ export class SecretManager {
 
     public set(key: string, value: string): void {
         if (this.#isLocked && this.#sealedKeys.has(key)) {
-            log.warn(`Security Violation: Blocked attempted mutation of sealed secret [${key}].`);
+            log().warn(`Security Violation: Blocked attempted mutation of sealed secret [${key}].`);
             throw new VaultSealedError(`Security Violation: Secret [${key}] is sealed and cannot be overwritten.`);
         }
         process.env[key] = value;
-        log.debug(`Variable [${key}] written to process.env.`);
+        log().debug(`Variable [${key}] written to process.env.`);
     }
 
     public get(key: string): string {
@@ -61,7 +71,7 @@ export class SecretManager {
 
     public assimilateEnv(_pattern: RegExp = SecretManager.DEFAULT_SENSITIVE_PATTERN): void {
         if (this.#isLocked) {
-            log.debug('Vault is already locked. Skipping redundant environment assimilation.');
+            log().debug('Vault is already locked. Skipping redundant environment assimilation.');
             return;
         }
         let count = 0;
@@ -70,7 +80,7 @@ export class SecretManager {
             if (value === undefined || value === '') continue;
             count++;
         }
-        log.info(`Environment assimilated (${count} non-empty keys). Values remain in process.env.`);
+        log().info(`Environment assimilated (${count} non-empty keys). Values remain in process.env.`);
     }
 
     public replaceExpanded(key: string, value: string): void {
@@ -103,7 +113,7 @@ export class SecretManager {
             if (value === undefined || value === '') continue;
             this.#sealedKeys.add(key);
         }
-        log.info(`Environment vault locked (${this.#sealedKeys.size} keys sealed, append-only).`);
+        log().info(`Environment vault locked (${this.#sealedKeys.size} keys sealed, append-only).`);
         void import('#core/manager/event.js')
             .then(({ eventBus }) =>
                 eventBus.emitConcurrent('system.secrets.locked', {
@@ -132,10 +142,10 @@ export class SecretManager {
         }
 
         if (updated.length > 0) {
-            log.info(`Env reload applied ${updated.length} key(s) via sanctioned path.`);
+            log().info(`Env reload applied ${updated.length} key(s) via sanctioned path.`);
         }
         if (skipped.length > 0) {
-            log.info(`Env reload skipped ${skipped.length} key(s): ${skipped.join(', ')}`);
+            log().info(`Env reload skipped ${skipped.length} key(s): ${skipped.join(', ')}`);
         }
 
         return { updated, skipped };
