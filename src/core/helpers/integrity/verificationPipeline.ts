@@ -87,24 +87,25 @@ export function verificationMalformed(message: string): VerificationResult {
  * Trust policy: known signer + valid/legacy verification → trusted.
  * Bypass is NEVER "trusted".
  */
-export function evaluateTrust(input: {
+/**
+ * Pipeline trust evaluator. Signed/invalid verification NEVER becomes bypassed.
+ * Authoritative path for production loaders is trustDecision.evaluateTrust;
+ * this function remains for staged verification→trust composition only.
+ */
+export function evaluatePipelineTrust(input: {
     verification: VerificationResult;
     knownSignerFingerprints: ReadonlySet<string>;
     bypassEnabled: boolean;
 }): TrustResult {
     const v = input.verification;
+    // CRITICAL: invalid/malformed signed verification cannot be bypassed
     if (v.status === 'malformed' || v.status === 'invalid') {
-        if (input.bypassEnabled) {
-            return {
-                outcome: 'bypassed',
-                verificationStatus: v.status,
-                message: `Bypass enabled after verification failure: ${v.message}`,
-            };
-        }
         return {
             outcome: 'rejected',
             verificationStatus: v.status,
-            message: v.message,
+            message:
+                v.message +
+                ' (signed/verification failure is never bypassed)',
         };
     }
 
@@ -172,4 +173,12 @@ export function evaluateExecutionAuthorization(input: {
         trust: input.trust,
         message: `Execution denied: trust=${input.trust.outcome}`,
     };
+}
+
+
+/** @deprecated Use evaluatePipelineTrust — never bypasses verification failures. */
+export function evaluateTrust(
+    input: Parameters<typeof evaluatePipelineTrust>[0],
+): TrustResult {
+    return evaluatePipelineTrust(input);
 }

@@ -1,6 +1,6 @@
 /**
- * Phase 2E — Provider binding/lease tied to runtime generation.
- * Stale bindings after runtime terminate cannot be invoked.
+ * Provider binding identity — generation-scoped, runtime-scoped.
+ * Invalidating R1 must never invalidate R2 bindings under the same provider key.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -15,26 +15,28 @@ export interface ProviderBindingIdentity {
     readonly category: string;
     readonly runtimeId: string;
     readonly generation: number;
-}
-
-interface LiveBinding extends ProviderBindingIdentity {
     valid: boolean;
 }
 
+type LiveBinding = ProviderBindingIdentity;
+
+/** Primary index: category/providerId/pluginId → current live binding (latest). */
 const bindings = new Map<string, LiveBinding>();
-/** runtimeId → binding keys */
+/** runtimeId → set of bindingIds owned by that runtime. */
 const byRuntime = new Map<string, Set<string>>();
-/** pluginId → generation counter */
-const generations = new Map<string, number>();
+/** bindingId → LiveBinding */
+const byBindingId = new Map<string, LiveBinding>();
+
+const generationByPlugin = new Map<string, number>();
 
 function key(category: string, providerId: string, pluginId: string): string {
     return `${category}::${providerId}::${pluginId}`;
 }
 
-export function nextProviderGeneration(pluginId: string): number {
-    const g = (generations.get(pluginId) ?? 0) + 1;
-    generations.set(pluginId, g);
-    return g;
+function nextProviderGeneration(pluginId: string): number {
+    const n = (generationByPlugin.get(pluginId) ?? 0) + 1;
+    generationByPlugin.set(pluginId, n);
+    return n;
 }
 
 export function createProviderBinding(input: {
@@ -55,13 +57,15 @@ export function createProviderBinding(input: {
         valid: true,
     };
     const k = key(input.category, input.providerId, input.pluginId);
+    // Previous binding for same key stays in byBindingId until its runtime is terminated
     bindings.set(k, identity);
+    byBindingId.set(bindingId, identity);
     let set = byRuntime.get(input.runtimeId);
     if (!set) {
         set = new Set();
         byRuntime.set(input.runtimeId, set);
     }
-    set.add(k);
+    set.add(bindingId);
     log.debug(
         `Binding ${k} runtime=${input.runtimeId} gen=${generation} id=${bindingId}`,
     );
@@ -98,28 +102,38 @@ export function assertProviderBindingUsable(
     return b;
 }
 
-/** Invalidate all bindings for a runtime (terminate/reload). */
+/** Invalidate all bindings whose stored runtimeId === runtimeId (R1 only). */
 export function invalidateBindingsForRuntime(runtimeId: string): void {
     const set = byRuntime.get(runtimeId);
     if (!set) return;
-    for (const k of set) {
-        const b = bindings.get(k);
-        if (b) {
-            b.valid = false;
-            log.debug(`Invalidated binding ${k} runtime=${runtimeId}`);
+    for (const bindingId of set) {
+        const b = byBindingId.get(bindingId);
+        if (!b) continue;
+        if (b.runtimeId !== runtimeId) continue; // defensive
+        b.valid = false;
+        byBindingId.delete(bindingId);
+        const k = key(b.category, b.providerId, b.pluginId);
+        const current = bindings.get(k);
+        // Only remove primary index entry if it still points at this binding
+        if (current && current.bindingId === bindingId) {
+            bindings.delete(k);
         }
-        bindings.delete(k);
+        log.debug(`Invalidated binding ${bindingId} runtime=${runtimeId}`);
     }
     byRuntime.delete(runtimeId);
 }
 
 export function invalidateBindingsForPlugin(pluginId: string): void {
-    for (const [k, b] of [...bindings.entries()]) {
-        if (b.pluginId === pluginId) {
-            b.valid = false;
+    for (const [bindingId, b] of [...byBindingId.entries()]) {
+        if (b.pluginId !== pluginId) continue;
+        b.valid = false;
+        byBindingId.delete(bindingId);
+        const k = key(b.category, b.providerId, b.pluginId);
+        const current = bindings.get(k);
+        if (current && current.bindingId === bindingId) {
             bindings.delete(k);
-            const set = byRuntime.get(b.runtimeId);
-            set?.delete(k);
         }
+        const set = byRuntime.get(b.runtimeId);
+        set?.delete(bindingId);
     }
 }

@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { sign, verify, createPrivateKey, createPublicKey, timingSafeEqual } from 'node:crypto';
+import { sign, verify, createPrivateKey, createPublicKey, timingSafeEqual, createHash } from 'node:crypto';
 import * as flatbuffers from 'flatbuffers';
 import { getLogger } from '#core/utils/logger.js';
 
@@ -28,11 +28,11 @@ import {
     type SignedLogicalPayload,
 } from './signedPayload.js';
 import { CANONICALIZATION_VERSION } from './jcs.js';
+import { parseAndRequireCanonicalJcs, canonicalizeJcs } from './jcs.js';
 import { computeLockfileDigest } from './dependencyClosure.js';
 import { setAuthenticatedPluginContext } from './authenticatedContext.js';
 import { setAuthenticatedRuntimeFloor } from '#core/runtime/authenticatedPolicy.js';
 import { setAuthenticatedProviderDeclarations } from '#core/provider/declarations.js';
-import { createHash } from 'node:crypto';
 import {
     signV2CanonicalPayload,
     verifyV2CanonicalPayload,
@@ -140,7 +140,7 @@ export class PackageManager {
             digest: files[relPath]!.hash,
             size: files[relPath]!.size,
         }));
-        const rootDigest = createHash('sha256')
+        const rootDigest = createHash(HASH_ALGORITHM)
             .update(
                 integrityFiles.map((f) => `${f.path}:${f.digest}:${f.size}`).join('\n'),
                 'utf8',
@@ -185,9 +185,8 @@ export class PackageManager {
                 requiredCapabilities: [],
             },
             integrity: {
-                // Logical binding digest is SHA-256 over path:fileDigest:size lines.
-                // Per-file digests remain the package hash algorithm (see IntegrityPayload).
-                algorithm: 'sha256',
+                // ONE algorithm: same as IntegrityPayload + per-file digests (HASH_ALGORITHM).
+                algorithm: HASH_ALGORITHM,
                 rootDigest,
                 files: integrityFiles,
             },
@@ -421,52 +420,168 @@ export class PackageManager {
             ignoreHash: ignoreHashList,
         });
 
-        // Phase 2E: extract authenticated JCS payload when present (new packs).
-        // Signature already verified over the FlatBuffer body that embeds this string.
+        // Phase 2E: v2 signed logical payload is the authoritative security representation.
+        // Signature was verified over domain-separated JCS bytes. Now:
+        // 1) re-canonicalize and require byte identity
+        // 2) cross-check ALL security-sensitive FB fields against signed payload
+        // 3) require FB integrity tree projection == signedLogical.integrity
         const hasV2 = manifest.hasSignedPayload();
         const rawPayload = hasV2 ? manifest.signedPayload() : null;
         let signedLogical: SignedLogicalPayload | undefined;
         if (rawPayload) {
             try {
-                const parsed: unknown = JSON.parse(rawPayload);
-                if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-                    signedLogical = parsed as SignedLogicalPayload;
-                    // Require version markers when payload present
-                    if (
-                        typeof signedLogical.canonicalizationVersion !== 'number' ||
-                        typeof signedLogical.metadataVersion !== 'number'
-                    ) {
-                        throw new IntegrityError('Signed payload missing version markers.');
+                const parsed = parseAndRequireCanonicalJcs(rawPayload);
+                if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                    throw new IntegrityError('Signed payload must be a JSON object.');
+                }
+                signedLogical = parsed as SignedLogicalPayload;
+                if (
+                    typeof signedLogical.canonicalizationVersion !== 'number' ||
+                    typeof signedLogical.metadataVersion !== 'number'
+                ) {
+                    throw new IntegrityError('Signed payload missing version markers.');
+                }
+                if (
+                    signedLogical.canonicalizationVersion !== CANONICALIZATION_VERSION ||
+                    signedLogical.metadataVersion !== METADATA_SCHEMA_VERSION
+                ) {
+                    throw new IntegrityError(
+                        `Unsupported signed payload versions: canon=${String(signedLogical.canonicalizationVersion)} meta=${String(signedLogical.metadataVersion)}`,
+                    );
+                }
+
+                // Cross-check ALL duplicated security-sensitive FlatBuffer fields
+                if (signedLogical.id !== manifest.id()) {
+                    throw new IntegrityError(
+                        `Signed payload id '${signedLogical.id}' mismatches FlatBuffer id '${manifest.id() ?? ''}'.`,
+                    );
+                }
+                if (signedLogical.name !== manifest.name()) {
+                    throw new IntegrityError('Signed payload name mismatches FlatBuffer name.');
+                }
+                if (signedLogical.version !== manifest.version()) {
+                    throw new IntegrityError('Signed payload version mismatches FlatBuffer version.');
+                }
+                if (manifest.hasPriority() && signedLogical.priority !== manifest.priority()) {
+                    throw new IntegrityError('Signed payload priority mismatches FlatBuffer priority.');
+                }
+                if ((manifest.description() ?? undefined) !== (signedLogical.description ?? undefined)
+                    && (manifest.description() || signedLogical.description)) {
+                    // Allow empty/undefined equivalence
+                    const fbDesc = manifest.description() ?? '';
+                    const jDesc = signedLogical.description ?? '';
+                    if (fbDesc !== jDesc) {
+                        throw new IntegrityError('Signed payload description mismatches FlatBuffer.');
                     }
-                    if (
-                        signedLogical.canonicalizationVersion !== CANONICALIZATION_VERSION ||
-                        signedLogical.metadataVersion !== METADATA_SCHEMA_VERSION
-                    ) {
+                }
+
+                // FlatBuffer IntegrityPayload has: timestamp, algorithm, files, ignoreHash — no root field.
+                // signedLogical.integrity is the cryptographic authority for the tree + rootDigest.
+                const fbIntegrity = integrity;
+                const fbAlgRaw = fbIntegrity.algorithm();
+                const fbAlg = (typeof fbAlgRaw === 'string' ? fbAlgRaw : 'blake3').toLowerCase();
+
+                const fbFiles: { path: string; digest: string; size: number }[] = [];
+                for (let i = 0; i < fbIntegrity.filesLength(); i++) {
+                    const node = fbIntegrity.files(i)!;
+                    const pth = node.path();
+                    if (!pth) continue;
+                    const hashArr = node.hashArray();
+                    const digest = hashArr ? Buffer.from(hashArr).toString('hex') : '';
+                    fbFiles.push({
+                        path: pth.replace(/\\/g, '/'),
+                        digest: digest.toLowerCase(),
+                        size: Number(node.size()),
+                    });
+                }
+                fbFiles.sort((a, b) => a.path.localeCompare(b.path));
+
+                const fbIgnore: string[] = [];
+                for (let i = 0; i < fbIntegrity.ignoreHashLength(); i++) {
+                    const pth = fbIntegrity.ignoreHash(i);
+                    if (pth) fbIgnore.push(pth.replace(/\\/g, '/'));
+                }
+                fbIgnore.sort();
+
+                const signedFiles = [...signedLogical.integrity.files]
+                    .map((f) => ({
+                        path: f.path.replace(/\\/g, '/'),
+                        digest: f.digest.toLowerCase(),
+                        size: f.size,
+                    }))
+                    .sort((a, b) => a.path.localeCompare(b.path));
+
+                const signedIgnore = [...(signedLogical.ignoreHash ?? [])]
+                    .map((p) => p.replace(/\\/g, '/'))
+                    .sort();
+
+                if (fbAlg && signedLogical.integrity.algorithm.toLowerCase() !== fbAlg) {
+                    throw new IntegrityError(
+                        `Integrity algorithm mismatch: signed=${signedLogical.integrity.algorithm} fb=${fbAlg}`,
+                    );
+                }
+
+                if (signedFiles.length !== fbFiles.length) {
+                    throw new IntegrityError(
+                        `Integrity file count mismatch: signed=${signedFiles.length} fb=${fbFiles.length}`,
+                    );
+                }
+                for (let i = 0; i < signedFiles.length; i++) {
+                    const s = signedFiles[i]!;
+                    const f = fbFiles[i]!;
+                    if (s.path !== f.path || s.digest !== f.digest || s.size !== f.size) {
                         throw new IntegrityError(
-                            `Unsupported signed payload versions: canon=${String(signedLogical.canonicalizationVersion)} meta=${String(signedLogical.metadataVersion)}`,
+                            `Integrity tree entry mismatch at ${s.path}: signed!=flatbuffer`,
                         );
                     }
-                    // Authoritative v2 source: signed payload. FB fields must match.
-                    if (signedLogical.id !== manifest.id()) {
+                }
+
+                if (signedIgnore.length !== fbIgnore.length ||
+                    signedIgnore.some((p, i) => p !== fbIgnore[i])) {
+                    throw new IntegrityError(
+                        'Integrity ignoreHash mismatch between signed payload and FlatBuffer.',
+                    );
+                }
+
+                // Recompute root from authenticated signed file list (packer formula)
+                const rootMaterial = signedFiles
+                    .map((f) => `${f.path}:${f.digest}:${f.size}`)
+                    .join('\n');
+                const recomputedRoot = createHash(signedLogical.integrity.algorithm)
+                    .update(rootMaterial, 'utf8')
+                    .digest('hex');
+                if (signedLogical.integrity.rootDigest !== recomputedRoot) {
+                    throw new IntegrityError(
+                        'Signed integrity rootDigest does not match recomputation over authenticated file list.',
+                    );
+                }
+
+                // Filesystem verification used FB expectedFiles; require equality with signed set
+                for (const s of signedFiles) {
+                    const exp = expectedFiles.get(s.path);
+                    if (!exp) {
                         throw new IntegrityError(
-                            `Signed payload id '${signedLogical.id}' mismatches FlatBuffer id '${manifest.id() ?? ''}'.`,
+                            `Authenticated integrity file '${s.path}' missing from FlatBuffer integrity tree.`,
                         );
                     }
-                    if (signedLogical.version !== manifest.version()) {
+                    const expHex = Buffer.from(exp.hash).toString('hex').toLowerCase();
+                    if (expHex !== s.digest || exp.size !== s.size) {
                         throw new IntegrityError(
-                            `Signed payload version mismatches FlatBuffer version.`,
+                            `Filesystem integrity entry for '${s.path}' mismatches authenticated signed tree.`,
                         );
                     }
-                    if (manifest.hasPriority() && signedLogical.priority !== manifest.priority()) {
+                }
+                for (const pathKey of expectedFiles.keys()) {
+                    if (!signedFiles.some((s) => s.path === pathKey)) {
                         throw new IntegrityError(
-                            `Signed payload priority mismatches FlatBuffer priority.`,
+                            `FlatBuffer integrity file '${pathKey}' not present in authenticated signed tree.`,
                         );
                     }
                 }
             } catch (err: unknown) {
                 if (err instanceof IntegrityError) throw err;
                 throw new IntegrityError(
-                    `Malformed signed payload: ${err instanceof Error ? err.message : String(err)}`,
+                    `Malformed or noncanonical signed payload: ${err instanceof Error ? err.message : String(err)}`,
                 );
             }
         }

@@ -27,7 +27,7 @@ export interface HostReadyMessage extends RuntimeEnvelopeBase {
     readonly payload: {
         readonly pid: number;
         readonly isMainThread: boolean;
-        readonly isolation: 'worker' | 'process';
+        readonly isolation: 'in-process' | 'worker' | 'process' | 'container' | 'external';
         readonly setupRan?: boolean;
     };
 }
@@ -119,7 +119,7 @@ export interface CoreInitMessage extends RuntimeEnvelopeBase {
     readonly payload: {
         readonly pluginDir: string;
         readonly entryRelative: string;
-        readonly isolation: 'worker' | 'process';
+        readonly isolation: 'in-process' | 'worker' | 'process' | 'container' | 'external';
         readonly approvedEnv?: Readonly<Record<string, string>>;
     };
 }

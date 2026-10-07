@@ -113,22 +113,20 @@ export class PluginManager extends EventEmitter {
                 await configLoader.syncPlugin(plugin.dir, id);
                 await langLoader.syncPlugin(plugin.dir, id);
 
+                // Security: NEVER import/execute plugin entrypoint during preload.
+                // Executable code loads only after RuntimeManager establishes the selected runtime
+                // (in-process hooks path or isolated host). Preload records metadata only.
                 const entryPath = path.join(plugin.dir, 'index.js');
-                const baseUrl = pathToFileURL(entryPath).href;
-                const importUrl = `${baseUrl}?v=${Date.now()}`;
-
-                const Module = await import(importUrl).catch(err => {
-                    throw new Error(`Failed to evaluate entrypoint: ${err.message}`);
-                });
-
-                const PluginClass = Module.default;
-                if (typeof PluginClass !== 'function' || !(PluginClass.prototype instanceof BasePlugin)) {
-                    throw new Error(`Entrypoint does not export a valid BasePlugin class as default.`);
+                try {
+                    await fs.access(entryPath);
+                } catch {
+                    throw new Error(`Entrypoint missing: ${entryPath}`);
                 }
 
-                this.preloadedPlugins.push({ ...plugin, PluginClass });
+                // Omit PluginClass — isolated plugins must not import executable code at preload
+                this.preloadedPlugins.push({ ...plugin });
                 this.bootStatuses.set(id, PluginBootStatus.Preloaded);
-                log.debug(`[${id}] Preload complete. Assets synced and verified code cached.`);
+                log.debug(`[${id}] Preload complete (metadata/deps only; no plugin code executed).`);
 
             } catch (error: unknown) {
                 const err = error instanceof Error ? error : new Error(String(error));
@@ -163,7 +161,7 @@ export class PluginManager extends EventEmitter {
         log.info('Initiating Plugin Boot Sequence...');
 
         for (const plugin of this.preloadedPlugins) {
-            const { dir, manifest, PluginClass } = plugin;
+            const { dir, manifest } = plugin;
             const id = manifest.id;
             const start = performance.now();
 
@@ -204,13 +202,54 @@ export class PluginManager extends EventEmitter {
 
                 // Single RuntimeManager path for every backend (including in-process).
                 if (rtPolicy.preferred === 'in-process' || rtPolicy.minimum === 'in-process') {
+                    // Materialize first so Core never executes the mutable discovery path.
+                    const { getAuthenticatedPluginContext } = await import(
+                        '#core/helpers/integrity/authenticatedContext.js'
+                    );
+                    const {
+                        materializeVerifiedArtifact,
+                        snapshotDirectoryForExecution,
+                    } = await import(
+                        '#core/helpers/integrity/artifactMaterialization.js'
+                    );
+                    const authCtx = getAuthenticatedPluginContext(id);
+                    let execDir = dir;
+                    if (authCtx?.signedPayload?.integrity.files?.length) {
+                        const mat = await materializeVerifiedArtifact({
+                            pluginId: id,
+                            sourceDir: dir,
+                            artifactDigest: authCtx.signedPayload.integrity.rootDigest,
+                            files: authCtx.signedPayload.integrity.files,
+                            entryRelative,
+                        });
+                        execDir = mat.materializedRoot;
+                    } else {
+                        const mat = await snapshotDirectoryForExecution({
+                            pluginId: id,
+                            sourceDir: dir,
+                            entryRelative,
+                        });
+                        execDir = mat.materializedRoot;
+                    }
+
+                    // Import executable only from materialized snapshot (never during preload).
+                    const entryPath = path.join(execDir, 'index.js');
+                    const importUrl = `${pathToFileURL(entryPath).href}?boot=${Date.now()}`;
+                    const Module = await import(importUrl).catch((err: Error) => {
+                        throw new Error(`Failed to evaluate in-process entrypoint: ${err.message}`);
+                    });
+                    const PluginClass = Module.default;
+                    if (typeof PluginClass !== 'function' || !(PluginClass.prototype instanceof BasePlugin)) {
+                        throw new Error(`Entrypoint does not export a valid BasePlugin class as default.`);
+                    }
+
                     const scopedHeart = HeartFactory.create(id, baseClient);
                     const instance: BasePlugin = new PluginClass();
                     instance._injectCore(scopedHeart);
 
                     const { selection, handle } = await runtimeManager.establish({
                         pluginId: id,
-                        pluginDir: dir,
+                        pluginDir: execDir,
                         entryRelative,
                         policy: {
                             preferred: 'in-process',
@@ -316,6 +355,21 @@ export class PluginManager extends EventEmitter {
                 const err = error instanceof Error ? error : new Error(String(error));
                 this.bootStatuses.set(id, PluginBootStatus.Failed);
                 log.error(`[${id}] Critical failure during boot sequence: ${err.message}`, { stack: err.stack });
+                // R: no orphan runtime after establish+setup/enable failure
+                try {
+                    const { runtimeManager } = await import('#core/runtime/manager.js');
+                    await runtimeManager.terminate(id, 'boot-failure');
+                } catch {
+                    /* ignore */
+                }
+                try {
+                    const { clearAuthenticatedPluginContext } = await import(
+                        '#core/helpers/integrity/authenticatedContext.js'
+                    );
+                    clearAuthenticatedPluginContext(id);
+                } catch {
+                    /* ignore */
+                }
                 this.emit('pluginFailed', manifest, err);
             }
         }
@@ -324,7 +378,18 @@ export class PluginManager extends EventEmitter {
 
         freezeCommandStructure();
 
-        const activeCount = this.registry.size;
+        let activeCount = [...this.bootStatuses.values()].filter(
+            (s) => s === PluginBootStatus.Success,
+        ).length;
+        try {
+            const { countLoadedPluginRuntimeRecords } = await import(
+                '#core/runtime/pluginRuntimeRecord.js'
+            );
+            const fromRecords = countLoadedPluginRuntimeRecords();
+            if (fromRecords > activeCount) activeCount = fromRecords;
+        } catch {
+            /* ignore */
+        }
         const totalTime = ((performance.now() - totalStart) / 1000).toFixed(2);
         const totalTimeMs = Math.round((performance.now() - totalStart));
 
@@ -345,9 +410,12 @@ export class PluginManager extends EventEmitter {
         assertNoActiveDependents(pluginId, 'disable');
         assertNoActiveDependents(pluginId, 'unload');
         const plugin = this.registry.get(pluginId);
-        
-        if (!plugin) {
-            log.warn(`[${pluginId}] Teardown requested but plugin is not active in the registry.`);
+        const { runtimeManager } = await import('#core/runtime/manager.js');
+        const isolatedHandle = runtimeManager.get(pluginId);
+
+        // Isolated plugins may not appear in registry — still must tear down runtime.
+        if (!plugin && !isolatedHandle) {
+            log.warn(`[${pluginId}] Teardown requested but plugin is not active.`);
             return false;
         }
 
@@ -372,7 +440,18 @@ export class PluginManager extends EventEmitter {
             );
             lifecycleController.setPhase(pluginId, 'disabling');
 
-            if (plugin.state === PluginState.Enabled) {
+            if (isolatedHandle) {
+                try {
+                    await runtimeManager.lifecycle(pluginId, 'disable');
+                } catch (lifeErr: unknown) {
+                    log.warn(
+                        `[${pluginId}] Isolated disable lifecycle: ${(lifeErr as Error).message}`,
+                    );
+                }
+                await runtimeManager.terminate(pluginId, 'disable');
+            }
+
+            if (plugin && plugin.state === PluginState.Enabled) {
                 await this.withTimeout(plugin.onDisable(), pluginId, 'onDisable');
                 plugin._setState(PluginState.Disabled);
             }
@@ -434,7 +513,12 @@ export class PluginManager extends EventEmitter {
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
             log.error(`[${pluginId}] Fatal error during teardown: ${err.message}`);
-            plugin._setState(PluginState.Error);
+            if (plugin) plugin._setState(PluginState.Error);
+            try {
+                await runtimeManager.terminate(pluginId, 'disable-error');
+            } catch {
+                /* ignore */
+            }
             try {
                 const { lifecycleController } = await import('#core/lifecycle/index.js');
                 lifecycleController.setPhase(pluginId, 'failed');
@@ -459,6 +543,19 @@ export class PluginManager extends EventEmitter {
 
     public async shutdownAll(): Promise<void> {
         log.info('Initiating graceful shutdown of all plugins...');
+
+        const { runtimeManager } = await import('#core/runtime/manager.js');
+        // Terminate ALL isolated runtimes first (Process/Worker), not only registry instances
+        for (const handle of [...runtimeManager.list()]) {
+            try {
+                await runtimeManager.lifecycle(handle.pluginId, 'disable').catch(() => undefined);
+                await runtimeManager.terminate(handle.pluginId, 'shutdown');
+                log.info(`[${handle.pluginId}] Isolated runtime terminated (${handle.level}).`);
+            } catch (error: unknown) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                log.error(`[${handle.pluginId}] Error terminating runtime: ${err.message}`);
+            }
+        }
         
         const activePlugins = Array.from(this.registry.values()).reverse();
 
@@ -483,6 +580,7 @@ export class PluginManager extends EventEmitter {
         this.bootStatuses.clear();
         this.integrityById.clear();
         this.pluginDirs.clear();
+        this.preloadedPlugins = [];
         this.emit('ecosystemOffline');
         void import('#core/manager/event.js')
             .then(({ eventBus }) =>
@@ -538,42 +636,97 @@ export class PluginManager extends EventEmitter {
                     throw new Error(detail || `Validation failed for ${pluginId}`);
                 }
 
-                const entryPath = path.join(plugin.dir, 'index.js');
-                const baseUrl = pathToFileURL(entryPath).href;
-                const importUrl = `${baseUrl}?v=${Date.now()}`; 
-                
-                const Module = await import(importUrl).catch(err => {
-                    throw new Error(`Failed to evaluate entrypoint: ${err.message}`);
-                });
+                // Unified reload via RuntimeManager — isolated plugins never imported into Core
+                const { resolvePluginRuntimePolicy, runtimeManager } = await import(
+                    '#core/runtime/manager.js'
+                );
+                const rtPolicy = resolvePluginRuntimePolicy(pluginId);
+                const entryRelative = 'index.js';
 
-                const PluginClass = Module.default;
-                if (typeof PluginClass !== 'function' || !(PluginClass.prototype instanceof BasePlugin)) {
-                    throw new Error(`Entrypoint does not export a valid BasePlugin class as default.`);
+                if (rtPolicy.preferred === 'in-process' || rtPolicy.minimum === 'in-process') {
+                    const entryPath = path.join(plugin.dir, 'index.js');
+                    const importUrl = `${pathToFileURL(entryPath).href}?reload=${Date.now()}`;
+                    const Module = await import(importUrl).catch((err: Error) => {
+                        throw new Error(`Failed to evaluate entrypoint: ${err.message}`);
+                    });
+                    const PluginClass = Module.default;
+                    if (typeof PluginClass !== 'function' || !(PluginClass.prototype instanceof BasePlugin)) {
+                        throw new Error(`Entrypoint does not export a valid BasePlugin class as default.`);
+                    }
+                    const scopedHeart = HeartFactory.create(pluginId, baseClient);
+                    const instance: BasePlugin = new PluginClass();
+                    instance._injectCore(scopedHeart);
+                    const established = await runtimeManager.establish({
+                        pluginId,
+                        pluginDir: plugin.dir,
+                        entryRelative,
+                        policy: {
+                            preferred: 'in-process',
+                            minimum: 'in-process',
+                            allowed: ['in-process'],
+                            allowFallback: false,
+                        },
+                        inProcessHooks: {
+                            setup: async () => {
+                                instance._setState(PluginState.Setup);
+                                if (typeof instance.onSetup === 'function') {
+                                    await this.withTimeout(instance.onSetup(), pluginId, 'onSetup()');
+                                }
+                                await MiddlewareLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
+                                await EventLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
+                                await CommandLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
+                                await HandlerLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
+                                await RouteLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
+                            },
+                            enable: async () => {
+                                instance._setState(PluginState.Enabled);
+                                await this.withTimeout(instance.onEnable(), pluginId, 'onEnable()');
+                            },
+                            disable: async () => {
+                                if (typeof instance.onDisable === 'function') {
+                                    await this.withTimeout(instance.onDisable(), pluginId, 'onDisable()');
+                                }
+                                instance._setState(PluginState.Disabled);
+                            },
+                            unload: async () => {
+                                instance._setState(PluginState.Unloaded);
+                            },
+                        },
+                    });
+                    if (!established.selection.ok || !established.handle) {
+                        throw new Error(
+                            `Reload runtime rejected: ${established.selection.ok === false ? established.selection.message : 'no handle'}`,
+                        );
+                    }
+                    await runtimeManager.lifecycle(pluginId, 'setup');
+                    await runtimeManager.lifecycle(pluginId, 'enable');
+                    this.registry.set(pluginId, instance);
+                } else {
+                    const established = await runtimeManager.establish({
+                        pluginId,
+                        pluginDir: plugin.dir,
+                        entryRelative,
+                        policy: rtPolicy,
+                    });
+                    if (!established.selection.ok || !established.handle) {
+                        throw new Error(
+                            `Reload isolated runtime rejected: ${established.selection.ok === false ? established.selection.message : 'no handle'}`,
+                        );
+                    }
+                    const setupRes = await runtimeManager.lifecycle(pluginId, 'setup');
+                    const enableRes = await runtimeManager.lifecycle(pluginId, 'enable');
+                    if (setupRes.type === 'host.lifecycle.result' && !setupRes.payload.ok) {
+                        await runtimeManager.terminate(pluginId, 'reload-setup-fail');
+                        throw new Error(setupRes.payload.error || 'setup failed');
+                    }
+                    if (enableRes.type === 'host.lifecycle.result' && !enableRes.payload.ok) {
+                        await runtimeManager.terminate(pluginId, 'reload-enable-fail');
+                        throw new Error(enableRes.payload.error || 'enable failed');
+                    }
                 }
 
-                const scopedHeart = HeartFactory.create(pluginId, baseClient);
-                const instance: BasePlugin = new PluginClass();
-                instance._injectCore(scopedHeart); 
-                
-                instance._setState(PluginState.Setup);
-                if (typeof instance.onSetup === 'function') {
-                    await this.withTimeout(instance.onSetup(), pluginId, 'onSetup()');
-                }
-                
-                await MiddlewareLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
-                await EventLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
-                await CommandLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
-                await HandlerLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
-                await RouteLoader.loadForPlugin(plugin.dir, pluginId, scopedHeart);
-                
-
-                instance._setState(PluginState.Enabled);
-                await this.withTimeout(instance.onEnable(), pluginId, 'onEnable()');
-
-                this.registry.set(pluginId, instance);
                 this.bootStatuses.set(pluginId, PluginBootStatus.Success);
-
-                log.info(`[${pluginId}] Hot-Reload Complete. New code is online.`);
+                log.info(`[${pluginId}] Hot-Reload Complete via RuntimeManager.`);
                 this.emit('pluginLoaded', plugin.manifest);
                 
                 results.success.push(pluginId);

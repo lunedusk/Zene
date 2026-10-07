@@ -9,7 +9,11 @@ export interface DiscoveredPlugin {
 }
 
 export interface PreloadedPlugin extends DiscoveredPlugin {
-    PluginClass: new () => BasePlugin;
+    /**
+     * Optional: only resolved for in-process boot path.
+     * Isolated plugins must not have their entrypoint imported into Core during preload.
+     */
+    PluginClass?: new () => BasePlugin;
 }
 
 export enum PluginBootStatus {

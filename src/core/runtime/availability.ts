@@ -1,6 +1,6 @@
 /**
- * Phase 2D — Detect which isolation backends are usable in this process/deployment.
- * Does not start Docker/Pterodactyl; only probes capability flags.
+ * Runtime backend availability — "available" means genuinely usable.
+ * Container/External stay unavailable until real launch backends exist.
  */
 
 import type { IsolationLevel } from './types.js';
@@ -14,47 +14,21 @@ export interface RuntimeAvailability {
 }
 
 /**
- * Probe availability without side effects beyond optional module load attempts.
+ * Probe availability without side effects beyond capability checks.
+ * Env flags alone do NOT make container/external available.
  */
 export function probeRuntimeAvailability(
-    env: NodeJS.ProcessEnv = process.env,
+    _env: NodeJS.ProcessEnv = process.env,
 ): RuntimeAvailability {
-    let worker = false;
-    try {
-        // Presence of worker_threads is enough; actual Worker created later.
-        // eslint-disable-next-line @typescript-eslint/no-require-imports -- static probe only
-        void import('node:worker_threads');
-        worker = true;
-    } catch {
-        worker = false;
-    }
-    // Dynamic import returns a promise — treat worker as available on Node platforms.
-    worker = typeof process !== 'undefined' && !!process.versions?.node;
-
-    let childProcess = false;
-    try {
-        childProcess = typeof process !== 'undefined' && !!process.versions?.node;
-    } catch {
-        childProcess = false;
-    }
-
-    const dockerExplicit = (env.ZENE_DOCKER_RUNTIME ?? '').toLowerCase();
-    const container =
-        dockerExplicit === '1' ||
-        dockerExplicit === 'true' ||
-        dockerExplicit === 'yes' ||
-        (env.ZENE_CONTAINER_RUNTIME ?? '').trim() !== '';
-
-    const external =
-        (env.ZENE_EXTERNAL_RUNTIME ?? '').trim() !== '' ||
-        (env.PTERODACTYL_URL ?? '').trim() !== '';
+    const hasNode = typeof process !== 'undefined' && !!process.versions?.node;
 
     return {
         'in-process': true,
-        worker,
-        process: childProcess,
-        container,
-        external,
+        worker: hasNode,
+        process: hasNode,
+        // launchContainer still not implemented — never report available
+        container: false,
+        external: false,
     };
 }
 

@@ -3,7 +3,7 @@
  * Verification-context fields are NEVER part of the signed payload.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, createPublicKey } from 'node:crypto';
 import { CANONICALIZATION_VERSION, canonicalizeJcs } from './jcs.js';
 
 export const METADATA_SCHEMA_VERSION = 2 as const;
@@ -19,7 +19,7 @@ export interface SignedProviderDeclaration {
 
 /** Integrity tree binding — signed with the metadata. */
 export interface SignedIntegrityBinding {
-    readonly algorithm: 'blake3' | 'sha256';
+    readonly algorithm: string;
     readonly rootDigest: string;
     /** Ordered relative paths → content digests. */
     readonly files: readonly { readonly path: string; readonly digest: string; readonly size: number }[];
@@ -122,11 +122,39 @@ export function digestSignedPayload(payload: SignedLogicalPayload): string {
     return createHash('sha256').update(canonical, 'utf8').digest('hex');
 }
 
-/** Derive stable signer identity from verified public key PEM/bytes. */
+/**
+ * Derive stable signer identity from a verified public key.
+ * Canonicalizes to SPKI DER via Node crypto so equivalent PEM encodings
+ * of the same Ed25519 key produce the same fingerprint.
+ */
 export function deriveSignerFingerprint(publicKeyPemOrBytes: string | Uint8Array): string {
-    const buf =
-        typeof publicKeyPemOrBytes === 'string'
-            ? Buffer.from(publicKeyPemOrBytes, 'utf8')
-            : Buffer.from(publicKeyPemOrBytes);
-    return createHash('sha256').update(buf).digest('hex');
+    let keyObject;
+    try {
+        if (typeof publicKeyPemOrBytes === 'string') {
+            const s = publicKeyPemOrBytes.trim();
+            if (s.includes('BEGIN PUBLIC KEY') || s.includes('BEGIN PRIVATE KEY')) {
+                keyObject = createPublicKey(s);
+            } else {
+                keyObject = createPublicKey({
+                    key: Buffer.from(s, 'base64'),
+                    format: 'der',
+                    type: 'spki',
+                });
+            }
+        } else {
+            keyObject = createPublicKey({
+                key: Buffer.from(publicKeyPemOrBytes),
+                format: 'der',
+                type: 'spki',
+            });
+        }
+    } catch {
+        const buf =
+            typeof publicKeyPemOrBytes === 'string'
+                ? Buffer.from(publicKeyPemOrBytes, 'utf8')
+                : Buffer.from(publicKeyPemOrBytes);
+        return createHash('sha256').update(buf).digest('hex');
+    }
+    const spkiDer = keyObject.export({ format: 'der', type: 'spki' }) as Buffer;
+    return createHash('sha256').update(spkiDer).digest('hex');
 }

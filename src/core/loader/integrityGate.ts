@@ -16,6 +16,7 @@ import {
 import { deriveSignerFingerprint } from '#core/helpers/integrity/signedPayload.js';
 import {
     setAuthenticatedPluginContext,
+    clearAuthenticatedPluginContext,
     getAuthenticatedPluginContext,
 } from '#core/helpers/integrity/authenticatedContext.js';
 import { setAuthenticatedRuntimeFloor } from '#core/runtime/authenticatedPolicy.js';
@@ -102,6 +103,12 @@ export async function resolvePluginIntegrity(
 
     if (!trust.mayExecute) {
         log.error(`[${folderName}] TRUST REJECTED: ${trust.reason}`);
+        // Security context must not linger for rejected artifacts
+        try {
+            clearAuthenticatedPluginContext(folderName);
+        } catch {
+            /* ignore */
+        }
         return { manifest: null, status: trust.integrityStatus, rejected: true, trust };
     }
 

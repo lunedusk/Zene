@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 /**
  * Phase 2D — Runtime backends: in-process + real Worker/Process hosts.
  */
@@ -15,6 +16,7 @@ import {
     type HostToCoreMessage,
     isHostToCore,
 } from './protocol.js';
+import { validateHostToCoreMessage, ProtocolValidationError } from './messageValidation.js';
 import type {
     InProcessLifecycleHooks,
     IsolationLevel,
@@ -31,6 +33,23 @@ export type CoreRequestPartial = {
 };
 
 const log = getLogger('PluginRuntime');
+
+/** Explicit Worker env — never inherit Core process.env wholesale. */
+function buildControlledWorkerEnv(pluginId: string, runtimeId: string): NodeJS.ProcessEnv {
+    const out: NodeJS.ProcessEnv = {
+        PATH: process.env.PATH ?? '/usr/bin:/bin',
+        ZENE_PLUGIN_ID: pluginId,
+        ZENE_RUNTIME_ID: runtimeId,
+        ZENE_RUNTIME_LEVEL: 'worker',
+    };
+    // Reject NODE_OPTIONS always
+    if (process.env.NODE_OPTIONS) {
+        // intentionally omitted
+    }
+    return out;
+}
+
+
 let handleSeq = 0;
 
 function nextId(pluginId: string, level: IsolationLevel): string {
@@ -58,18 +77,26 @@ type ReadyWaiter = {
     timer: ReturnType<typeof setTimeout>;
 };
 
-function createChannelState() {
+type ChannelState = {
+    pending: Map<string, Pending>;
+    ready: HostToCoreMessage | null;
+    readyWaiters: ReadyWaiter[];
+    fatal: Error | null;
+    settled: boolean;
+};
+
+function createChannelState(): ChannelState {
     return {
         pending: new Map<string, Pending>(),
-        ready: null as HostToCoreMessage | null,
-        readyWaiters: [] as ReadyWaiter[],
-        fatal: null as Error | null,
+        ready: null,
+        readyWaiters: [],
+        fatal: null,
         settled: false,
     };
 }
 
 function rejectAllPending(
-    state: ReturnType<typeof createChannelState>,
+    state: ChannelState,
     err: Error,
 ): void {
     state.fatal = err;
@@ -87,10 +114,25 @@ function rejectAllPending(
 }
 
 function onHostMessage(
-    state: ReturnType<typeof createChannelState>,
-    msg: HostToCoreMessage,
+    state: ChannelState,
+    raw: unknown,
     handle: IsolatedRuntimeHandle,
 ): void {
+    let msg: HostToCoreMessage;
+    try {
+        msg = validateHostToCoreMessage(raw);
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn(`[${handle.pluginId}] protocol validation rejected message: ${message}`);
+        return;
+    }
+    // Stale runtime identity
+    if (msg.runtimeId !== handle.id || msg.pluginId !== handle.pluginId) {
+        log.warn(
+            `[${handle.pluginId}] stale/mismatched runtime message runtimeId=${msg.runtimeId} expected=${handle.id}`,
+        );
+        return;
+    }
     try {
         handleHostMessage(msg);
     } catch (err: unknown) {
@@ -144,7 +186,9 @@ function buildCoreMessage(
     partial: CoreRequestPartial,
     reqCounter: { n: number },
 ): CoreToHostMessage {
-    const requestId = partial.requestId || `req_${++reqCounter.n}`;
+    const requestId =
+        partial.requestId ||
+        `${runtimeId}:${++reqCounter.n}:${randomUUID()}`;
     return {
         v: RUNTIME_PROTOCOL_VERSION,
         runtimeId,
@@ -233,7 +277,7 @@ class InProcessHandle implements IsolatedRuntimeHandle {
             payload: {
                 pid: process.pid,
                 isMainThread: true,
-                isolation: 'worker',
+                isolation: 'in-process',
             },
         };
     }
@@ -263,6 +307,7 @@ export async function launchWorker(
     const reqCounter = { n: 0 };
 
     const worker = new Worker(artifact.absolutePath, {
+        env: buildControlledWorkerEnv(request.pluginId, id),
         execArgv: [...artifact.execArgv],
         workerData: { runtimeId: id, pluginId: request.pluginId },
     });
@@ -327,10 +372,7 @@ export async function launchWorker(
 
     worker.on('message', (raw: unknown) => {
         if (!raw || typeof raw !== 'object') return;
-        const msg = raw as HostToCoreMessage;
-        if (!isHostToCore(msg)) return;
-        if (msg.runtimeId !== id || msg.pluginId !== request.pluginId) return;
-        onHostMessage(state, msg, handle);
+        onHostMessage(state, raw, handle);
     });
     worker.on('error', (err: Error) => {
         handle.health = 'failed';
@@ -414,7 +456,7 @@ export async function launchProcess(
     };
     if (request.env) {
         for (const [k, v] of Object.entries(request.env)) {
-            if (k.startsWith('ZENE_') || k === 'NODE_OPTIONS') childEnv[k] = v;
+            if (k.startsWith('ZENE_') && k !== 'ZENE_NODE_OPTIONS') childEnv[k] = v;
         }
     }
 
@@ -467,12 +509,13 @@ export async function launchProcess(
             });
         },
         async terminate(reason?: string): Promise<void> {
+            if (handle.health === 'stopped') return;
             handle.health = 'stopping';
             try {
                 await handle
                     .request(
                         {
-                            requestId: `term_${Date.now()}`,
+                            requestId: `term_${randomUUID()}`,
                             type: 'core.terminate',
                             payload: { reason: reason ?? 'terminate' },
                         },
@@ -482,18 +525,56 @@ export async function launchProcess(
             } catch (err: unknown) {
                 log.debug(`process terminate: ${errorMessage(err)}`);
             }
-            if (!child.killed) child.kill('SIGTERM');
+            if (!child.killed) {
+                try {
+                    child.kill('SIGTERM');
+                } catch {
+                    /* ignore */
+                }
+            }
+            // Bounded wait for exit, then escalate
+            const exited = await new Promise<boolean>((resolve) => {
+                if (child.exitCode !== null || child.signalCode !== null) {
+                    resolve(true);
+                    return;
+                }
+                const onExit = () => {
+                    clearTimeout(timer);
+                    resolve(true);
+                };
+                const timer = setTimeout(() => {
+                    child.off('exit', onExit);
+                    resolve(false);
+                }, 5000);
+                child.once('exit', onExit);
+            });
+            if (!exited) {
+                try {
+                    if (!child.killed) child.kill('SIGKILL');
+                } catch {
+                    /* ignore */
+                }
+                await new Promise<void>((resolve) => {
+                    if (child.exitCode !== null || child.signalCode !== null) {
+                        resolve();
+                        return;
+                    }
+                    const t2 = setTimeout(() => resolve(), 2000);
+                    child.once('exit', () => {
+                        clearTimeout(t2);
+                        resolve();
+                    });
+                });
+            }
             clearBridgeResources(request.pluginId, id);
+            rejectAllPending(state, new Error('Runtime terminated'));
             handle.health = 'stopped';
         },
     };
 
     child.on('message', (raw: unknown) => {
         if (!raw || typeof raw !== 'object') return;
-        const msg = raw as HostToCoreMessage;
-        if (!isHostToCore(msg)) return;
-        if (msg.runtimeId !== id || msg.pluginId !== request.pluginId) return;
-        onHostMessage(state, msg, handle);
+        onHostMessage(state, raw, handle);
     });
     child.on('error', (err: Error) => {
         handle.health = 'failed';

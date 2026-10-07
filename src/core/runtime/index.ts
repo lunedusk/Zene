@@ -21,13 +21,14 @@ export {
     isLevelAvailable,
     type RuntimeAvailability,
 } from './availability.js';
-export { selectRuntime, buildCandidateOrder } from './selector.js';
+export { selectRuntime, buildCandidateOrder, capabilitiesSatisfied } from './selector.js';
 export { launchRuntime, type IsolatedRuntimeHandle } from './backends.js';
 export {
     RuntimeManager,
     runtimeManager,
     isolationAtLeast,
     resolvePluginRuntimePolicy,
+    RuntimeEstablishError,
 } from './manager.js';
 export {
     RUNTIME_PROTOCOL_VERSION,
@@ -47,3 +48,7 @@ export {
     selectWithAuthenticatedFloor,
     RuntimeFloorViolationError,
 } from './authenticatedPolicy.js';
+
+export { validateHostToCoreMessage, ProtocolValidationError, assertResponseCorrelation } from './messageValidation.js';
+
+export { createPluginRuntimeRecord, getActivePluginRuntimeRecord, deactivatePluginRuntimeRecord, listActivePluginRuntimeRecords, countLoadedPluginRuntimeRecords } from './pluginRuntimeRecord.js';
