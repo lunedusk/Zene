@@ -1270,6 +1270,7 @@ export function uninstallPluginSdkBridge(
                         `sdk_sched_${rid}_${gen}_`,
                         `sdk_root_${rid}_${gen}_`,
                         `sdk_cmd_${rid}_${gen}_`,
+                        `sdk_ch_${rid}_${gen}_`,
                     ];
                     return prefixes.some((pre) => id.startsWith(pre));
                 }
