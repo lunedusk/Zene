@@ -206,6 +206,9 @@ AGENTS.md
 !.github/scripts/bump-doc-versions.js
 
 **/**.test*
+packages/**/*.tgz
+*.tgz
+/packages/*/node_modules/
 
 .CODE_OF_CONDUCT.md
 .CONTRIBUTING.md

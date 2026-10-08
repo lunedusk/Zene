@@ -107,22 +107,70 @@ export const queryResponseSchema = z.object({
 
 export const PLUGIN_BUS_PROTOCOL_VERSION = 1 as const;
 
-export const pluginBusMessageSchema = z.object({
-    v: z.literal(1).optional(),
+const pluginBusBaseFields = {
     kind: z.enum(['send', 'request', 'response']),
     channel: z.string().min(1).max(256),
     fromMachineId: z.string().min(1).max(128),
     toMachineId: z.string().min(1).max(128),
     payload: z.unknown(),
-    messageId: z.string().min(1).max(128).optional(),
     requestId: z.string().min(1).max(128).optional(),
-    trackingId: z.string().min(1).max(128).optional(),
     sourcePluginId: z.string().min(1).max(128).optional(),
     runtimeId: z.string().min(1).max(128).optional(),
     generation: z.number().int().nonnegative().optional(),
+} as const;
+
+/** Legacy envelopes omit `v` and may omit messageId/trackingId. */
+export const pluginBusLegacyMessageSchema = z.object({
+    ...pluginBusBaseFields,
+    v: z.undefined().optional(),
+    messageId: z.string().min(1).max(128).optional(),
+    trackingId: z.string().min(1).max(128).optional(),
 });
 
-export type PluginBusMessageV1 = z.infer<typeof pluginBusMessageSchema>;
+/** Explicit v1 envelopes require messageId and trackingId. */
+export const pluginBusV1MessageSchema = z.object({
+    ...pluginBusBaseFields,
+    v: z.literal(1),
+    messageId: z.string().min(1).max(128),
+    trackingId: z.string().min(1).max(128),
+});
+
+export type PluginBusMessageV1 = z.infer<typeof pluginBusV1MessageSchema>;
+
+/**
+ * Parse a plugin-bus envelope.
+ * - no `v` → legacy schema
+ * - `v === 1` → strict v1 schema
+ * - other `v` → unsupported (success false, unsupportedVersion true)
+ */
+export function parsePluginBusMessage(raw: unknown): {
+    success: boolean;
+    data?: z.infer<typeof pluginBusLegacyMessageSchema> | PluginBusMessageV1;
+    unsupportedVersion?: boolean;
+    error?: z.ZodError;
+} {
+    if (raw && typeof raw === 'object' && 'v' in raw) {
+        const v = (raw as { v: unknown }).v;
+        if (v !== undefined && v !== 1) {
+            return { success: false, unsupportedVersion: true };
+        }
+        if (v === 1) {
+            const parsed = pluginBusV1MessageSchema.safeParse(raw);
+            if (!parsed.success) {
+                return { success: false, error: parsed.error };
+            }
+            return { success: true, data: parsed.data };
+        }
+    }
+    const parsed = pluginBusLegacyMessageSchema.safeParse(raw);
+    if (!parsed.success) {
+        return { success: false, error: parsed.error };
+    }
+    return { success: true, data: parsed.data };
+}
+
+/** @deprecated Prefer parsePluginBusMessage — retained for loose legacy-only checks. */
+export const pluginBusMessageSchema = pluginBusLegacyMessageSchema;
 
 export const controlShutdownSchema = z.object({
     scope: z.enum(['fleet', 'machine', 'orchestrator']),

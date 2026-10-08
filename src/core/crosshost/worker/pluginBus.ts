@@ -4,14 +4,18 @@ import { getLogger } from '#core/utils/logger.js';
 import { encodeMessage, decodeMessage } from '../protocol/codec.js';
 import { channelPluginBus, channelControlShutdown } from '../protocol/channels.js';
 import {
-    pluginBusMessageSchema,
+    parsePluginBusMessage,
     controlShutdownSchema,
     PLUGIN_BUS_PROTOCOL_VERSION,
 } from '../protocol/messages.js';
 import type { PluginBusHandler, CrossHostBus } from '#core/heart/crossHost.js';
 import { performLocalShutdown } from '#core/heart/control.js';
 import { fetchPeerRoster } from '../orchestrator/peerRoster.js';
-import { generateTrackingId, resolveTrackingId } from '../tracking.js';
+import {
+    generateTrackingId,
+    resolveTrackingId,
+    getTrackingContext,
+} from '../tracking.js';
 
 const log = getLogger('CrossHost:PluginBus');
 
@@ -70,19 +74,23 @@ function buildMessage(
         messageId?: string;
     },
 ): PluginBusMessage {
+    const ctx = getTrackingContext();
     return {
         v: PLUGIN_BUS_PROTOCOL_VERSION,
         messageId: partial.messageId ?? randomUUID(),
-        trackingId: resolveTrackingId(partial.trackingId),
+        trackingId: resolveTrackingId(partial.trackingId ?? ctx?.trackingId),
         kind: partial.kind,
         channel: partial.channel,
         fromMachineId: partial.fromMachineId,
         toMachineId: partial.toMachineId,
         payload: partial.payload,
         requestId: partial.requestId,
-        sourcePluginId: partial.sourcePluginId,
-        runtimeId: partial.runtimeId,
-        generation: partial.generation,
+        sourcePluginId: partial.sourcePluginId ?? ctx?.pluginId,
+        runtimeId: partial.runtimeId ?? ctx?.runtimeId,
+        generation:
+            partial.generation !== undefined
+                ? partial.generation
+                : ctx?.generation,
     };
 }
 
@@ -169,20 +177,17 @@ export async function startWorkerPluginBus(opts: {
         void (async () => {
             try {
                 const raw = decodeMessage(Buffer.from(payload, 'base64'));
-                if (
-                    raw &&
-                    typeof raw === 'object' &&
-                    'v' in (raw as object) &&
-                    (raw as { v: unknown }).v !== undefined &&
-                    (raw as { v: unknown }).v !== PLUGIN_BUS_PROTOCOL_VERSION
-                ) {
+                const parsed = parsePluginBusMessage(raw);
+                if (parsed.unsupportedVersion) {
                     log.warn('Unsupported plugin-bus protocol version', {
-                        v: (raw as { v: unknown }).v,
+                        v:
+                            raw && typeof raw === 'object' && 'v' in raw
+                                ? (raw as { v: unknown }).v
+                                : undefined,
                     });
                     return;
                 }
-                const parsed = pluginBusMessageSchema.safeParse(raw);
-                if (!parsed.success) return;
+                if (!parsed.success || !parsed.data) return;
                 const msg = parsed.data as PluginBusMessage;
 
                 if (msg.kind === 'response') {
@@ -203,29 +208,29 @@ export async function startWorkerPluginBus(opts: {
                         });
                         return;
                     }
-                    if (
-                        p.sourcePluginId !== undefined &&
-                        msg.sourcePluginId !== undefined &&
-                        msg.sourcePluginId !== p.sourcePluginId
-                    ) {
-                        log.warn('Ignored response with wrong sourcePluginId', {
-                            requestId: msg.requestId,
-                        });
-                        return;
+                    if (p.sourcePluginId !== undefined) {
+                        if (
+                            msg.sourcePluginId === undefined ||
+                            msg.sourcePluginId !== p.sourcePluginId
+                        ) {
+                            log.warn('Ignored response with wrong or missing sourcePluginId', {
+                                requestId: msg.requestId,
+                            });
+                            return;
+                        }
                     }
-                    if (
-                        p.runtimeId !== undefined &&
-                        msg.runtimeId !== undefined &&
-                        msg.runtimeId !== p.runtimeId
-                    ) {
-                        return;
+                    if (p.runtimeId !== undefined) {
+                        if (msg.runtimeId === undefined || msg.runtimeId !== p.runtimeId) {
+                            return;
+                        }
                     }
-                    if (
-                        p.generation !== undefined &&
-                        msg.generation !== undefined &&
-                        msg.generation !== p.generation
-                    ) {
-                        return;
+                    if (p.generation !== undefined) {
+                        if (
+                            msg.generation === undefined ||
+                            msg.generation !== p.generation
+                        ) {
+                            return;
+                        }
                     }
                     clearTimeout(p.timer);
                     pending.delete(msg.requestId);
@@ -304,7 +309,6 @@ export async function startWorkerPluginBus(opts: {
                 fromMachineId: opts.machineId,
                 toMachineId: target,
                 payload,
-                trackingId: generateTrackingId(),
             });
             if (target === opts.machineId) {
                 await deliverLocal(msg);
@@ -339,7 +343,6 @@ export async function startWorkerPluginBus(opts: {
                         toMachineId: target,
                         payload,
                         requestId: randomBytes(8).toString('hex'),
-                        trackingId: generateTrackingId(),
                     }),
                 );
                 return localResult as T;
@@ -348,7 +351,8 @@ export async function startWorkerPluginBus(opts: {
                 throw new Error('CROSSHOST_REQUEST_LIMIT: global pending request limit');
             }
             const requestId = randomBytes(12).toString('hex');
-            const trackingId = generateTrackingId();
+            const ctx = getTrackingContext();
+            const trackingId = resolveTrackingId(ctx?.trackingId);
             const result = await new Promise<unknown>((resolve, reject) => {
                 const timer = setTimeout(() => {
                     pending.delete(requestId);
@@ -360,6 +364,9 @@ export async function startWorkerPluginBus(opts: {
                     reject,
                     timer,
                     expectedTargetMachine: target,
+                    sourcePluginId: ctx?.pluginId,
+                    runtimeId: ctx?.runtimeId,
+                    generation: ctx?.generation,
                 });
                 void publish(
                     buildMessage({
@@ -370,6 +377,9 @@ export async function startWorkerPluginBus(opts: {
                         payload,
                         requestId,
                         trackingId,
+                        sourcePluginId: ctx?.pluginId,
+                        runtimeId: ctx?.runtimeId,
+                        generation: ctx?.generation,
                     }),
                 ).catch((err) => {
                     clearTimeout(timer);

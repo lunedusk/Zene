@@ -133,16 +133,12 @@ export function installPluginSdkBridge(input: {
                 messageId?: string;
             },
         ) => unknown | Promise<unknown>;
+        resourceId: string;
     };
     const crossHostHandlers = new Map<string, SdkChHandler>();
-    type SdkChPending = {
-        requestId: string;
-        expectedTarget: string;
-        timer: NodeJS.Timeout;
-        resolve: (v: unknown) => void;
-        reject: (e: Error) => void;
-    };
-    const crossHostPending = new Map<string, SdkChPending>();
+    /** Per-session concurrent CrossHost request slots (max 128). */
+    const crossHostPending = new Map<string, true>();
+    let crossHostPendingSeq = 0;
     const featureIds = new Set<string>();
     const cooldownSlugs = new Set<string>();
     const pluginCacheNs = cacheFacade.namespace(`sdk:${input.pluginId}:${input.runtimeId}:${input.generation}`);
@@ -828,6 +824,9 @@ export function installPluginSdkBridge(input: {
                         message: err instanceof Error ? err.message : String(err),
                     });
                 }
+                crossHostPendingSeq += 1;
+                const slotId = `slot-${crossHostPendingSeq}`;
+                crossHostPending.set(slotId, true);
                 try {
                     return await runWithTrackingContextAsync(
                         {
@@ -858,6 +857,8 @@ export function installPluginSdkBridge(input: {
                         code: 'CROSSHOST_TRANSPORT',
                         message: msg,
                     });
+                } finally {
+                    crossHostPending.delete(slotId);
                 }
             },
             on(channel, userHandler) {
@@ -900,14 +901,15 @@ export function installPluginSdkBridge(input: {
                     });
                 };
                 const key = `${physical}::${crossHostHandlers.size}::${Date.now()}`;
+                const resourceId = `sdk_ch_${rid}_${gen}_${channel}_${key.slice(-8)}`;
                 crossHostHandlers.set(key, {
                     logical: channel,
                     physical,
                     handler: wrapped,
                     userHandler,
+                    resourceId,
                 });
                 bus.on(physical, wrapped);
-                const resourceId = `sdk_ch_${rid}_${gen}_${channel}_${key.slice(-8)}`;
                 resourceRegistry.track({
                     pluginId: pid,
                     kind: 'custom',
@@ -933,13 +935,17 @@ export function installPluginSdkBridge(input: {
                 };
             },
             off(channel, userHandler) {
-                const physical = physicalPluginChannel(input.pluginId, channel);
                 const bus = getCrossHostBus();
                 for (const [key, entry] of [...crossHostHandlers.entries()]) {
                     if (entry.logical !== channel) continue;
                     if (userHandler && entry.userHandler !== userHandler) continue;
                     bus.off(entry.physical, entry.handler);
                     crossHostHandlers.delete(key);
+                    try {
+                        resourceRegistry.untrack(input.pluginId, entry.resourceId);
+                    } catch {
+                        /* ignore */
+                    }
                 }
             },
         },
