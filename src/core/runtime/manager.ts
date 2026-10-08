@@ -23,6 +23,7 @@ import type { HostToCoreMessage } from './protocol.js';
 import { setIsolatedInvoker } from './invokeBinding.js';
 import { effectiveRuntimePolicy, getAuthenticatedRuntimeFloor } from './authenticatedPolicy.js';
 import { invalidateBindingsForRuntime } from '#core/provider/binding.js';
+import { uninstallPluginSdkBridge } from '#sdk/coreBridgeFactory.js';
 
 const log = getLogger('RuntimeManager');
 
@@ -377,6 +378,11 @@ export class RuntimeManager {
         recMod.deactivatePluginRuntimeRecord(pluginId, runtimeId);
         try {
             resourceRegistry.untrack(pluginId, `runtime_handle_${runtimeId}`);
+        } catch {
+            /* ignore */
+        }
+        try {
+            uninstallPluginSdkBridge(pluginId, runtimeId);
         } catch {
             /* ignore */
         }

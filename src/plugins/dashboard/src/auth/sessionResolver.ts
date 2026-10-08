@@ -1,9 +1,7 @@
-
-
-
-
-
-
+/**
+ * Dashboard session resolution — Core session is authoritative.
+ * Better Auth / legacy paths are adapters that cannot authorize without Core.
+ */
 
 import type { Request } from 'express';
 import {
@@ -15,18 +13,22 @@ import {
 import type { BridgedAuthIdentity } from './types.js';
 import { AUTH_MIGRATION_PHASE } from './betterAuthBoundary.js';
 import { isLegacyAuthAllowed } from './betterAuthSchema.js';
+import {
+    getDashboardSessionRecord,
+    DASHBOARD_SESSION_COOKIE,
+    type DashboardSessionRecord,
+    logoutCoreDashboardSession,
+    invalidateRealtimeForSession,
+} from '#core/dashboard/index.js';
 
-export type SessionAuthority = 'legacy_dash' | 'better_auth' | 'none';
+export type SessionAuthority = 'core' | 'legacy_dash' | 'better_auth' | 'none';
 
 export interface ResolvedDashboardSession {
     readonly authority: SessionAuthority;
     readonly identity: BridgedAuthIdentity | null;
     readonly authorization: AuthorizationBridgeResult | null;
+    readonly coreSession: DashboardSessionRecord | null;
 }
-
-
-
-
 
 export type SessionIdentityRequest = {
     headers: {
@@ -59,9 +61,29 @@ function readCookie(req: SessionIdentityRequest, name: string): string | null {
     return null;
 }
 
+function readOpaqueSessionId(req: SessionIdentityRequest): string | null {
+    return (
+        readCookie(req, DASHBOARD_SESSION_COOKIE.name) ??
+        readCookie(req, 'dash_session') ??
+        (typeof req.headers['x-dash-session'] === 'string'
+            ? req.headers['x-dash-session']
+            : null) ??
+        readBearer(req)
+    );
+}
 
-
-
+function identityFromCoreSession(rec: DashboardSessionRecord): BridgedAuthIdentity {
+    return buildBridgedIdentity({
+        authUserId: rec.principal.userId,
+        discordUserId: rec.principal.providerUserId,
+        session: {
+            sessionId: rec.sessionId,
+            userId: rec.principal.userId,
+            expiresAt: rec.expiresAt,
+            provider: 'discord',
+        },
+    });
+}
 
 let betterAuthResolver:
     | ((req: SessionIdentityRequest) => Promise<BridgedAuthIdentity | null>)
@@ -94,70 +116,88 @@ function identityFromDashSessionAttachment(
     });
 }
 
-
-
-
-
-
-
-
-
-
-
+/**
+ * Resolve session identity. Core opaque session is the only authoritative path.
+ * Better Auth / legacy may surface identity only when a matching Core session exists
+ * (or, during controlled legacy window, legacy attachment is marked but authorization
+ * still requires Core via resolveAuthenticatedRequest).
+ */
 export async function resolveSessionIdentity(req: SessionIdentityRequest): Promise<{
     authority: SessionAuthority;
     identity: BridgedAuthIdentity | null;
+    coreSession: DashboardSessionRecord | null;
 }> {
+    const opaque = readOpaqueSessionId(req);
+    if (opaque) {
+        const core = getDashboardSessionRecord(opaque);
+        if (core) {
+            return {
+                authority: 'core',
+                identity: identityFromCoreSession(core),
+                coreSession: core,
+            };
+        }
+    }
 
+    // Better Auth adapter: identity only accepted if Core session also present for same id
     if (betterAuthResolver) {
         try {
             const ba = await betterAuthResolver(req);
             if (ba) {
-                return { authority: 'better_auth', identity: ba };
+                // BA adapter identity is accepted only when a Core session already exists
+                // (created at login via establishCoreSessionFromLogin / ensureCoreSessionForAdapterIdentity).
+                const core =
+                    getDashboardSessionRecord(ba.session.sessionId) ??
+                    // Also accept if Core rotated to a new id but request carries Core cookie (handled above)
+                    null;
+                if (core && !core.revoked) {
+                    return {
+                        authority: 'better_auth',
+                        identity: identityFromCoreSession(core),
+                        coreSession: core,
+                    };
+                }
+                return { authority: 'none', identity: null, coreSession: null };
             }
         } catch {
-
+            /* fall through */
         }
     }
-
-
 
     if (isLegacyAuthAllowed()) {
         const fromAttachment = identityFromDashSessionAttachment(req);
         if (fromAttachment) {
-            return { authority: 'legacy_dash', identity: fromAttachment };
+            const core = getDashboardSessionRecord(fromAttachment.session.sessionId);
+            if (core && !core.revoked) {
+                return {
+                    authority: 'legacy_dash',
+                    identity: identityFromCoreSession(core),
+                    coreSession: core,
+                };
+            }
+            // Legacy attachment without prior Core login establishment cannot authorize
+            return { authority: 'none', identity: null, coreSession: null };
         }
     }
 
-
-    const token =
-        readBearer(req) ??
-        (typeof req.headers['x-dash-session'] === 'string' ? req.headers['x-dash-session'] : null) ??
-        readCookie(req, 'dash_session');
-
-    if (token) {
-
-
-        return { authority: 'none', identity: null };
-    }
-
-    return { authority: 'none', identity: null };
+    return { authority: 'none', identity: null, coreSession: null };
 }
 
-
-
-
-export async function resolveAuthenticatedRequest(req: SessionIdentityRequest): Promise<ResolvedDashboardSession> {
-    const { authority, identity } = await resolveSessionIdentity(req);
-    if (!identity) {
-        return { authority: 'none', identity: null, authorization: null };
+export async function resolveAuthenticatedRequest(
+    req: SessionIdentityRequest,
+): Promise<ResolvedDashboardSession> {
+    const { authority, identity, coreSession } = await resolveSessionIdentity(req);
+    if (!identity || !coreSession) {
+        return {
+            authority: 'none',
+            identity: null,
+            authorization: null,
+            coreSession: null,
+        };
     }
     const authorization = await bridgeAuthToZeneAuthorization(identity);
-    return { authority, identity, authorization };
+    return { authority, identity, authorization, coreSession };
 }
-
-
-
 
 export function identityFromBetterAuthUser(input: {
     authUserId: string;
@@ -176,4 +216,14 @@ export function identityFromBetterAuthUser(input: {
             provider: 'better_auth',
         },
     });
+}
+
+/** @deprecated Request type helper — prefer SessionIdentityRequest */
+export type { Request };
+
+
+/** Logout: revoke Core session and invalidate realtime resources. */
+export function logoutDashboardRequest(sessionId: string): void {
+    invalidateRealtimeForSession(sessionId);
+    logoutCoreDashboardSession(sessionId);
 }

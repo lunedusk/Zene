@@ -105,14 +105,24 @@ export const queryResponseSchema = z.object({
     error: z.string().optional(),
 });
 
+export const PLUGIN_BUS_PROTOCOL_VERSION = 1 as const;
+
 export const pluginBusMessageSchema = z.object({
+    v: z.literal(1).optional(),
     kind: z.enum(['send', 'request', 'response']),
-    channel: z.string().min(1),
-    fromMachineId: z.string().min(1),
-    toMachineId: z.string().min(1),
+    channel: z.string().min(1).max(256),
+    fromMachineId: z.string().min(1).max(128),
+    toMachineId: z.string().min(1).max(128),
     payload: z.unknown(),
-    requestId: z.string().min(1).optional(),
+    messageId: z.string().min(1).max(128).optional(),
+    requestId: z.string().min(1).max(128).optional(),
+    trackingId: z.string().min(1).max(128).optional(),
+    sourcePluginId: z.string().min(1).max(128).optional(),
+    runtimeId: z.string().min(1).max(128).optional(),
+    generation: z.number().int().nonnegative().optional(),
 });
+
+export type PluginBusMessageV1 = z.infer<typeof pluginBusMessageSchema>;
 
 export const controlShutdownSchema = z.object({
     scope: z.enum(['fleet', 'machine', 'orchestrator']),

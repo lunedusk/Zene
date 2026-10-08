@@ -8,7 +8,8 @@
     "paths": {
       "#core/*": ["./src/core/*"],
       "#plugins/*": ["./src/plugins/*"],
-      "#scripts/*": ["./src/scripts/*"]
+      "#scripts/*": ["./src/scripts/*"],
+      "#sdk/*": ["./src/sdk/*"]
     },
     "types": ["node"],
     "strict": true,

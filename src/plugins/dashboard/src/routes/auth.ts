@@ -7,6 +7,7 @@ import { BOT_OWNER_BIT } from '../lib/bits.js';
 import { isBotOwnerFromBits, isEnvOwnerUser } from '../lib/owner.js';
 import { tokens } from '../lib/tokens.js';
 import type PermissionsHandler from '../../../permissions/src/handlers/manager.js';
+import { establishCoreSessionFromLogin, logoutCoreDashboardSession, invalidateRealtimeForSession } from '#core/dashboard/index.js';
 
 interface DiscordMeResponse {
     id: string;
@@ -77,6 +78,10 @@ protected register(): void {
             requireSession(this.heart),
             this.asyncHandler(guarded(this.heart, this.sessionCheck.bind(this))),
         );
+        this.router.post(
+            '/logout',
+            this.asyncHandler(guarded(this.heart, this.logout.bind(this))),
+        );
     }
 
     private async resolve(req: Request, res: Response): Promise<void> {
@@ -111,9 +116,24 @@ protected register(): void {
         const verified = await t.verify(token);
 
         const userId = verified.payload.userId;
+        const bits = [...verified.payload.bits];
+        const coreLogin = establishCoreSessionFromLogin({
+            userId,
+            providerUserId: me.id,
+            bits,
+            guildIds: guildId ? [guildId] : [],
+            isEnvOwner: isEnvOwnerUser(userId),
+            authorizedScopes: ['identify', 'guilds'],
+            ttlMs:
+                typeof verified.payload.exp === 'number'
+                    ? Math.max(1_000, verified.payload.exp * 1000 - Date.now())
+                    : undefined,
+        });
+        res.setHeader('Set-Cookie', coreLogin.setCookie);
         ok(res, {
             token,
             expiresAt: verified.payload.exp,
+            coreSessionId: coreLogin.sessionId,
             profile: {
                 id: me.id,
                 username: me.username,
@@ -147,5 +167,29 @@ protected register(): void {
         const banned = await isGloballyBanned(this.heart, req.dashSession!.payload.userId);
         if (banned) throw new HttpError(403, 'banned', 'This account is banned from the dashboard.');
         ok(res, { valid: true, userId: req.dashSession!.payload.userId, expiresAt: req.dashSession!.payload.exp });
+    }
+
+    private async logout(req: Request, res: Response): Promise<void> {
+        const cookie = req.headers.cookie;
+        let coreId: string | undefined;
+        if (typeof cookie === 'string') {
+            for (const part of cookie.split(';')) {
+                const [k, ...rest] = part.trim().split('=');
+                if (k === '__Host-zene_dash_session' || k === 'dash_session') {
+                    coreId = decodeURIComponent(rest.join('=') || '');
+                }
+            }
+        }
+        const headerCore = req.header('x-zene-core-session');
+        if (headerCore) coreId = headerCore;
+        if (coreId) {
+            invalidateRealtimeForSession(coreId);
+            logoutCoreDashboardSession(coreId);
+        }
+        res.setHeader(
+            'Set-Cookie',
+            '__Host-zene_dash_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0',
+        );
+        ok(res, { loggedOut: true });
     }
 }

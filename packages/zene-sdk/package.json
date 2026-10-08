@@ -1,0 +1,67 @@
+{
+  "name": "@lunedusk/zene-sdk",
+  "version": "0.1.0",
+  "description": "Public typed SDK contracts for Zene plugins \u2014 platform-neutral client surface with optional Discord entry point. Core provides the runtime adapter; this package never imports Core internals.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./discord": {
+      "types": "./dist/discord/index.d.ts",
+      "import": "./dist/discord/index.js",
+      "default": "./dist/discord/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "package.json"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc -p tsconfig.json",
+    "rebuild": "npm run clean && npm run build",
+    "pack:artifact": "npm run rebuild && npm pack",
+    "prepublishOnly": "npm run rebuild"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "zene",
+    "lunedusk",
+    "plugin",
+    "sdk",
+    "discord"
+  ],
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lunedusk/Zene.git",
+    "directory": "packages/zene-sdk"
+  },
+  "peerDependencies": {
+    "discord.js": "^14.0.0"
+  },
+  "peerDependenciesMeta": {
+    "discord.js": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "module": "./dist/index.js"
+}

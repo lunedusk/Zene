@@ -6,7 +6,7 @@ import type { Client } from 'discord.js';
 let permissionsManager: PermissionsManager | null = null;
 let permissionCache: PermissionCache | null = null;
 let tokenManager: TokenManager | null = null;
-let primaryClient: Client | null = null;
+let primaryClient: Client<true> | null = null;
 
 export function setHeartPermissions(
     manager: PermissionsManager,
@@ -31,10 +31,10 @@ export function getHeartTokenManager(): TokenManager | null {
     return tokenManager;
 }
 
-export function setHeartClient(client: Client): void {
-    primaryClient = client;
+export function setHeartClient(client: Client<true> | Client | null): void {
+    primaryClient = client ? (client as Client<true>) : null;
 }
 
-export function getHeartClient(): Client | null {
+export function getHeartClient(): Client<true> | null {
     return primaryClient;
 }

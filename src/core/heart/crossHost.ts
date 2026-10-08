@@ -4,7 +4,13 @@ const log = getLogger('Heart:CrossHost');
 
 export type PluginBusHandler = (
     payload: unknown,
-    meta: { fromMachineId: string; channel: string; requestId?: string },
+    meta: {
+        fromMachineId: string;
+        channel: string;
+        requestId?: string;
+        trackingId?: string;
+        messageId?: string;
+    },
 ) => unknown | Promise<unknown>;
 
 export type CrossHostBus = {
@@ -12,12 +18,12 @@ export type CrossHostBus = {
     machineId(): string | null;
     peers(): readonly string[];
     send(target: string, channel: string, payload: unknown): Promise<void>;
-    request(
+    request<T = unknown>(
         target: string,
         channel: string,
         payload: unknown,
         timeoutMs?: number,
-    ): Promise<unknown>;
+    ): Promise<T>;
     on(channel: string, handler: PluginBusHandler): void;
     off(channel: string, handler: PluginBusHandler): void;
     shutdownWorker(machineId: string, reason?: string): Promise<void>;
@@ -32,7 +38,7 @@ const unavailable: CrossHostBus = Object.freeze({
             'Cross-Host plugin bus is not available (only on Cross-Host workers after control plane start)',
         );
     },
-    async request(): Promise<unknown> {
+    async request<T = unknown>(): Promise<T> {
         throw new Error(
             'Cross-Host plugin bus is not available (only on Cross-Host workers after control plane start)',
         );
@@ -63,7 +69,14 @@ export const crossHostDomain: CrossHostDomain = {
     machineId: () => activeBus.machineId(),
     peers: () => activeBus.peers(),
     send: (t, c, p) => activeBus.send(t, c, p),
-    request: (t, c, p, ms) => activeBus.request(t, c, p, ms),
+    request<T = unknown>(
+        target: string,
+        channel: string,
+        payload: unknown,
+        timeoutMs?: number,
+    ): Promise<T> {
+        return activeBus.request<T>(target, channel, payload, timeoutMs);
+    },
     on: (c, h) => activeBus.on(c, h),
     off: (c, h) => activeBus.off(c, h),
     shutdownWorker: (id, reason) => activeBus.shutdownWorker(id, reason),

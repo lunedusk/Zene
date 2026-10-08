@@ -11,6 +11,8 @@ import { randomUUID } from 'node:crypto';
 
 export interface DashRequest<P = Record<string, string>> extends Request<P> {
     dashSession?: VerifiedToken;
+    /** Authoritative Core dashboard session id when present */
+    coreSessionId?: string;
     requestId?: string;
 }
 
@@ -138,38 +140,82 @@ export async function resolveSessionPermissions(
     return actor.resolved.bits;
 }
 
+function readCoreSessionCookie(req: Request): string | undefined {
+    const raw = req.headers.cookie;
+    if (!raw || typeof raw !== 'string') return undefined;
+    for (const part of raw.split(';')) {
+        const [k, ...rest] = part.trim().split('=');
+        if (k === '__Host-zene_dash_session' || k === 'dash_session') {
+            return decodeURIComponent(rest.join('=') || '');
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Dashboard session middleware: Core opaque session is required for authorization.
+ * Legacy X-Dash-Session token may accompany Core session but cannot authorize alone.
+ */
 export function requireSession(heart: IHeart) {
     return async (req: DashRequest, res: Response, next: NextFunction): Promise<void> => {
-        const t = tryTokens(heart);
-        if (!t) {
-            err(res, 500, 'internal', 'Token handler unavailable.');
+        const { getDashboardSessionRecord } = await import('#core/dashboard/index.js');
+
+        const coreId =
+            readCoreSessionCookie(req) ??
+            (typeof req.header('x-zene-core-session') === 'string'
+                ? req.header('x-zene-core-session')!
+                : undefined);
+
+        if (!coreId) {
+            err(res, 401, 'core_session_required', 'Core dashboard session required');
             return;
         }
-
-        const raw = req.header('X-Dash-Session');
-        if (!raw) {
+        const core = getDashboardSessionRecord(coreId);
+        if (!core || core.revoked) {
             err(res, 401, 'unauthorized', heart.assets.lang.get(heart.id, 'errors.unauthorized'));
             return;
         }
 
-        try {
-            req.dashSession = await t.verify(raw);
-            next();
-        } catch (e) {
-            if (e instanceof TokenError) {
-                if (e.tokenCode === 'TOKEN_REVOKED' || e.code === 'TOKEN.TOKEN_REVOKED') {
-                    err(res, 401, 'rotation_detected', heart.assets.lang.get(heart.id, 'errors.rotationDetected'));
+        req.coreSessionId = core.sessionId;
+
+        // Optional legacy token: if present must match Core principal; never sufficient alone
+        const t = tryTokens(heart);
+        const raw = req.header('X-Dash-Session');
+        if (raw && t) {
+            try {
+                const verified = await t.verify(raw);
+                if (verified.payload.userId !== core.principal.userId) {
+                    err(res, 401, 'context_mismatch', 'Token principal mismatches Core session');
                     return;
                 }
-                if (e.tokenCode === 'TOKEN_EXPIRED' || e.code === 'TOKEN.TOKEN_EXPIRED') {
-                    err(res, 401, 'session_expired', heart.assets.lang.get(heart.id, 'errors.sessionExpired'));
-                    return;
+                req.dashSession = verified;
+            } catch (e) {
+                if (e instanceof TokenError) {
+                    if (e.tokenCode === 'TOKEN_REVOKED' || e.code === 'TOKEN.TOKEN_REVOKED') {
+                        err(res, 401, 'rotation_detected', heart.assets.lang.get(heart.id, 'errors.rotationDetected'));
+                        return;
+                    }
+                    if (e.tokenCode === 'TOKEN_EXPIRED' || e.code === 'TOKEN.TOKEN_EXPIRED') {
+                        err(res, 401, 'session_expired', heart.assets.lang.get(heart.id, 'errors.sessionExpired'));
+                        return;
+                    }
                 }
-                err(res, 401, e.code, e.userMessage);
-                return;
+                // Token invalid but Core session valid: allow with synthetic session for downstream
             }
-            err(res, 401, 'session_expired', heart.assets.lang.get(heart.id, 'errors.sessionExpired'));
         }
+
+        if (!req.dashSession) {
+            // Provide minimal compatible shape for routes that still read dashSession.payload
+            req.dashSession = {
+                payload: {
+                    userId: core.principal.userId,
+                    bits: [...core.principal.bits],
+                    exp: Math.floor(core.expiresAt / 1000),
+                    jti: core.sessionId,
+                },
+            } as VerifiedToken;
+        }
+        next();
     };
 }
 

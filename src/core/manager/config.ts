@@ -325,6 +325,62 @@ export class ConfigManager {
         return out;
     }
 
+    /**
+     * Plugin-scoped config mutation with validation against loaded schema/rules.
+     * Only mutates the named plugin configuration document.
+     */
+    public async setPluginScopedValue(
+        pluginId: string,
+        key: string,
+        value: unknown,
+    ): Promise<void> {
+        if (!pluginId.trim() || !key.trim()) {
+            throw new Error('pluginId and key are required');
+        }
+        if (key.includes('..') || key.startsWith('/')) {
+            throw new Error(`Invalid config key '${key}'`);
+        }
+        const name = pluginId;
+        const currentRaw =
+            (this.getRaw<Record<string, unknown>>(name) as Record<string, unknown> | null) ??
+            {};
+        const nextRaw: Record<string, unknown> = { ...currentRaw, [key]: value };
+        const filePath = path.join(this.targetDir, `${name}.json5`);
+        const expandResult = expandValue(nextRaw, {
+            failClosed: undefined,
+            resolveEmoji: false,
+            collectUntaggedRand: false,
+            softMiss: 'absent',
+        });
+        const validated = await this.validateConfigObject(
+            name,
+            filePath,
+            expandResult.value,
+        );
+        if (!validated.ok) {
+            throw new Error(`Config validation failed for [${name}]: ${validated.message}`);
+        }
+        this.rawCache.set(name, nextRaw);
+        this.runtimeCache.set(name, validated.data);
+        if (
+            validated.data &&
+            typeof validated.data === 'object' &&
+            !Array.isArray(validated.data)
+        ) {
+            this.updateLiveReference(name, validated.data as Record<string, unknown>);
+        }
+        log.info(`Plugin-scoped config updated [${name}] key=${key}`);
+        void import('#core/manager/event.js')
+            .then(({ eventBus }) =>
+                eventBus.emitConcurrent('config.plugin.updated', {
+                    pluginId,
+                    key,
+                    at: Date.now(),
+                }),
+            )
+            .catch(() => undefined);
+    }
+
     public applySnapshot(raw: Record<string, unknown>): void {
         this.rawCache.clear();
         this.runtimeCache.clear();

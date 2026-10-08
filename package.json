@@ -14,7 +14,7 @@
   },
   "scripts": {
     "clean": "rm -rf core plugins scripts database types index.js index.d.ts",
-    "install-packages": "npm install --prefix packages/gateway-multiplex && npm run build --prefix packages/gateway-multiplex",
+    "install-packages": "npm install --prefix packages/gateway-multiplex && npm run build --prefix packages/gateway-multiplex && npm install --prefix packages/zene-sdk && npm run build --prefix packages/zene-sdk",
     "prepare-plugin-deps": "tsx src/scripts/installPluginDependencies.ts",
     "postinstall": "npm run install-packages",
     "compile": "npm run prepare-plugin-deps && tsc",
@@ -28,10 +28,13 @@
     "rmdocs": "rm -rf docs",
     "lint": "eslint src --fix",
     "flush": "rm -rf core plugins configuration logs .data scripts index.js index.d.ts",
-    "updater": "node --import ./core/dependency/index.mjs ./index.js --updater"
+    "updater": "node --import ./core/dependency/index.mjs ./index.js --updater",
+    "build:zene-sdk": "npm run rebuild --prefix packages/zene-sdk",
+    "pack:zene-sdk": "npm run pack:artifact --prefix packages/zene-sdk"
   },
   "dependencies": {
     "@lunedusk/gateway-multiplex": "file:packages/gateway-multiplex",
+    "@lunedusk/zene-sdk": "file:packages/zene-sdk",
     "better-sqlite3": "^12.8.0",
     "cbor": "^10.0.12",
     "chokidar": "^5.0.0",

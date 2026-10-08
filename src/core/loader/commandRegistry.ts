@@ -22,6 +22,7 @@ import {
     requirementsMode,
     type RegisterRequirements,
 } from './requirements.js';
+import { interactionRegistry } from '#core/manager/interaction/registry.js';
 
 const log = getLogger('CommandRegistry');
 
@@ -31,6 +32,15 @@ export type ChatAutocomplete = (interaction: AutocompleteInteraction) => Promise
 export interface RegisteredRoot {
     readonly name: string;
     readonly ownerPluginId: string;
+    /** Present for SDK/runtime-scoped registrations. */
+    readonly runtimeId?: string;
+    /** Present for SDK/runtime-scoped registrations. */
+    readonly generation?: number;
+    /**
+     * InteractionRegistry owner key.
+     * File-based commands use pluginId; SDK uses sdk:pluginId:runtimeId:generation.
+     */
+    readonly dispatchOwner: string;
     data: SlashCommandBuilder;
     config: CommandConfig;
     execute: ChatExecute;
@@ -75,11 +85,46 @@ export function getRegisteredRoot(name: string): RegisteredRoot | undefined {
     return roots.get(name);
 }
 
+/**
+ * Remove a root command only when ownership matches.
+ * SDK registrations must pass runtimeId + generation so R1 cannot remove R2.
+ * File-based commands omit runtime fields and match pluginId-only ownership.
+ */
+export function unregisterRootCommand(filter: {
+    readonly name: string;
+    readonly pluginId: string;
+    readonly runtimeId?: string;
+    readonly generation?: number;
+}): boolean {
+    const root = roots.get(filter.name);
+    if (!root) return false;
+    if (root.ownerPluginId !== filter.pluginId) return false;
+    if (filter.runtimeId !== undefined && root.runtimeId !== filter.runtimeId) {
+        return false;
+    }
+    if (filter.generation !== undefined && root.generation !== filter.generation) {
+        return false;
+    }
+    interactionRegistry.chat.unregisterByOwner(root.dispatchOwner);
+    interactionRegistry.autocomplete.unregisterByOwner(root.dispatchOwner);
+    roots.delete(filter.name);
+    log.info(
+        `[${filter.pluginId}] unregistered root command /${filter.name}` +
+            (filter.runtimeId
+                ? ` runtime=${filter.runtimeId} gen=${String(filter.generation)}`
+                : ''),
+    );
+    return true;
+}
+
 export function listCommandTree(): {
     frozen: boolean;
     roots: Array<{
         name: string;
         ownerPluginId: string;
+        runtimeId?: string;
+        generation?: number;
+        dispatchOwner: string;
         subHandlers: string[];
     }>;
 } {
@@ -88,6 +133,9 @@ export function listCommandTree(): {
         roots: [...roots.values()].map((r) => ({
             name: r.name,
             ownerPluginId: r.ownerPluginId,
+            runtimeId: r.runtimeId,
+            generation: r.generation,
+            dispatchOwner: r.dispatchOwner,
             subHandlers: [...r.subHandlers.keys()],
         })),
     };
@@ -102,6 +150,9 @@ export async function registerRootCommand(opts: {
     autocomplete?: ChatAutocomplete;
     requirements?: RegisterRequirements;
     resync?: boolean;
+    /** SDK/runtime generation ownership (optional for file-based loaders). */
+    runtimeId?: string;
+    generation?: number;
 }): Promise<boolean> {
     assertStructureWritable(opts.resync);
     const name = opts.data.name;
@@ -141,9 +192,17 @@ export async function registerRootCommand(opts: {
         name,
     );
 
+    const dispatchOwner =
+        opts.runtimeId !== undefined && opts.generation !== undefined
+            ? `sdk:${opts.pluginId}:${opts.runtimeId}:${opts.generation}`
+            : opts.pluginId;
+
     roots.set(name, {
         name,
         ownerPluginId: opts.pluginId,
+        runtimeId: opts.runtimeId,
+        generation: opts.generation,
+        dispatchOwner,
         data: opts.data,
         config: opts.config,
         execute: opts.execute,
@@ -165,7 +224,7 @@ export async function registerRootCommand(opts: {
             }
             await root.execute(i);
         },
-        opts.pluginId,
+        dispatchOwner,
         {
             data: opts.data,
             access: opts.config,
@@ -176,7 +235,7 @@ export async function registerRootCommand(opts: {
         opts.heart.discord.interactions.autocomplete.register(
             name,
             opts.autocomplete,
-            opts.pluginId,
+            dispatchOwner,
         );
     }
 
@@ -283,7 +342,7 @@ export async function extendCommand(
                 }
                 await r.execute(i);
             },
-            root.ownerPluginId,
+            root.dispatchOwner,
             { data: root.data, access: root.config },
         );
         log.info(`[${pluginId}] extended /${rootName} +${handlerKey}`);

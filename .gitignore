@@ -178,6 +178,7 @@ AGENTS.md
 /configuration/
 /scripts/
 /types/
+/sdk/
 
 !src/
 !src/core/

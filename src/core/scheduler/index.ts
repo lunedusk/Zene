@@ -93,6 +93,21 @@ export class TaskScheduler {
         return this.sanitizeJob(job);
     }
 
+    public async remove(name: string): Promise<boolean> {
+        const had = this.jobs.has(name) || this.registry.has(name);
+        this.jobs.delete(name);
+        this.registry.delete(name);
+        if (had) {
+            await this.save();
+            log.debug(`Removed scheduled task [${name}]`);
+        }
+        return had;
+    }
+
+    public async removeTask(name: string): Promise<boolean> {
+        return this.remove(name);
+    }
+
     public start(): void {
         if (this.isRunning) return;
         this.isRunning = true;

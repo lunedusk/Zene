@@ -1,0 +1,14 @@
+{
+  "name": "zene-sdk-consumer-check",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "External consumer validation against a real @lunedusk/zene-sdk .tgz artifact",
+  "scripts": {
+    "test:import": "tsx import-surface.mts"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.3.3"
+  }
+}
