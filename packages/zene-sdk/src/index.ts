@@ -75,9 +75,11 @@ export {
 } from './dashboard.js';
 
 export {
-    type DataTypeDefinition,
+    type DataTypeRegistration,
+    type DataSubjectInput,
     registerDataType,
     accessData,
+    writeData,
     exportData,
     deleteData,
 } from './data.js';

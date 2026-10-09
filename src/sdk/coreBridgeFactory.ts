@@ -2,7 +2,7 @@
  * Core installs a generation-scoped SDK bridge for an authorized plugin runtime.
  */
 
-import { dataRegistry } from '#core/data/index.js';
+import { dataRegistry, DataRegistryError } from '#core/data/index.js';
 import {
     registerContribution,
     revokeContribution,
@@ -322,27 +322,81 @@ export function installPluginSdkBridge(input: {
                 dataRegistry.register({
                     id: def.id,
                     ownerPluginId: input.pluginId,
-                    schema: def.schema,
-                    scope: def.scope as import('#core/data/types.js').DataScope,
+                    schema: def.schema ?? {},
+                    scope: def.scope,
                     personalData: def.personalData,
-                    privacyClass: def.privacyClass as import('#core/data/types.js').PrivacyClass,
+                    privacyClass: def.privacyClass,
                     retention: def.retention,
+                    storage: def.storage,
                 });
             },
-            async access(typeId, query) {
-                return dataRegistry.access({
-                    typeId,
-                    subject: {},
-                    query,
-                    requesterPluginId: input.pluginId,
-                });
+            async access(typeId, subject, query) {
+                try {
+                    return await dataRegistry.access({
+                        typeId,
+                        subject,
+                        query,
+                        requesterPluginId: input.pluginId,
+                    });
+                } catch (err) {
+                    if (err instanceof DataRegistryError) {
+                        throw new SdkError({
+                            code: err.code,
+                            message: err.message,
+                        });
+                    }
+                    throw err;
+                }
+            },
+            async write(typeId, key, subject, value) {
+                try {
+                    await dataRegistry.write({
+                        typeId,
+                        key,
+                        subject,
+                        value,
+                        requesterPluginId: input.pluginId,
+                    });
+                } catch (err) {
+                    if (err instanceof DataRegistryError) {
+                        throw new SdkError({
+                            code: err.code,
+                            message: err.message,
+                        });
+                    }
+                    throw err;
+                }
             },
             async export(typeId, subject) {
-                return dataRegistry.export(typeId, subject, input.pluginId);
+                try {
+                    return await dataRegistry.export(typeId, subject, input.pluginId);
+                } catch (err) {
+                    if (err instanceof DataRegistryError) {
+                        throw new SdkError({
+                            code: err.code,
+                            message: err.message,
+                        });
+                    }
+                    throw err;
+                }
             },
             async delete(typeId, subject) {
-                const res = await dataRegistry.delete(typeId, subject, input.pluginId);
-                return res.deleted;
+                try {
+                    const res = await dataRegistry.delete(
+                        typeId,
+                        subject,
+                        input.pluginId,
+                    );
+                    return res.deleted;
+                } catch (err) {
+                    if (err instanceof DataRegistryError) {
+                        throw new SdkError({
+                            code: err.code,
+                            message: err.message,
+                        });
+                    }
+                    throw err;
+                }
             },
         },
         dashboard: {

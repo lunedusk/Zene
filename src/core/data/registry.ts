@@ -3,48 +3,109 @@
  */
 
 import { getLogger } from '#core/utils/logger.js';
-import { MemoryDataAdapter } from './adapters/memory.js';
+import { DataRegistryError } from './errors.js';
+import {
+    assertSubjectForScope,
+    assertValidTypeId,
+    canDelete,
+    canExport,
+    canRead,
+    canWrite,
+} from './policy.js';
+import { assertAdapterSatisfiesPolicy, resolveStoragePolicy } from './storage.js';
 import type {
     DataAccessRequest,
     DataDeleteResult,
     DataExportResult,
+    DataRecord,
     DataStorageAdapter,
     DataSubject,
     DataTypeDefinition,
+    DataWriteRequest,
 } from './types.js';
 
 const log = getLogger('DataRegistry');
 
-export class DataRegistryError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = 'DataRegistryError';
-    }
-}
+type RegistryMode = 'uninitialized' | 'ready';
 
 class DataRegistryImpl {
     readonly #types = new Map<string, DataTypeDefinition>();
-    #adapter: DataStorageAdapter = new MemoryDataAdapter();
+    #adapter: DataStorageAdapter | null = null;
+    #mode: RegistryMode = 'uninitialized';
+    #allowMemoryFallback = false;
+
+    /**
+     * Explicitly allow memory adapter (tests / intentional dev mode only).
+     * Production boot must call setAdapter with a non-memory backend or set allowMemory.
+     */
+    configure(options: { allowMemoryFallback?: boolean } = {}): void {
+        this.#allowMemoryFallback = options.allowMemoryFallback === true;
+    }
 
     setAdapter(adapter: DataStorageAdapter): void {
+        if (adapter.engine === 'memory' && !this.#allowMemoryFallback) {
+            throw new DataRegistryError(
+                'DATA_BACKEND_UNAVAILABLE',
+                'Memory data adapter is not allowed without explicit allowMemoryFallback',
+            );
+        }
         this.#adapter = adapter;
-        log.info(`Data storage adapter set: ${adapter.id}`);
+        this.#mode = 'ready';
+        log.info(`Data storage adapter set: ${adapter.id} engine=${adapter.engine}`);
+    }
+
+    isReady(): boolean {
+        return this.#mode === 'ready' && this.#adapter !== null;
+    }
+
+    getAdapter(): DataStorageAdapter {
+        if (!this.#adapter) {
+            throw new DataRegistryError(
+                'DATA_NOT_READY',
+                'Data registry has no storage adapter; initialize data platform before use',
+            );
+        }
+        return this.#adapter;
     }
 
     register(def: DataTypeDefinition): void {
-        if (!def.id || def.id.includes('..') || def.id.includes('/')) {
-            throw new DataRegistryError(`Invalid data type id '${def.id}'`);
+        assertValidTypeId(def.id);
+        if (!def.ownerPluginId) {
+            throw new DataRegistryError(
+                'DATA_UNAUTHORIZED',
+                'ownerPluginId is required and must come from Core session',
+            );
         }
         const existing = this.#types.get(def.id);
         if (existing && existing.ownerPluginId !== def.ownerPluginId) {
             throw new DataRegistryError(
+                'DATA_DUPLICATE_OWNER',
                 `Data type '${def.id}' owned by '${existing.ownerPluginId}', cannot re-register by '${def.ownerPluginId}'`,
             );
         }
-        this.#types.set(def.id, def);
+        const policy = resolveStoragePolicy(def);
+        if (policy.engine !== 'memory' && this.#adapter) {
+            try {
+                assertAdapterSatisfiesPolicy(this.#adapter, policy);
+            } catch (err) {
+                if (
+                    err instanceof DataRegistryError &&
+                    err.code === 'DATA_BACKEND_UNAVAILABLE' &&
+                    this.#allowMemoryFallback
+                ) {
+                    // intentional test/dev path
+                } else {
+                    throw err;
+                }
+            }
+        }
+        this.#types.set(def.id, Object.freeze({ ...def }));
         log.debug(`Registered data type ${def.id} owner=${def.ownerPluginId}`);
     }
 
+    /**
+     * Remove type definitions for a plugin. Does NOT delete persisted records.
+     */
     unregisterPlugin(pluginId: string): void {
         for (const [id, def] of this.#types) {
             if (def.ownerPluginId === pluginId) this.#types.delete(id);
@@ -55,6 +116,17 @@ class DataRegistryImpl {
         return this.#types.get(typeId);
     }
 
+    requireType(typeId: string): DataTypeDefinition {
+        const def = this.#types.get(typeId);
+        if (!def) {
+            throw new DataRegistryError(
+                'DATA_UNKNOWN_TYPE',
+                `Unknown data type '${typeId}'`,
+            );
+        }
+        return def;
+    }
+
     listTypes(): readonly DataTypeDefinition[] {
         return [...this.#types.values()];
     }
@@ -63,20 +135,47 @@ class DataRegistryImpl {
         return this.listTypes().filter((t) => t.personalData);
     }
 
-    async access(req: DataAccessRequest): Promise<readonly unknown[]> {
-        const def = this.#types.get(req.typeId);
-        if (!def) {
-            throw new DataRegistryError(`Unknown data type '${req.typeId}'`);
-        }
-        if (
-            def.ownerPluginId !== req.requesterPluginId &&
-            def.privacyClass !== 'public'
-        ) {
+    async write(req: DataWriteRequest): Promise<void> {
+        const def = this.requireType(req.typeId);
+        assertSubjectForScope(def.scope, req.subject);
+        if (!canWrite(def, req.requesterPluginId)) {
             throw new DataRegistryError(
+                'DATA_UNAUTHORIZED',
+                `Write denied to '${req.typeId}' for plugin '${req.requesterPluginId}'`,
+            );
+        }
+        const adapter = this.getAdapter();
+        assertAdapterSatisfiesPolicy(adapter, resolveStoragePolicy(def));
+        const record: DataRecord = {
+            typeId: req.typeId,
+            key: req.key,
+            subject: { ...req.subject },
+            value: req.value,
+            ownerPluginId: def.ownerPluginId,
+            updatedAt: Date.now(),
+        };
+        try {
+            await adapter.put(req.typeId, req.key, record);
+        } catch (err) {
+            throw new DataRegistryError(
+                'DATA_PERSISTENCE_FAILURE',
+                err instanceof Error ? err.message : String(err),
+            );
+        }
+    }
+
+    async access(req: DataAccessRequest): Promise<readonly unknown[]> {
+        const def = this.requireType(req.typeId);
+        assertSubjectForScope(def.scope, req.subject);
+        if (!canRead(def, req.requesterPluginId)) {
+            throw new DataRegistryError(
+                'DATA_UNAUTHORIZED',
                 `Access denied to '${req.typeId}' for plugin '${req.requesterPluginId}'`,
             );
         }
-        return this.#adapter.query(req.typeId, req.query ?? req.subject);
+        const adapter = this.getAdapter();
+        const records = await adapter.query(req.typeId, req.subject);
+        return records.map((r) => r.value);
     }
 
     async export(
@@ -84,15 +183,21 @@ class DataRegistryImpl {
         subject: DataSubject,
         requesterPluginId: string,
     ): Promise<DataExportResult> {
-        const def = this.#types.get(typeId);
-        if (!def) throw new DataRegistryError(`Unknown data type '${typeId}'`);
-        if (!def.personalData && def.privacyClass === 'secret') {
-            throw new DataRegistryError(`Export denied for secret type '${typeId}'`);
+        const def = this.requireType(typeId);
+        assertSubjectForScope(def.scope, subject);
+        if (!canExport(def, requesterPluginId)) {
+            throw new DataRegistryError(
+                'DATA_EXPORT_DENIED',
+                `Export denied for type '${typeId}'`,
+            );
         }
-        void requesterPluginId;
-        const records = await this.#adapter.query(typeId, subject);
-        const filtered = records.filter((r) => matchesSubject(r, subject));
-        return { typeId, records: filtered, exportedAt: Date.now() };
+        const adapter = this.getAdapter();
+        const records = await adapter.query(typeId, subject);
+        return {
+            typeId,
+            records: records.map((r) => r.value),
+            exportedAt: Date.now(),
+        };
     }
 
     async delete(
@@ -100,58 +205,102 @@ class DataRegistryImpl {
         subject: DataSubject,
         requesterPluginId: string,
     ): Promise<DataDeleteResult> {
-        const def = this.#types.get(typeId);
-        if (!def) throw new DataRegistryError(`Unknown data type '${typeId}'`);
-        if (
-            def.ownerPluginId !== requesterPluginId &&
-            def.privacyClass === 'secret'
-        ) {
-            throw new DataRegistryError(`Delete denied for '${typeId}'`);
+        const def = this.requireType(typeId);
+        assertSubjectForScope(def.scope, subject);
+        if (!canDelete(def, requesterPluginId)) {
+            throw new DataRegistryError(
+                'DATA_UNAUTHORIZED',
+                `Delete denied for '${typeId}'`,
+            );
         }
-        const deleted = await this.#adapter.deleteBySubject(typeId, subject);
+        const adapter = this.getAdapter();
+        if (!adapter.capabilities.subjectDelete) {
+            throw new DataRegistryError(
+                'DATA_UNSUPPORTED_CAPABILITY',
+                `Adapter '${adapter.id}' cannot deleteBySubject`,
+            );
+        }
+        const deleted = await adapter.deleteBySubject(typeId, subject);
         log.info(
             `Deleted ${deleted} records type=${typeId} requester=${requesterPluginId}`,
         );
         return { typeId, deleted };
     }
 
+    /**
+     * Core-authorized: delete personal data for a Discord user across all personal types.
+     */
     async deleteUserGlobal(userId: string): Promise<number> {
+        if (!userId) {
+            throw new DataRegistryError(
+                'DATA_INVALID_SUBJECT',
+                'userId is required for global user deletion',
+            );
+        }
+        const adapter = this.getAdapter();
+        if (!adapter.capabilities.subjectDelete) {
+            throw new DataRegistryError(
+                'DATA_UNSUPPORTED_CAPABILITY',
+                `Adapter '${adapter.id}' cannot deleteBySubject`,
+            );
+        }
         let total = 0;
         for (const def of this.listPersonalDataTypes()) {
-            total += await this.#adapter.deleteBySubject(def.id, { userId });
+            total += await adapter.deleteBySubject(def.id, { userId });
         }
+        log.info(`Global user delete userId=${userId} deleted=${total}`);
         return total;
     }
 
-    async deleteServer(guildId: string): Promise<number> {
+    /**
+     * Core-authorized: delete guild/server-scoped data across applicable types.
+     */
+    async deleteGuildServer(guildId: string): Promise<number> {
+        if (!guildId) {
+            throw new DataRegistryError(
+                'DATA_INVALID_SUBJECT',
+                'guildId is required for server deletion',
+            );
+        }
+        const adapter = this.getAdapter();
+        if (!adapter.capabilities.subjectDelete) {
+            throw new DataRegistryError(
+                'DATA_UNSUPPORTED_CAPABILITY',
+                `Adapter '${adapter.id}' cannot deleteBySubject`,
+            );
+        }
         let total = 0;
         for (const def of this.listTypes()) {
-            if (def.scope === 'guild' || def.scope === 'server') {
-                total += await this.#adapter.deleteBySubject(def.id, { guildId });
+            if (def.scope !== 'guild' && def.scope !== 'server') continue;
+            total += await adapter.deleteBySubject(def.id, { guildId });
+        }
+        log.info(`Guild/server delete guildId=${guildId} deleted=${total}`);
+        return total;
+    }
+
+    /**
+     * Explicit plugin-owned data wipe (authorized owner only), separate from unload.
+     */
+    async deletePluginData(
+        pluginId: string,
+        requesterPluginId: string,
+    ): Promise<number> {
+        if (pluginId !== requesterPluginId) {
+            throw new DataRegistryError(
+                'DATA_UNAUTHORIZED',
+                'Only the owner plugin may delete its persisted data types',
+            );
+        }
+        const adapter = this.getAdapter();
+        let total = 0;
+        for (const def of this.listTypes()) {
+            if (def.ownerPluginId !== pluginId) continue;
+            if (adapter.capabilities.subjectDelete) {
+                total += await adapter.deleteBySubject(def.id, { pluginId });
             }
         }
         return total;
     }
-
-    async deletePlugin(pluginId: string): Promise<number> {
-        let total = 0;
-        for (const def of this.listTypes()) {
-            if (def.ownerPluginId === pluginId) {
-                total += await this.#adapter.deleteBySubject(def.id, { pluginId });
-                this.#types.delete(def.id);
-            }
-        }
-        return total;
-    }
-}
-
-function matchesSubject(record: unknown, subject: DataSubject): boolean {
-    if (!record || typeof record !== 'object') return false;
-    const r = record as Record<string, unknown>;
-    if (subject.userId && r.userId !== subject.userId) return false;
-    if (subject.guildId && r.guildId !== subject.guildId) return false;
-    if (subject.pluginId && r.pluginId !== subject.pluginId) return false;
-    return true;
 }
 
 export const dataRegistry = new DataRegistryImpl();

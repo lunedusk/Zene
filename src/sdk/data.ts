@@ -1,54 +1,109 @@
-import { getSdkBridge, assertBridgeAuthorized } from './bridge.js';
-import type { DataScope, PluginId, PrivacyClass } from './types.js';
+import { assertBridgeAuthorized, type SdkBridge } from './bridge.js';
 import { SdkError } from './types.js';
+import type { DataScope, PrivacyClass } from './types.js';
 
-export interface DataTypeDefinition {
+export interface DataTypeRegistration {
     readonly id: string;
-    readonly schema: unknown;
+    readonly schema?: unknown;
     readonly scope: DataScope;
     readonly personalData: boolean;
     readonly privacyClass: PrivacyClass;
     readonly retention?: string;
+    readonly storage?: {
+        readonly engine:
+            | 'memory'
+            | 'sqlite'
+            | 'postgres'
+            | 'mongo'
+            | 'surreal'
+            | 'redis';
+        readonly alias?: string;
+        readonly requireDurable?: boolean;
+        readonly requireSubjectDelete?: boolean;
+    };
 }
 
-export function registerDataType(pluginId: PluginId, def: DataTypeDefinition): void {
-    const bridge = getSdkBridge(pluginId);
+export interface DataSubjectInput {
+    readonly userId?: string;
+    readonly guildId?: string;
+    readonly pluginId?: string;
+}
+
+export function registerDataType(
+    bridge: SdkBridge,
+    definition: DataTypeRegistration,
+): void {
     assertBridgeAuthorized(bridge, 'data.registerType');
-    if (!def.id || def.id.includes('..')) {
-        throw new SdkError({
-            code: 'DATA_TYPE_INVALID',
-            message: 'Invalid data type id',
-        });
-    }
-    bridge.data.registerType(def);
+    bridge.data.registerType(definition);
 }
 
 export async function accessData(
-    pluginId: PluginId,
+    bridge: SdkBridge,
     typeId: string,
-    query: unknown,
-): Promise<unknown> {
-    const bridge = getSdkBridge(pluginId);
+    subject: DataSubjectInput,
+    query?: unknown,
+): Promise<readonly unknown[]> {
     assertBridgeAuthorized(bridge, 'data.access');
-    return bridge.data.access(typeId, query);
+    try {
+        return await bridge.data.access(typeId, subject, query);
+    } catch (err) {
+        if (err instanceof SdkError) throw err;
+        throw new SdkError({
+            code: 'DATA_ACCESS_FAILED',
+            message: err instanceof Error ? err.message : String(err),
+        });
+    }
+}
+
+export async function writeData(
+    bridge: SdkBridge,
+    typeId: string,
+    key: string,
+    subject: DataSubjectInput,
+    value: unknown,
+): Promise<void> {
+    assertBridgeAuthorized(bridge, 'data.write');
+    try {
+        await bridge.data.write(typeId, key, subject, value);
+    } catch (err) {
+        if (err instanceof SdkError) throw err;
+        throw new SdkError({
+            code: 'DATA_WRITE_FAILED',
+            message: err instanceof Error ? err.message : String(err),
+        });
+    }
 }
 
 export async function exportData(
-    pluginId: PluginId,
+    bridge: SdkBridge,
     typeId: string,
-    subject: { userId?: string; guildId?: string },
-): Promise<unknown> {
-    const bridge = getSdkBridge(pluginId);
+    subject: DataSubjectInput,
+): Promise<{ typeId: string; records: readonly unknown[]; exportedAt: number }> {
     assertBridgeAuthorized(bridge, 'data.export');
-    return bridge.data.export(typeId, subject);
+    try {
+        return await bridge.data.export(typeId, subject);
+    } catch (err) {
+        if (err instanceof SdkError) throw err;
+        throw new SdkError({
+            code: 'DATA_EXPORT_FAILED',
+            message: err instanceof Error ? err.message : String(err),
+        });
+    }
 }
 
 export async function deleteData(
-    pluginId: PluginId,
+    bridge: SdkBridge,
     typeId: string,
-    subject: { userId?: string; guildId?: string },
+    subject: DataSubjectInput,
 ): Promise<number> {
-    const bridge = getSdkBridge(pluginId);
     assertBridgeAuthorized(bridge, 'data.delete');
-    return bridge.data.delete(typeId, subject);
+    try {
+        return await bridge.data.delete(typeId, subject);
+    } catch (err) {
+        if (err instanceof SdkError) throw err;
+        throw new SdkError({
+            code: 'DATA_DELETE_FAILED',
+            message: err instanceof Error ? err.message : String(err),
+        });
+    }
 }

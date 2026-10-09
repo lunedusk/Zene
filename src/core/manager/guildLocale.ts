@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { getLogger } from '#core/utils/logger.js';
 import { sqliteDB } from '#core/database/sqlite.js';
-import { resolveCoreDataBackend, type DataEngine } from '#core/database/backendSelector.js';
+import { resolveCoreDataBackend, resolveBackend, type DataEngine } from '#core/database/backendSelector.js';
 import { configManager } from '#core/manager/config.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { cacheFacade } from '#core/manager/cacheFacade.js';
@@ -97,9 +97,29 @@ export class GuildLocaleManager {
         }
 
         try {
-            const choice = resolveCoreDataBackend(cfg ?? undefined);
-            this.engine = choice.engine;
-            this.alias = choice.alias;
+            const resolved = resolveCoreDataBackend(cfg ?? undefined);
+            let engine: DataEngine;
+            let alias: string;
+            if (
+                resolved.engine === 'sqlite' ||
+                resolved.engine === 'postgres' ||
+                resolved.engine === 'mongo'
+            ) {
+                engine = resolved.engine;
+                alias = resolved.alias;
+            } else {
+                const fallback = resolveBackend({
+                    configEngine: null,
+                    configAlias: resolved.alias,
+                    envEngineKey: 'GuildLocaleEngine',
+                    envAliasKey: 'GuildLocaleDbAlias',
+                    defaultAlias: resolved.alias,
+                });
+                engine = fallback.engine;
+                alias = fallback.alias;
+            }
+            this.engine = engine;
+            this.alias = alias;
 
             if (this.engine === 'postgres') {
                 const { pgDB } = await import('#core/database/postgres.js');

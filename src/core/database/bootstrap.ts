@@ -4,6 +4,7 @@ import { getLogger } from '#core/utils/logger.js';
 import path from 'node:path';
 import fs from 'node:fs';
 import { sqliteDB } from '#core/database/sqlite.js';
+import { initializeDataPlatform } from '#core/data/bootstrap.js';
 
 const log = getLogger('DatabaseBootstrap');
 
@@ -169,5 +170,16 @@ export async function initAllDatabases(): Promise<void> {
                 );
             }
         }
+    }
+
+    // Core data platform — after DB managers are ready; fail-closed on explicit durable config
+    try {
+        await initializeDataPlatform();
+    } catch (error) {
+        const err = error as Error;
+        log.error(`Core data platform initialization failed: ${err.message}`, {
+            stack: err.stack,
+        });
+        throw error;
     }
 }

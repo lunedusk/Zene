@@ -66,17 +66,39 @@ export interface SdkBridgeResource {
 }
 
 export interface SdkBridgeData {
-    registerType(def: {
+    registerType(definition: {
         id: string;
-        schema: unknown;
-        scope: string;
+        schema?: unknown;
+        scope: import('./types.js').DataScope;
         personalData: boolean;
-        privacyClass: string;
+        privacyClass: import('./types.js').PrivacyClass;
         retention?: string;
+        storage?: {
+            engine: 'memory' | 'sqlite' | 'postgres' | 'mongo' | 'surreal' | 'redis';
+            alias?: string;
+            requireDurable?: boolean;
+            requireSubjectDelete?: boolean;
+        };
     }): void;
-    access(typeId: string, query: unknown): Promise<unknown>;
-    export(typeId: string, subject: { userId?: string; guildId?: string }): Promise<unknown>;
-    delete(typeId: string, subject: { userId?: string; guildId?: string }): Promise<number>;
+    access(
+        typeId: string,
+        subject: { userId?: string; guildId?: string; pluginId?: string },
+        query?: unknown,
+    ): Promise<readonly unknown[]>;
+    write(
+        typeId: string,
+        key: string,
+        subject: { userId?: string; guildId?: string; pluginId?: string },
+        value: unknown,
+    ): Promise<void>;
+    export(
+        typeId: string,
+        subject: { userId?: string; guildId?: string; pluginId?: string },
+    ): Promise<{ typeId: string; records: readonly unknown[]; exportedAt: number }>;
+    delete(
+        typeId: string,
+        subject: { userId?: string; guildId?: string; pluginId?: string },
+    ): Promise<number>;
 }
 
 /** Plugin registration input — no ownership fields. */
