@@ -5,9 +5,11 @@ import type {
     DataStorageAdapter,
     DataStorageCapabilities,
     DataSubject,
+    DataTypeCatalogueEntry,
 } from '../types.js';
 import {
     CORE_DATA_COLLECTION,
+    CORE_DATA_CATALOGUE_COLLECTION,
     canonicalizeSubject,
     decodeRecord,
     encodeRecord,
@@ -72,6 +74,10 @@ export class MongoDataAdapter implements DataStorageAdapter {
         await col.createIndex(
             { typeId: 1, 'subject.pluginId': 1 },
             { name: 'zene_core_data_plugin' },
+        );
+        await this.#catalogue().createIndex(
+            { id: 1 },
+            { unique: true, name: 'zene_core_data_catalogue_id' },
         );
         this.#indexed = true;
     }
@@ -172,6 +178,47 @@ export class MongoDataAdapter implements DataStorageAdapter {
         await this.#ensureIndexes();
         const r = await this.#collection().deleteMany({ typeId });
         return r.deletedCount ?? 0;
+    }
+
+    #catalogue() {
+        const conn = mongoDB.get(this.#alias);
+        const db = conn.db;
+        if (!db) {
+            throw new DataRegistryError(
+                'DATA_BACKEND_UNAVAILABLE',
+                `Mongo connection '${this.#alias}' has no database`,
+            );
+        }
+        return db.collection(CORE_DATA_CATALOGUE_COLLECTION);
+    }
+
+    async putCatalogueEntry(entry: DataTypeCatalogueEntry): Promise<void> {
+        await this.#ensureIndexes();
+        await this.#catalogue().updateOne(
+            { id: entry.id },
+            {
+                $set: {
+                    id: entry.id,
+                    ownerPluginId: entry.ownerPluginId,
+                    scope: entry.scope,
+                    personalData: entry.personalData,
+                    privacyClass: entry.privacyClass,
+                },
+            },
+            { upsert: true },
+        );
+    }
+
+    async listCatalogueEntries(): Promise<readonly DataTypeCatalogueEntry[]> {
+        await this.#ensureIndexes();
+        const docs = await this.#catalogue().find({}).toArray();
+        return docs.map((doc) => ({
+            id: String(doc.id),
+            ownerPluginId: String(doc.ownerPluginId),
+            scope: doc.scope as DataTypeCatalogueEntry['scope'],
+            personalData: Boolean(doc.personalData),
+            privacyClass: doc.privacyClass as DataTypeCatalogueEntry['privacyClass'],
+        }));
     }
 }
 

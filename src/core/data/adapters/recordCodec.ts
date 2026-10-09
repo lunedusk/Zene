@@ -89,3 +89,6 @@ export function subjectMatches(
 export const CORE_DATA_TABLE = 'zene_core_data';
 export const CORE_DATA_COLLECTION = 'zene_core_data';
 export const CORE_DATA_REDIS_PREFIX = 'zene:core:data';
+export const CORE_DATA_CATALOGUE_TABLE = 'zene_core_data_catalogue';
+export const CORE_DATA_CATALOGUE_COLLECTION = 'zene_core_data_catalogue';
+export const CORE_DATA_CATALOGUE_REDIS_PREFIX = 'zene:core:data:catalogue';

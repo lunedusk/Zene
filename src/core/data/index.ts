@@ -9,6 +9,7 @@ export type {
     DataStorageCapabilities,
     DataStoragePolicy,
     DataTypeDefinition,
+    DataTypeCatalogueEntry,
     DataSubject,
     DataRecord,
     DataAccessRequest,

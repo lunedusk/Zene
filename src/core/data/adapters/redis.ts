@@ -6,10 +6,13 @@ import type {
     DataStorageAdapter,
     DataStorageCapabilities,
     DataSubject,
+    DataTypeCatalogueEntry,
 } from '../types.js';
 import {
     CORE_DATA_REDIS_PREFIX,
+    CORE_DATA_CATALOGUE_REDIS_PREFIX,
     decodeRecord,
+    encodeCompositePart,
     encodeRecord,
     encodeTypeKeyIdentity,
     subjectMatches,
@@ -171,6 +174,16 @@ export class RedisDataAdapter implements DataStorageAdapter {
     }
 
     async deleteBySubject(typeId: string, subject: DataSubject): Promise<number> {
+        if (
+            subject.userId === undefined &&
+            subject.guildId === undefined &&
+            subject.pluginId === undefined
+        ) {
+            throw new DataRegistryError(
+                'DATA_INVALID_SUBJECT',
+                'deleteBySubject requires at least one subject field',
+            );
+        }
         const matches = await this.query(typeId, subject);
         for (const rec of matches) {
             await this.delete(typeId, rec.key);
@@ -186,6 +199,57 @@ export class RedisDataAdapter implements DataStorageAdapter {
         }
         await this.#redis.del(this.#typeSet(typeId));
         return n;
+    }
+
+    #catalogueKey(typeId: string): string {
+        return `${CORE_DATA_CATALOGUE_REDIS_PREFIX}:entry:${encodeCompositePart(typeId)}`;
+    }
+
+    #catalogueSet(): string {
+        return `${CORE_DATA_CATALOGUE_REDIS_PREFIX}:index`;
+    }
+
+    async putCatalogueEntry(entry: DataTypeCatalogueEntry): Promise<void> {
+        const payload = JSON.stringify({
+            id: entry.id,
+            ownerPluginId: entry.ownerPluginId,
+            scope: entry.scope,
+            personalData: entry.personalData,
+            privacyClass: entry.privacyClass,
+        });
+        await this.#redis.set(this.#catalogueKey(entry.id), payload);
+        await this.#redis.sadd(this.#catalogueSet(), entry.id);
+    }
+
+    async listCatalogueEntries(): Promise<readonly DataTypeCatalogueEntry[]> {
+        const ids = await this.#redis.smembers(this.#catalogueSet());
+        const out: DataTypeCatalogueEntry[] = [];
+        for (const id of ids) {
+            const raw = await this.#redis.get(this.#catalogueKey(id));
+            if (!raw) continue;
+            try {
+                const doc = JSON.parse(raw) as {
+                    id: string;
+                    ownerPluginId: string;
+                    scope: DataTypeCatalogueEntry['scope'];
+                    personalData: boolean;
+                    privacyClass: DataTypeCatalogueEntry['privacyClass'];
+                };
+                out.push({
+                    id: doc.id,
+                    ownerPluginId: doc.ownerPluginId,
+                    scope: doc.scope,
+                    personalData: Boolean(doc.personalData),
+                    privacyClass: doc.privacyClass,
+                });
+            } catch {
+                throw new DataRegistryError(
+                    'DATA_PERSISTENCE_FAILURE',
+                    'Corrupt Redis catalogue payload',
+                );
+            }
+        }
+        return out;
     }
 }
 

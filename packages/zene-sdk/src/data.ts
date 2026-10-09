@@ -33,12 +33,12 @@ export interface DataSubjectInput {
     readonly pluginId?: string;
 }
 
-export function registerDataType(
+export async function registerDataType(
     bridge: SdkBridge,
     definition: DataTypeRegistration,
-): void {
+): Promise<void> {
     assertBridgeAuthorized(bridge, 'data.registerType');
-    bridge.data.registerType(definition);
+    await bridge.data.registerType(definition);
 }
 
 export async function accessData(

@@ -72,7 +72,7 @@ export interface SdkBridgeData {
             requireDurable?: boolean;
             requireSubjectDelete?: boolean;
         };
-    }): void;
+    }): Promise<void>;
     access(
         typeId: string,
         subject: { userId?: string; guildId?: string; pluginId?: string },

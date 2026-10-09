@@ -88,6 +88,26 @@ export async function runDataStorageAdapterContract(
     assert.equal(deleted, true);
     assert.equal(await adapter.get(typeA, 'k-plugin'), undefined);
 
+    // Core privacy catalogue contract (dedicated metadata namespace)
+    await adapter.putCatalogueEntry({
+        id: typeA,
+        ownerPluginId: 'owner',
+        scope: 'user',
+        personalData: true,
+        privacyClass: 'personal',
+    });
+    const catalogue = await adapter.listCatalogueEntries();
+    assert.ok(
+        catalogue.some(
+            (e) =>
+                e.id === typeA &&
+                e.ownerPluginId === 'owner' &&
+                e.personalData === true &&
+                e.scope === 'user',
+        ),
+        'catalogue must persist type metadata',
+    );
+
     // cleanup remaining
     await adapter.delete(typeA, 'k-user');
     await adapter.delete(typeB, 'k-user');

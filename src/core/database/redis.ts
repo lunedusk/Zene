@@ -63,13 +63,19 @@ export class RedisRegistry {
         return status;
     }
 
+    public async disconnect(alias: string): Promise<void> {
+        const clients = this.instances.get(alias);
+        if (!clients) return;
+        log.info(`Closing Redis triad [${alias}]...`);
+        clients.main.disconnect();
+        clients.pub.disconnect();
+        clients.sub.disconnect();
+        this.instances.delete(alias);
+    }
+
     public async disconnectAll(): Promise<void> {
-        for (const [name, clients] of this.instances.entries()) {
-            log.info(`Closing Redis triad [${name}]...`);
-            clients.main.disconnect();
-            clients.pub.disconnect();
-            clients.sub.disconnect();
-            this.instances.delete(name);
+        for (const alias of [...this.instances.keys()]) {
+            await this.disconnect(alias);
         }
     }
 }

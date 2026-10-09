@@ -65,11 +65,17 @@ export class PostgresRegistry {
         return status;
     }
 
+    public async disconnect(alias: string): Promise<void> {
+        const pool = this.pools.get(alias);
+        if (!pool) return;
+        log.info(`Closing Native Postgres pool [${alias}]...`);
+        await pool.end();
+        this.pools.delete(alias);
+    }
+
     public async disconnectAll(): Promise<void> {
-        for (const [alias, pool] of this.pools.entries()) {
-            log.info(`Closing Native Postgres pool [${alias}]...`);
-            await pool.end();
-            this.pools.delete(alias);
+        for (const alias of [...this.pools.keys()]) {
+            await this.disconnect(alias);
         }
     }
 }

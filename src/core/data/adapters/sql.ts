@@ -6,10 +6,12 @@ import type {
     DataStorageAdapter,
     DataStorageCapabilities,
     DataSubject,
+    DataTypeCatalogueEntry,
     DurableDataStorageEngine,
 } from '../types.js';
 import {
     CORE_DATA_TABLE,
+    CORE_DATA_CATALOGUE_TABLE,
     canonicalizeSubject,
     decodeRecord,
     encodeRecord,
@@ -40,6 +42,13 @@ CREATE TABLE IF NOT EXISTS ${CORE_DATA_TABLE} (
 CREATE INDEX IF NOT EXISTS idx_zene_core_data_user ON ${CORE_DATA_TABLE}(type_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_zene_core_data_guild ON ${CORE_DATA_TABLE}(type_id, guild_id);
 CREATE INDEX IF NOT EXISTS idx_zene_core_data_plugin ON ${CORE_DATA_TABLE}(type_id, plugin_id);
+CREATE TABLE IF NOT EXISTS ${CORE_DATA_CATALOGUE_TABLE} (
+  type_id TEXT PRIMARY KEY NOT NULL,
+  owner_plugin_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  personal_data INTEGER NOT NULL,
+  privacy_class TEXT NOT NULL
+);
 `;
 
 const DDL_PG = `
@@ -57,6 +66,13 @@ CREATE TABLE IF NOT EXISTS ${CORE_DATA_TABLE} (
 CREATE INDEX IF NOT EXISTS idx_zene_core_data_user ON ${CORE_DATA_TABLE}(type_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_zene_core_data_guild ON ${CORE_DATA_TABLE}(type_id, guild_id);
 CREATE INDEX IF NOT EXISTS idx_zene_core_data_plugin ON ${CORE_DATA_TABLE}(type_id, plugin_id);
+CREATE TABLE IF NOT EXISTS ${CORE_DATA_CATALOGUE_TABLE} (
+  type_id TEXT PRIMARY KEY NOT NULL,
+  owner_plugin_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  personal_data INTEGER NOT NULL,
+  privacy_class TEXT NOT NULL
+);
 `;
 
 function rowToRecord(row: Record<string, unknown>): DataRecord {
@@ -215,6 +231,16 @@ export class SqlDataAdapter implements DataStorageAdapter {
     }
 
     async deleteBySubject(typeId: string, subject: DataSubject): Promise<number> {
+        if (
+            subject.userId === undefined &&
+            subject.guildId === undefined &&
+            subject.pluginId === undefined
+        ) {
+            throw new DataRegistryError(
+                'DATA_INVALID_SUBJECT',
+                'deleteBySubject requires at least one subject field',
+            );
+        }
         await this.ensureSchema();
         const matches = await this.query(typeId, subject);
         for (const rec of matches) {
@@ -234,6 +260,48 @@ export class SqlDataAdapter implements DataStorageAdapter {
         );
         await this.#sql.run(`DELETE FROM ${CORE_DATA_TABLE} WHERE type_id = ?`, [typeId]);
         return rows.length;
+    }
+
+    async putCatalogueEntry(entry: DataTypeCatalogueEntry): Promise<void> {
+        await this.ensureSchema();
+        const personal = entry.personalData ? 1 : 0;
+        if (this.engine === 'sqlite') {
+            await this.#sql.run(
+                `INSERT INTO ${CORE_DATA_CATALOGUE_TABLE}
+                  (type_id, owner_plugin_id, scope, personal_data, privacy_class)
+                 VALUES (?, ?, ?, ?, ?)
+                 ON CONFLICT(type_id) DO UPDATE SET
+                   owner_plugin_id = excluded.owner_plugin_id,
+                   scope = excluded.scope,
+                   personal_data = excluded.personal_data,
+                   privacy_class = excluded.privacy_class`,
+                [entry.id, entry.ownerPluginId, entry.scope, personal, entry.privacyClass],
+            );
+        } else {
+            await this.#sql.run(
+                `INSERT INTO ${CORE_DATA_CATALOGUE_TABLE}
+                  (type_id, owner_plugin_id, scope, personal_data, privacy_class)
+                 VALUES (?, ?, ?, ?, ?)
+                 ON CONFLICT (type_id) DO UPDATE SET
+                   owner_plugin_id = EXCLUDED.owner_plugin_id,
+                   scope = EXCLUDED.scope,
+                   personal_data = EXCLUDED.personal_data,
+                   privacy_class = EXCLUDED.privacy_class`,
+                [entry.id, entry.ownerPluginId, entry.scope, personal, entry.privacyClass],
+            );
+        }
+    }
+
+    async listCatalogueEntries(): Promise<readonly DataTypeCatalogueEntry[]> {
+        await this.ensureSchema();
+        const rows = await this.#sql.all(`SELECT * FROM ${CORE_DATA_CATALOGUE_TABLE}`, []);
+        return rows.map((row) => ({
+            id: String(row.type_id),
+            ownerPluginId: String(row.owner_plugin_id),
+            scope: String(row.scope) as DataTypeCatalogueEntry['scope'],
+            personalData: Number(row.personal_data) === 1,
+            privacyClass: String(row.privacy_class) as DataTypeCatalogueEntry['privacyClass'],
+        }));
     }
 }
 

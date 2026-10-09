@@ -38,11 +38,17 @@ export class MongoRegistry {
         return status;
     }
 
+    public async disconnect(alias: string): Promise<void> {
+        const conn = this.connections.get(alias);
+        if (!conn) return;
+        log.info(`Closing MongoDB connection [${alias}]...`);
+        await conn.close();
+        this.connections.delete(alias);
+    }
+
     public async disconnectAll(): Promise<void> {
-        for (const [alias, conn] of this.connections.entries()) {
-            log.info(`Closing MongoDB connection [${alias}]...`);
-            await conn.close();
-            this.connections.delete(alias);
+        for (const alias of [...this.connections.keys()]) {
+            await this.disconnect(alias);
         }
     }
 }

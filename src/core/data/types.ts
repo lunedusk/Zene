@@ -99,6 +99,15 @@ export interface DataDeleteResult {
     readonly deleted: number;
 }
 
+/** Core-owned privacy catalogue metadata (not plugin-accessible records). */
+export interface DataTypeCatalogueEntry {
+    readonly id: string;
+    readonly ownerPluginId: string;
+    readonly scope: DataScope;
+    readonly personalData: boolean;
+    readonly privacyClass: PrivacyClass;
+}
+
 export interface DataStorageAdapter {
     readonly id: string;
     readonly engine: DataStorageEngine;
@@ -118,4 +127,8 @@ export interface DataStorageAdapter {
      * Used by Core-only plugin data wipe — not a public subject-delete API.
      */
     deleteByType(typeId: string): Promise<number>;
+    /** Persist Core privacy catalogue entry (dedicated metadata namespace). */
+    putCatalogueEntry(entry: DataTypeCatalogueEntry): Promise<void>;
+    /** Load all Core privacy catalogue entries. */
+    listCatalogueEntries(): Promise<readonly DataTypeCatalogueEntry[]>;
 }

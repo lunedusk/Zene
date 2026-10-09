@@ -44,6 +44,7 @@ export async function initializeDataPlatform(
             );
         }
         dataRegistry.setAdapter(config.adapter);
+        await dataRegistry.loadCatalogue();
         initialized = true;
         log.info(`Data platform ready via injected adapter id=${config.adapter.id}`);
         return;
@@ -59,6 +60,7 @@ export async function initializeDataPlatform(
         dataRegistry.setAdapter(
             createDataStorageAdapter({ engine: 'memory', allowMemory: true }),
         );
+        await dataRegistry.loadCatalogue();
         initialized = true;
         log.info('Data platform ready (explicit memory mode)');
         return;
@@ -87,6 +89,7 @@ export async function initializeDataPlatform(
                 dataRegistry.setAdapter(
                     createDataStorageAdapter({ engine: 'memory', allowMemory: true }),
                 );
+                await dataRegistry.loadCatalogue();
                 initialized = true;
                 log.info(
                     'Data platform ready (memory; no durable Core backend available)',
@@ -107,6 +110,7 @@ export async function initializeDataPlatform(
             allowMemory,
         });
         dataRegistry.setAdapter(adapter);
+        await dataRegistry.loadCatalogue();
         initialized = true;
         log.info(
             `Data platform ready engine=${adapter.engine} id=${adapter.id} alias=${alias}`,

@@ -20,6 +20,7 @@ import type {
     DataRecord,
     DataStorageAdapter,
     DataSubject,
+    DataTypeCatalogueEntry,
     DataTypeDefinition,
     DataWriteRequest,
 } from './types.js';
@@ -28,16 +29,35 @@ const log = getLogger('DataRegistry');
 
 type RegistryMode = 'uninitialized' | 'ready';
 
+/**
+ * Active plugin access requires the definition in #types.
+ * #catalogue is loaded from / persisted to the adapter's dedicated metadata namespace.
+ */
+
+function subjectHasField(subject: DataSubject): boolean {
+    return (
+        subject.userId !== undefined ||
+        subject.guildId !== undefined ||
+        subject.pluginId !== undefined
+    );
+}
+
+function subjectsEqual(a: DataSubject, b: DataSubject): boolean {
+    return (
+        a.userId === b.userId &&
+        a.guildId === b.guildId &&
+        a.pluginId === b.pluginId
+    );
+}
+
 class DataRegistryImpl {
     readonly #types = new Map<string, DataTypeDefinition>();
+    /** Survives unload; used only for Core privacy / owner wipe operations. */
+    readonly #catalogue = new Map<string, DataTypeCatalogueEntry>();
     #adapter: DataStorageAdapter | null = null;
     #mode: RegistryMode = 'uninitialized';
     #allowMemoryFallback = false;
 
-    /**
-     * Explicitly allow memory adapter (tests / intentional dev mode only).
-     * Production boot must call setAdapter with a non-memory backend or set allowMemory.
-     */
     configure(options: { allowMemoryFallback?: boolean } = {}): void {
         this.#allowMemoryFallback = options.allowMemoryFallback === true;
     }
@@ -54,6 +74,38 @@ class DataRegistryImpl {
         log.info(`Data storage adapter set: ${adapter.id} engine=${adapter.engine}`);
     }
 
+    /**
+     * Load durable privacy catalogue from the active adapter into memory.
+     * Must complete before privacy deletion after process restart.
+     */
+    async loadCatalogue(): Promise<void> {
+        const adapter = this.getAdapter();
+        const entries = await this.#safeStorage(
+            () => adapter.listCatalogueEntries(),
+            'listCatalogue',
+        );
+        this.#catalogue.clear();
+        for (const entry of entries) {
+            if (!entry.id || !entry.ownerPluginId || !entry.scope) {
+                throw new DataRegistryError(
+                    'DATA_PERSISTENCE_FAILURE',
+                    'Incomplete catalogue metadata; refusing to load unsafe entry',
+                );
+            }
+            this.#catalogue.set(
+                entry.id,
+                Object.freeze({
+                    id: entry.id,
+                    ownerPluginId: entry.ownerPluginId,
+                    scope: entry.scope,
+                    personalData: Boolean(entry.personalData),
+                    privacyClass: entry.privacyClass,
+                }),
+            );
+        }
+        log.info(`Loaded ${this.#catalogue.size} catalogue entries from storage`);
+    }
+
     isReady(): boolean {
         return this.#mode === 'ready' && this.#adapter !== null;
     }
@@ -68,7 +120,7 @@ class DataRegistryImpl {
         return this.#adapter;
     }
 
-    register(def: DataTypeDefinition): void {
+    async register(def: DataTypeDefinition): Promise<void> {
         assertValidTypeId(def.id);
         if (!def.ownerPluginId) {
             throw new DataRegistryError(
@@ -83,28 +135,55 @@ class DataRegistryImpl {
                 `Data type '${def.id}' owned by '${existing.ownerPluginId}', cannot re-register by '${def.ownerPluginId}'`,
             );
         }
+        const catalogued = this.#catalogue.get(def.id);
+        if (catalogued && catalogued.ownerPluginId !== def.ownerPluginId) {
+            throw new DataRegistryError(
+                'DATA_DUPLICATE_OWNER',
+                `Data type '${def.id}' catalogue owned by '${catalogued.ownerPluginId}', cannot re-register by '${def.ownerPluginId}'`,
+            );
+        }
+
         const policy = resolveStoragePolicy(def);
-        if (policy.engine !== 'memory' && this.#adapter) {
+        if (this.#adapter) {
             try {
                 assertAdapterSatisfiesPolicy(this.#adapter, policy);
             } catch (err) {
                 if (
                     err instanceof DataRegistryError &&
                     err.code === 'DATA_BACKEND_UNAVAILABLE' &&
-                    this.#allowMemoryFallback
+                    this.#allowMemoryFallback &&
+                    policy.engine !== 'memory' &&
+                    !(policy.alias !== undefined && policy.alias !== '')
                 ) {
-                    // intentional test/dev path
+                    // durable-engine mismatch may be tolerated in explicit memory-fallback tests
                 } else {
                     throw err;
                 }
             }
         }
+
+        const entry: DataTypeCatalogueEntry = Object.freeze({
+            id: def.id,
+            ownerPluginId: def.ownerPluginId,
+            scope: def.scope,
+            personalData: def.personalData,
+            privacyClass: def.privacyClass,
+        });
+        // Durable catalogue BEFORE active definition is usable for writes
+        if (this.#adapter) {
+            await this.#safeStorage(
+                () => this.#adapter!.putCatalogueEntry(entry),
+                'putCatalogue',
+            );
+        }
+        this.#catalogue.set(def.id, entry);
         this.#types.set(def.id, Object.freeze({ ...def }));
         log.debug(`Registered data type ${def.id} owner=${def.ownerPluginId}`);
     }
 
     /**
-     * Remove type definitions for a plugin. Does NOT delete persisted records.
+     * Remove active type definitions for a plugin. Does NOT delete persisted records.
+     * Catalogue entries remain for Core privacy deletion.
      */
     unregisterPlugin(pluginId: string): void {
         for (const [id, def] of this.#types) {
@@ -135,6 +214,11 @@ class DataRegistryImpl {
         return this.listTypes().filter((t) => t.personalData);
     }
 
+    /** Test/Core inspection of retained privacy catalogue (not a public SDK surface). */
+    listCatalogueEntries(): readonly DataTypeCatalogueEntry[] {
+        return [...this.#catalogue.values()];
+    }
+
     async write(req: DataWriteRequest): Promise<void> {
         const def = this.requireType(req.typeId);
         assertSubjectForScope(def.scope, req.subject);
@@ -154,14 +238,10 @@ class DataRegistryImpl {
             ownerPluginId: def.ownerPluginId,
             updatedAt: Date.now(),
         };
-        try {
-            await this.#safeStorage(() => adapter.put(req.typeId, req.key, record), 'put');
-        } catch (err) {
-            throw new DataRegistryError(
-                'DATA_PERSISTENCE_FAILURE',
-                err instanceof Error ? err.message : String(err),
-            );
-        }
+        await this.#safeStorage(
+            () => adapter.put(req.typeId, req.key, record),
+            'put',
+        );
     }
 
     async access(req: DataAccessRequest): Promise<readonly unknown[]> {
@@ -177,13 +257,23 @@ class DataRegistryImpl {
             assertValidAccessQuery(req.query);
         }
         const adapter = this.getAdapter();
-        let records = await this.#safeStorage(
+
+        if (req.query?.key !== undefined) {
+            const record = await this.#safeStorage(
+                () => adapter.get(req.typeId, req.query!.key!),
+                'get',
+            );
+            if (!record) return [];
+            if (!subjectsEqual(record.subject, req.subject)) {
+                return [];
+            }
+            return [record.value];
+        }
+
+        const records = await this.#safeStorage(
             () => adapter.query(req.typeId, req.subject),
             'query',
         );
-        if (req.query?.key !== undefined) {
-            records = records.filter((r) => r.key === req.query!.key);
-        }
         return records.map((r) => r.value);
     }
 
@@ -201,7 +291,10 @@ class DataRegistryImpl {
             );
         }
         const adapter = this.getAdapter();
-        const records = await adapter.query(typeId, subject);
+        const records = await this.#safeStorage(
+            () => adapter.query(typeId, subject),
+            'query',
+        );
         return {
             typeId,
             records: records.map((r) => r.value),
@@ -222,6 +315,12 @@ class DataRegistryImpl {
                 `Delete denied for '${typeId}'`,
             );
         }
+        if (!subjectHasField(subject)) {
+            throw new DataRegistryError(
+                'DATA_INVALID_SUBJECT',
+                'Subject-scoped delete requires at least one subject field; whole-type deletion uses Core deleteByType',
+            );
+        }
         const adapter = this.getAdapter();
         if (!adapter.capabilities.subjectDelete) {
             throw new DataRegistryError(
@@ -229,7 +328,10 @@ class DataRegistryImpl {
                 `Adapter '${adapter.id}' cannot deleteBySubject`,
             );
         }
-        const deleted = await adapter.deleteBySubject(typeId, subject);
+        const deleted = await this.#safeStorage(
+            () => adapter.deleteBySubject(typeId, subject),
+            'deleteBySubject',
+        );
         log.info(
             `Deleted ${deleted} records type=${typeId} requester=${requesterPluginId}`,
         );
@@ -237,7 +339,8 @@ class DataRegistryImpl {
     }
 
     /**
-     * Core-authorized: delete personal data for a Discord user across all personal types.
+     * Core-authorized: delete personal data for a Discord user across catalogue entries
+     * (including types whose plugins have been unloaded).
      */
     async deleteUserGlobal(userId: string): Promise<number> {
         if (!userId) {
@@ -254,15 +357,20 @@ class DataRegistryImpl {
             );
         }
         let total = 0;
-        for (const def of this.listPersonalDataTypes()) {
-            total += await adapter.deleteBySubject(def.id, { userId });
+        for (const entry of this.#catalogue.values()) {
+            if (!entry.personalData) continue;
+            total += await this.#safeStorage(
+                () => adapter.deleteBySubject(entry.id, { userId }),
+                'deleteBySubject',
+            );
         }
         log.info(`Global user delete userId=${userId} deleted=${total}`);
         return total;
     }
 
     /**
-     * Core-authorized: delete guild/server-scoped data across applicable types.
+     * Core-authorized: delete guild/server-scoped data across catalogue entries
+     * (including unloaded plugins).
      */
     async deleteGuildServer(guildId: string): Promise<number> {
         if (!guildId) {
@@ -279,16 +387,20 @@ class DataRegistryImpl {
             );
         }
         let total = 0;
-        for (const def of this.listTypes()) {
-            if (def.scope !== 'guild' && def.scope !== 'server') continue;
-            total += await adapter.deleteBySubject(def.id, { guildId });
+        for (const entry of this.#catalogue.values()) {
+            if (entry.scope !== 'guild' && entry.scope !== 'server') continue;
+            total += await this.#safeStorage(
+                () => adapter.deleteBySubject(entry.id, { guildId }),
+                'deleteBySubject',
+            );
         }
-        log.info(`Guild/server delete guildId=${guildId} deleted=${total}`);
+        log.info(`Guild server delete guildId=${guildId} deleted=${total}`);
         return total;
     }
 
     /**
      * Explicit plugin-owned data wipe (authorized owner only), separate from unload.
+     * Uses catalogue so wipe works after unload of active definitions.
      */
     async deletePluginData(
         pluginId: string,
@@ -308,10 +420,10 @@ class DataRegistryImpl {
             );
         }
         let total = 0;
-        for (const def of this.listTypes()) {
-            if (def.ownerPluginId !== pluginId) continue;
+        for (const entry of this.#catalogue.values()) {
+            if (entry.ownerPluginId !== pluginId) continue;
             total += await this.#safeStorage(
-                () => adapter.deleteByType(def.id),
+                () => adapter.deleteByType(entry.id),
                 'deleteByType',
             );
         }
@@ -323,9 +435,14 @@ class DataRegistryImpl {
             return await op();
         } catch (err) {
             if (err instanceof DataRegistryError) throw err;
+            const name = err instanceof Error ? err.name : 'Error';
+            const adapterId = this.#adapter?.id ?? 'none';
+            // Never log raw driver messages — may contain secrets, payloads, or URIs.
             log.error(`Storage ${opName} failed`, {
                 op: opName,
-                err: err instanceof Error ? err.message : String(err),
+                code: 'DATA_PERSISTENCE_FAILURE',
+                adapterId,
+                errorName: name,
             });
             throw new DataRegistryError(
                 'DATA_PERSISTENCE_FAILURE',
@@ -342,21 +459,19 @@ function assertValidAccessQuery(query: unknown): void {
             'Access query must be a plain object with optional key filter',
         );
     }
-    const keys = Object.keys(query as Record<string, unknown>);
-    for (const k of keys) {
-        if (k !== 'key') {
+    for (const [field, value] of Object.entries(query)) {
+        if (field !== 'key') {
             throw new DataRegistryError(
                 'DATA_UNSUPPORTED_CAPABILITY',
-                `Access query field '${k}' is not supported`,
+                `Access query field '${field}' is not supported`,
             );
         }
-    }
-    const q = query as { key?: unknown };
-    if (q.key !== undefined && typeof q.key !== 'string') {
-        throw new DataRegistryError(
-            'DATA_UNSUPPORTED_CAPABILITY',
-            'Access query.key must be a string when provided',
-        );
+        if (value !== undefined && typeof value !== 'string') {
+            throw new DataRegistryError(
+                'DATA_UNSUPPORTED_CAPABILITY',
+                'Access query.key must be a string when provided',
+            );
+        }
     }
 }
 

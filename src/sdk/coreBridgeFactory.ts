@@ -352,8 +352,8 @@ export function installPluginSdkBridge(input: {
             },
         },
         data: {
-            registerType(def) {
-                dataRegistry.register({
+            async registerType(def) {
+                await dataRegistry.register({
                     id: def.id,
                     ownerPluginId: input.pluginId,
                     schema: def.schema ?? {},

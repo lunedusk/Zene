@@ -1,5 +1,11 @@
-import { Surreal, createRemoteEngines } from 'surrealdb';
+import {
+    Surreal,
+    createRemoteEngines,
+    type DriverOptions,
+    type ConnectOptions,
+} from 'surrealdb';
 import { createNodeEngines } from '@surrealdb/node';
+import { WebSocket as NodeWebSocket } from 'ws';
 import { getLogger } from '#core/utils/logger.js';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -123,31 +129,44 @@ export class SurrealRegistry {
                 `Initializing SurrealDB [${alias}] via ${protocol || 'unknown'} → ${resolvedUri}`,
             );
 
-            const db = new Surreal({
+            // Node 20 has no stable global WebSocket for normal process starts.
+            // Provide `ws` via DriverOptions.websocketImpl. DOM typings require
+            // dispatchEvent which `ws` does not declare; Surreal only needs the
+            // constructible WebSocket surface at runtime. Narrow unknown assertion
+            // is limited to this single SDK type boundary (TS2352).
+            const driverOptions: DriverOptions = {
                 engines: {
                     ...createRemoteEngines(),
                     ...createNodeEngines(),
                 },
-            });
+                websocketImpl: NodeWebSocket as unknown as DriverOptions['websocketImpl'],
+            };
+            const db = new Surreal(driverOptions);
 
             try {
-                await db.connect(resolvedUri);
-
-                if (options.namespace !== undefined || options.database !== undefined) {
-                    await db.use({
-                        namespace: options.namespace ?? 'main',
-                        database: options.database ?? 'main',
-                    });
+                // Prefer single connect(url, ConnectOptions) so namespace/database and
+                // credentials are applied together. Auth before any post-connect use().
+                const connectOpts: ConnectOptions = {};
+                if (options.namespace !== undefined) {
+                    connectOpts.namespace = options.namespace;
                 }
-
-                if (options.token) {
-                    await db.authenticate(options.token);
-                } else if (options.username !== undefined && options.password !== undefined) {
-                    await db.signin({
+                if (options.database !== undefined) {
+                    connectOpts.database = options.database;
+                }
+                if (options.token !== undefined && options.token !== '') {
+                    connectOpts.authentication = options.token;
+                } else if (
+                    options.username !== undefined &&
+                    options.username !== ''
+                ) {
+                    connectOpts.authentication = {
                         username: options.username,
-                        password: options.password,
-                    });
+                        password: options.password ?? '',
+                    };
                 }
+                // Unauthenticated servers: omit authentication entirely.
+
+                await db.connect(resolvedUri, connectOpts);
 
                 this.clients.set(alias, db);
                 log.info(`SurrealDB [${alias}] connected successfully.`);
@@ -155,11 +174,21 @@ export class SurrealRegistry {
                 try {
                     await db.close();
                 } catch {
-
+                    // ignore close errors during failed init
                 }
-                const err = error as Error;
-                log.error(`Failed to initialize SurrealDB [${alias}]: ${err.message}`, {
-                    stack: err.stack,
+                const err = error instanceof Error ? error : new Error(String(error));
+                const kind =
+                    /WebSocketImpl is not a constructor|websocket/i.test(err.message)
+                        ? 'websocket_impl'
+                        : /ECONNREFUSED|ENOTFOUND|connect/i.test(err.message)
+                          ? 'connection'
+                          : /auth|signin|authenticate|token/i.test(err.message)
+                            ? 'authentication'
+                            : 'initialization';
+                log.error(`Failed to initialize SurrealDB [${alias}]`, {
+                    kind,
+                    name: err.name,
+                    protocol,
                 });
                 throw err;
             }
@@ -199,16 +228,22 @@ export class SurrealRegistry {
         return status;
     }
 
+    public async disconnect(alias: string): Promise<void> {
+        const client = this.clients.get(alias);
+        if (!client) return;
+        log.info(`Closing SurrealDB connection [${alias}]...`);
+        try {
+            await client.close();
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            log.warn(`Error closing SurrealDB [${alias}]: ${err.name}`);
+        }
+        this.clients.delete(alias);
+    }
+
     public async disconnectAll(): Promise<void> {
-        for (const [alias, client] of this.clients.entries()) {
-            log.info(`Closing SurrealDB connection [${alias}]...`);
-            try {
-                await client.close();
-            } catch (error) {
-                const err = error as Error;
-                log.warn(`Error closing SurrealDB [${alias}]: ${err.message}`);
-            }
-            this.clients.delete(alias);
+        for (const alias of [...this.clients.keys()]) {
+            await this.disconnect(alias);
         }
     }
 }
