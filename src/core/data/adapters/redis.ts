@@ -11,6 +11,7 @@ import {
     CORE_DATA_REDIS_PREFIX,
     decodeRecord,
     encodeRecord,
+    encodeTypeKeyIdentity,
     subjectMatches,
     type StoredRecordPayload,
 } from './recordCodec.js';
@@ -27,10 +28,12 @@ export class RedisDataAdapter implements DataStorageAdapter {
     readonly id: string;
     readonly engine = 'redis' as const;
     readonly capabilities = CAPABILITIES;
+    readonly connectionAlias: string;
     readonly #redis: Redis;
 
     constructor(alias: string) {
         this.id = `redis:${alias}`;
+        this.connectionAlias = alias;
         if (!redisDB.has(alias)) {
             throw new DataRegistryError(
                 'DATA_BACKEND_UNAVAILABLE',
@@ -41,23 +44,23 @@ export class RedisDataAdapter implements DataStorageAdapter {
     }
 
     #recordKey(typeId: string, key: string): string {
-        return `${CORE_DATA_REDIS_PREFIX}:rec:${typeId}:${key}`;
+        return `${CORE_DATA_REDIS_PREFIX}:rec:${encodeTypeKeyIdentity(typeId, key)}`;
     }
 
     #typeSet(typeId: string): string {
-        return `${CORE_DATA_REDIS_PREFIX}:type:${typeId}`;
+        return `${CORE_DATA_REDIS_PREFIX}:type:${encodeTypeKeyIdentity(typeId, '')}`;
     }
 
     #userIdx(typeId: string, userId: string): string {
-        return `${CORE_DATA_REDIS_PREFIX}:idx:user:${typeId}:${userId}`;
+        return `${CORE_DATA_REDIS_PREFIX}:idx:user:${encodeTypeKeyIdentity(typeId, userId)}`;
     }
 
     #guildIdx(typeId: string, guildId: string): string {
-        return `${CORE_DATA_REDIS_PREFIX}:idx:guild:${typeId}:${guildId}`;
+        return `${CORE_DATA_REDIS_PREFIX}:idx:guild:${encodeTypeKeyIdentity(typeId, guildId)}`;
     }
 
     #pluginIdx(typeId: string, pluginId: string): string {
-        return `${CORE_DATA_REDIS_PREFIX}:idx:plugin:${typeId}:${pluginId}`;
+        return `${CORE_DATA_REDIS_PREFIX}:idx:plugin:${encodeTypeKeyIdentity(typeId, pluginId)}`;
     }
 
     async put(typeId: string, key: string, record: DataRecord): Promise<void> {
@@ -96,7 +99,7 @@ export class RedisDataAdapter implements DataStorageAdapter {
         } catch (err) {
             throw new DataRegistryError(
                 'DATA_PERSISTENCE_FAILURE',
-                err instanceof Error ? err.message : String(err),
+                'Redis storage operation failed',
             );
         }
     }
@@ -173,6 +176,16 @@ export class RedisDataAdapter implements DataStorageAdapter {
             await this.delete(typeId, rec.key);
         }
         return matches.length;
+    }
+
+    async deleteByType(typeId: string): Promise<number> {
+        const keys = await this.#redis.smembers(this.#typeSet(typeId));
+        let n = 0;
+        for (const key of keys) {
+            if (await this.delete(typeId, key)) n++;
+        }
+        await this.#redis.del(this.#typeSet(typeId));
+        return n;
     }
 }
 

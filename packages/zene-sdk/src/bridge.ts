@@ -83,7 +83,7 @@ export interface SdkBridgeData {
     access(
         typeId: string,
         subject: { userId?: string; guildId?: string; pluginId?: string },
-        query?: unknown,
+        query?: { readonly key?: string },
     ): Promise<readonly unknown[]>;
     write(
         typeId: string,

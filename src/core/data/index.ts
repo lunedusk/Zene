@@ -12,6 +12,7 @@ export type {
     DataSubject,
     DataRecord,
     DataAccessRequest,
+    DataAccessQuery,
     DataWriteRequest,
     DataExportResult,
     DataDeleteResult,

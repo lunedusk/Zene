@@ -11,6 +11,7 @@ import {
     canonicalizeSubject,
     decodeRecord,
     encodeRecord,
+    encodeTypeKeyIdentity,
     subjectMatches,
 } from './recordCodec.js';
 
@@ -39,11 +40,13 @@ export class SurrealDataAdapter implements DataStorageAdapter {
     readonly id: string;
     readonly engine = 'surreal' as const;
     readonly capabilities = CAPABILITIES;
+    readonly connectionAlias: string;
     readonly #alias: string;
     #ready = false;
 
     constructor(alias: string) {
         this.#alias = alias;
+        this.connectionAlias = alias;
         this.id = `surreal:${alias}`;
         if (!surrealDB.has(alias)) {
             throw new DataRegistryError(
@@ -70,13 +73,13 @@ export class SurrealDataAdapter implements DataStorageAdapter {
     async put(typeId: string, key: string, record: DataRecord): Promise<void> {
         await this.ensureSchema();
         const payload = encodeRecord(record);
-        const id = `${CORE_DATA_TABLE}:⟨${typeId}⟩:⟨${key}⟩`;
+        const identity = encodeTypeKeyIdentity(typeId, key);
         try {
             await this.#db().query(
                 `UPSERT type::thing($table, $id) CONTENT $data RETURN NONE`,
                 {
                     table: CORE_DATA_TABLE,
-                    id: `${typeId}:${key}`,
+                    id: identity,
                     data: {
                         typeId,
                         key,
@@ -87,11 +90,11 @@ export class SurrealDataAdapter implements DataStorageAdapter {
                     },
                 },
             );
-            void id;
+            void identity;
         } catch (err) {
             throw new DataRegistryError(
                 'DATA_PERSISTENCE_FAILURE',
-                err instanceof Error ? err.message : String(err),
+                'Surreal storage operation failed',
             );
         }
     }
@@ -165,6 +168,14 @@ export class SurrealDataAdapter implements DataStorageAdapter {
 
     async deleteBySubject(typeId: string, subject: DataSubject): Promise<number> {
         const matches = await this.query(typeId, subject);
+        for (const rec of matches) {
+            await this.delete(typeId, rec.key);
+        }
+        return matches.length;
+    }
+
+    async deleteByType(typeId: string): Promise<number> {
+        const matches = await this.query(typeId, {});
         for (const rec of matches) {
             await this.delete(typeId, rec.key);
         }

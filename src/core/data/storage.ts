@@ -85,6 +85,15 @@ export function assertAdapterSatisfiesPolicy(
             `Storage policy requires subjectDelete; '${adapter.id}' does not support it`,
         );
     }
+    if (policy.alias !== undefined && policy.alias !== '') {
+        const active = adapter.connectionAlias;
+        if (active === undefined || active !== policy.alias) {
+            throw new DataRegistryError(
+                'DATA_BACKEND_UNAVAILABLE',
+                `Storage policy requires connection alias '${policy.alias}' but active adapter alias is '${active ?? 'none'}'`,
+            );
+        }
+    }
 }
 
 /**

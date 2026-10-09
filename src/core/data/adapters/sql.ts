@@ -87,12 +87,14 @@ export class SqlDataAdapter implements DataStorageAdapter {
     readonly id: string;
     readonly engine: DurableDataStorageEngine;
     readonly capabilities = CAPABILITIES;
+    readonly connectionAlias: string;
     readonly #sql: SqlAdapter;
     #ready = false;
 
     constructor(engine: 'sqlite' | 'postgres', alias: string) {
         this.engine = engine;
         this.id = `sql:${engine}:${alias}`;
+        this.connectionAlias = alias;
         this.#sql = openSqlAdapter({ engine, alias });
     }
 
@@ -158,7 +160,7 @@ export class SqlDataAdapter implements DataStorageAdapter {
         } catch (err) {
             throw new DataRegistryError(
                 'DATA_PERSISTENCE_FAILURE',
-                err instanceof Error ? err.message : String(err),
+                'SQL storage operation failed',
             );
         }
     }
@@ -222,6 +224,16 @@ export class SqlDataAdapter implements DataStorageAdapter {
             );
         }
         return matches.length;
+    }
+
+    async deleteByType(typeId: string): Promise<number> {
+        await this.ensureSchema();
+        const rows = await this.#sql.all(
+            `SELECT record_key FROM ${CORE_DATA_TABLE} WHERE type_id = ?`,
+            [typeId],
+        );
+        await this.#sql.run(`DELETE FROM ${CORE_DATA_TABLE} WHERE type_id = ?`, [typeId]);
+        return rows.length;
     }
 }
 

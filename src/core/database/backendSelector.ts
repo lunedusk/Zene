@@ -226,6 +226,11 @@ export function resolveCoreDataBackend(cfg?: {
             .trim() || 'main';
 
     const forced = normalizeCoreDataEngine(engineRaw);
+    if (engineRaw != null && String(engineRaw).trim() !== '' && !forced) {
+        throw new Error(
+            `Core data backend engine '${String(engineRaw).trim()}' is not a recognized engine (expected sqlite, postgres, mongo, surreal, redis, or documented aliases).`,
+        );
+    }
     if (forced) {
         if (!isCoreDataConnected(forced, alias)) {
             throw new Error(

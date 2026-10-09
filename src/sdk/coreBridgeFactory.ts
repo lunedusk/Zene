@@ -1,3 +1,4 @@
+import type { DataAccessQuery } from '#core/data/types.js';
 /**
  * Core installs a generation-scoped SDK bridge for an authorized plugin runtime.
  */
@@ -89,6 +90,39 @@ function trustForProvider(
     if (outcome === 'bypassed') return 'bypassed';
     if (outcome === 'legacy') return 'trusted';
     return 'untrusted';
+}
+
+
+function toDataAccessQuery(query: unknown): DataAccessQuery | undefined {
+    if (query === undefined) {
+        return undefined;
+    }
+    if (query === null || typeof query !== 'object' || Array.isArray(query)) {
+        throw new DataRegistryError(
+            'DATA_UNSUPPORTED_CAPABILITY',
+            'Access query must be a plain object with optional key filter',
+        );
+    }
+    let key: string | undefined;
+    for (const [field, value] of Object.entries(query)) {
+        if (field !== 'key') {
+            throw new DataRegistryError(
+                'DATA_UNSUPPORTED_CAPABILITY',
+                `Access query field '${field}' is not supported`,
+            );
+        }
+        if (value !== undefined && typeof value !== 'string') {
+            throw new DataRegistryError(
+                'DATA_UNSUPPORTED_CAPABILITY',
+                'Access query.key must be a string when provided',
+            );
+        }
+        key = value;
+    }
+    if (key === undefined) {
+        return {};
+    }
+    return { key };
 }
 
 export function installPluginSdkBridge(input: {
@@ -332,10 +366,11 @@ export function installPluginSdkBridge(input: {
             },
             async access(typeId, subject, query) {
                 try {
+                    const normalizedQuery = toDataAccessQuery(query);
                     return await dataRegistry.access({
                         typeId,
                         subject,
-                        query,
+                        query: normalizedQuery,
                         requesterPluginId: input.pluginId,
                     });
                 } catch (err) {

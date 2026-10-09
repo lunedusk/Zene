@@ -31,6 +31,23 @@ export function canonicalizeSubject(input: DataSubject | null | undefined): Data
     return subject;
 }
 
+/**
+ * Deterministic injective encoding of an arbitrary string for composite keys.
+ * Format: <decimal-byte-length>:<utf8-bytes>
+ * Colon and Unicode in the value cannot collide with another component boundary.
+ */
+export function encodeCompositePart(value: string): string {
+    const bytes = Buffer.from(value, 'utf8');
+    return `${bytes.length}:${value}`;
+}
+
+/**
+ * Encode (typeId, key) into a single collision-safe identity segment.
+ */
+export function encodeTypeKeyIdentity(typeId: string, key: string): string {
+    return `${encodeCompositePart(typeId)}|${encodeCompositePart(key)}`;
+}
+
 export function encodeRecord(record: DataRecord): StoredRecordPayload {
     return {
         typeId: record.typeId,

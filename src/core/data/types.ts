@@ -67,10 +67,16 @@ export interface DataRecord {
     readonly updatedAt: number;
 }
 
+/** Backend-neutral access filter applied after subject authorization. */
+export interface DataAccessQuery {
+    /** Exact record key within the authorized subject scope. */
+    readonly key?: string;
+}
+
 export interface DataAccessRequest {
     readonly typeId: string;
     readonly subject: DataSubject;
-    readonly query?: unknown;
+    readonly query?: DataAccessQuery;
     readonly requesterPluginId: string;
 }
 
@@ -97,9 +103,19 @@ export interface DataStorageAdapter {
     readonly id: string;
     readonly engine: DataStorageEngine;
     readonly capabilities: DataStorageCapabilities;
+    /**
+     * Connection alias of the underlying DB manager instance when applicable
+     * (e.g. "main"). Used to enforce DataStoragePolicy.alias constraints.
+     */
+    readonly connectionAlias?: string;
     put(typeId: string, key: string, record: DataRecord): Promise<void>;
     get(typeId: string, key: string): Promise<DataRecord | undefined>;
     query(typeId: string, filter: DataSubject | unknown): Promise<readonly DataRecord[]>;
     delete(typeId: string, key: string): Promise<boolean>;
     deleteBySubject(typeId: string, subject: DataSubject): Promise<number>;
+    /**
+     * Delete every record for a data type, regardless of subject.
+     * Used by Core-only plugin data wipe — not a public subject-delete API.
+     */
+    deleteByType(typeId: string): Promise<number>;
 }

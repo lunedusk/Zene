@@ -17,6 +17,7 @@ export class MemoryDataAdapter implements DataStorageAdapter {
     readonly id = 'memory';
     readonly engine = 'memory' as const;
     readonly capabilities = CAPABILITIES;
+    readonly connectionAlias = undefined;
     readonly #store = new Map<string, Map<string, DataRecord>>();
 
     #bucket(typeId: string): Map<string, DataRecord> {
@@ -62,6 +63,13 @@ export class MemoryDataAdapter implements DataStorageAdapter {
         return n;
     }
 
+    async deleteByType(typeId: string): Promise<number> {
+        const bucket = this.#bucket(typeId);
+        const n = bucket.size;
+        this.#store.delete(typeId);
+        return n;
+    }
+
     /** Test helper — clear all buckets. */
     clear(): void {
         this.#store.clear();
@@ -69,9 +77,8 @@ export class MemoryDataAdapter implements DataStorageAdapter {
 }
 
 function matchesSubject(record: DataSubject, filter: DataSubject): boolean {
-    if (filter.userId && record.userId !== filter.userId) return false;
-    if (filter.guildId && record.guildId !== filter.guildId) return false;
-    if (filter.pluginId && record.pluginId !== filter.pluginId) return false;
-    if (!filter.userId && !filter.guildId && !filter.pluginId) return true;
-    return Boolean(filter.userId || filter.guildId || filter.pluginId);
+    if (filter.userId !== undefined && record.userId !== filter.userId) return false;
+    if (filter.guildId !== undefined && record.guildId !== filter.guildId) return false;
+    if (filter.pluginId !== undefined && record.pluginId !== filter.pluginId) return false;
+    return true;
 }

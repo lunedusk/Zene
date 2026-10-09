@@ -155,7 +155,7 @@ class DataRegistryImpl {
             updatedAt: Date.now(),
         };
         try {
-            await adapter.put(req.typeId, req.key, record);
+            await this.#safeStorage(() => adapter.put(req.typeId, req.key, record), 'put');
         } catch (err) {
             throw new DataRegistryError(
                 'DATA_PERSISTENCE_FAILURE',
@@ -173,8 +173,17 @@ class DataRegistryImpl {
                 `Access denied to '${req.typeId}' for plugin '${req.requesterPluginId}'`,
             );
         }
+        if (req.query !== undefined) {
+            assertValidAccessQuery(req.query);
+        }
         const adapter = this.getAdapter();
-        const records = await adapter.query(req.typeId, req.subject);
+        let records = await this.#safeStorage(
+            () => adapter.query(req.typeId, req.subject),
+            'query',
+        );
+        if (req.query?.key !== undefined) {
+            records = records.filter((r) => r.key === req.query!.key);
+        }
         return records.map((r) => r.value);
     }
 
@@ -292,14 +301,62 @@ class DataRegistryImpl {
             );
         }
         const adapter = this.getAdapter();
+        if (typeof adapter.deleteByType !== 'function') {
+            throw new DataRegistryError(
+                'DATA_UNSUPPORTED_CAPABILITY',
+                `Adapter '${adapter.id}' cannot deleteByType for plugin data wipe`,
+            );
+        }
         let total = 0;
         for (const def of this.listTypes()) {
             if (def.ownerPluginId !== pluginId) continue;
-            if (adapter.capabilities.subjectDelete) {
-                total += await adapter.deleteBySubject(def.id, { pluginId });
-            }
+            total += await this.#safeStorage(
+                () => adapter.deleteByType(def.id),
+                'deleteByType',
+            );
         }
         return total;
+    }
+
+    async #safeStorage<T>(op: () => Promise<T>, opName: string): Promise<T> {
+        try {
+            return await op();
+        } catch (err) {
+            if (err instanceof DataRegistryError) throw err;
+            log.error(`Storage ${opName} failed`, {
+                op: opName,
+                err: err instanceof Error ? err.message : String(err),
+            });
+            throw new DataRegistryError(
+                'DATA_PERSISTENCE_FAILURE',
+                `Data storage ${opName} failed`,
+            );
+        }
+    }
+}
+
+function assertValidAccessQuery(query: unknown): void {
+    if (query === null || typeof query !== 'object' || Array.isArray(query)) {
+        throw new DataRegistryError(
+            'DATA_UNSUPPORTED_CAPABILITY',
+            'Access query must be a plain object with optional key filter',
+        );
+    }
+    const keys = Object.keys(query as Record<string, unknown>);
+    for (const k of keys) {
+        if (k !== 'key') {
+            throw new DataRegistryError(
+                'DATA_UNSUPPORTED_CAPABILITY',
+                `Access query field '${k}' is not supported`,
+            );
+        }
+    }
+    const q = query as { key?: unknown };
+    if (q.key !== undefined && typeof q.key !== 'string') {
+        throw new DataRegistryError(
+            'DATA_UNSUPPORTED_CAPABILITY',
+            'Access query.key must be a string when provided',
+        );
     }
 }
 

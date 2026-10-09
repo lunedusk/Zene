@@ -29,6 +29,10 @@ let initialized = false;
 export async function initializeDataPlatform(
     config: DataPlatformConfig = {},
 ): Promise<void> {
+    if (initialized && dataRegistry.isReady() && !config.adapter && config.engine === undefined) {
+        log.info('Data platform already initialized; skipping re-init');
+        return;
+    }
     const allowMemory = config.allowMemory === true;
     dataRegistry.configure({ allowMemoryFallback: allowMemory });
 

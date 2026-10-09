@@ -26,11 +26,13 @@ export class MongoDataAdapter implements DataStorageAdapter {
     readonly id: string;
     readonly engine = 'mongo' as const;
     readonly capabilities = CAPABILITIES;
+    readonly connectionAlias: string;
     readonly #alias: string;
     #indexed = false;
 
     constructor(alias: string) {
         this.#alias = alias;
+        this.connectionAlias = alias;
         this.id = `mongo:${alias}`;
         if (!mongoDB.has(alias)) {
             throw new DataRegistryError(
@@ -95,7 +97,7 @@ export class MongoDataAdapter implements DataStorageAdapter {
         } catch (err) {
             throw new DataRegistryError(
                 'DATA_PERSISTENCE_FAILURE',
-                err instanceof Error ? err.message : String(err),
+                'Mongo storage operation failed',
             );
         }
     }
@@ -157,13 +159,18 @@ export class MongoDataAdapter implements DataStorageAdapter {
             subject.guildId === undefined &&
             subject.pluginId === undefined
         ) {
-            // empty subject would delete entire type — require at least one field
             throw new DataRegistryError(
                 'DATA_INVALID_SUBJECT',
                 'deleteBySubject requires at least one subject field',
             );
         }
         const r = await this.#collection().deleteMany(q);
+        return r.deletedCount ?? 0;
+    }
+
+    async deleteByType(typeId: string): Promise<number> {
+        await this.#ensureIndexes();
+        const r = await this.#collection().deleteMany({ typeId });
         return r.deletedCount ?? 0;
     }
 }

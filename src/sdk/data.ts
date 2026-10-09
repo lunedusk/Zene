@@ -23,6 +23,10 @@ export interface DataTypeRegistration {
     };
 }
 
+export interface DataAccessQuery {
+    readonly key?: string;
+}
+
 export interface DataSubjectInput {
     readonly userId?: string;
     readonly guildId?: string;
@@ -41,7 +45,7 @@ export async function accessData(
     bridge: SdkBridge,
     typeId: string,
     subject: DataSubjectInput,
-    query?: unknown,
+    query?: DataAccessQuery,
 ): Promise<readonly unknown[]> {
     assertBridgeAuthorized(bridge, 'data.access');
     try {
