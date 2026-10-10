@@ -1,17 +1,21 @@
-# Cache Registry & Façade
+# Cache
 
-## Façade
+Zene exposes caching through Core managers and helpers. Cache behavior depends on the resolved backend (in-process and/or Redis when configured).
 
-`cacheFacade` — Redis alias if available, else process-local `TTLCache`. Subsystems pick alias chains (e.g. cooldown: `cooldown` → `redis` only; never silent main for rate limits).
+## Layers
 
-KV and rate-limit local maps are **split** so a Redis blip cannot corrupt cooldown counters.
+- **Process-local caches** — live only in the current Node process; not shared across Cross-Host workers
+- **Shared backends** — Redis (or other configured shared stores) when an alias is connected
 
-## Registry
+Always namespace keys by plugin and feature. Do not assume another worker can see process-local entries.
 
-Every `TTLCache` registers itself at construction (`name` + instance). `/admin cache-list` and `cache-pop` enumerate the live registry (autocomplete). Guild-gate presence `Map` is **not** a TTLCache and is not poppable.
+## Backend resolution
 
-Pop is **per-process** (multi-shard: only the handling shard clears).
+Cache backends follow database alias configuration. See [Database.md](Database.md) and [ENV Reference.md](ENV%20Reference.md) for alias setup.
 
-## Related
+## Operational guidance
 
-- [ENV Reference.md](ENV%20Reference.md) — Redis aliases
+- Set TTLs appropriate to the data sensitivity
+- Invalidate on permission, config, and membership changes that affect authorization
+- Treat cache as advisory unless a subsystem documents stronger guarantees
+- Rate-limit and admin surfaces that clear caches should require Core authorization

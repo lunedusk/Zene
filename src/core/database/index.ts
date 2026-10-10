@@ -12,6 +12,14 @@ import {
     isSurrealEmbeddedProtocol,
     type SurrealConnectOptions,
 } from './surreal.js';
+export {
+    surrealUpsertByKey,
+    surrealSelectOnlyByKey,
+    surrealDeleteByKey,
+    resolveSurrealRecordCtor,
+    contentWithoutReservedId,
+    readLogicalKey,
+} from './surrealRecord.js';
 
 const log = getLogger('DBManager');
 

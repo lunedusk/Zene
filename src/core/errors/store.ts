@@ -1,3 +1,8 @@
+import {
+    surrealUpsertByKey,
+    surrealSelectOnlyByKey,
+    readLogicalKey,
+} from '#core/database/surrealRecord.js';
 import { randomBytes } from 'node:crypto';
 import type { Surreal } from 'surrealdb';
 import { getLogger } from '#core/utils/logger.js';
@@ -13,6 +18,18 @@ import type {
 
 const log = getLogger('ErrorStore');
 const TABLE = 'error_occurrences';
+
+let schemaReady = false;
+
+/**
+ * Surreal SQL/Mongo migrations do not create Surreal tables.
+ * DEFINE TABLE is idempotent and required before SELECT type::table(...).
+ */
+async function ensureSchema(db: Surreal): Promise<void> {
+    if (schemaReady) return;
+    await db.query(`DEFINE TABLE IF NOT EXISTS ${TABLE} SCHEMALESS`);
+    schemaReady = true;
+}
 
 const ALLOWED_CONTEXT_KEYS = new Set([
     'count',
@@ -110,7 +127,7 @@ function rowToOccurrence(row: Record<string, unknown>): ErrorOccurrence {
             ? severityRaw
             : 'error';
     return {
-        id: String(row.id ?? row.key ?? ''),
+        id: String(row.logicalKey ?? row.key ?? (typeof row.id === 'string' ? row.id : '')),
         code: String(row.code ?? ''),
         category: String(row.category ?? 'unknown'),
         severity,
@@ -125,6 +142,7 @@ function rowToOccurrence(row: Record<string, unknown>): ErrorOccurrence {
 export async function upsertErrorOccurrence(input: ErrorOccurrenceInput): Promise<ErrorOccurrence | null> {
     try {
         const db = getDb();
+        await ensureSchema(db);
         const now = Math.floor(Date.now() / 1000);
         const windowSec = coalesceWindowSec();
         const windowStart = now - windowSec;
@@ -144,17 +162,21 @@ export async function upsertErrorOccurrence(input: ErrorOccurrenceInput): Promis
         const hit = unwrapOne(existingResult);
 
         if (hit) {
-            const id = String(hit.id ?? hit.key ?? '');
+            const id = readLogicalKey(hit);
+            if (!id) {
+                throw new Error('ErrorStore coalesce hit missing logical key');
+            }
             const count = Number(hit.count ?? 1) + 1;
             const firstSeen = Number(hit.firstSeen ?? now);
             await db.query(
-                `UPDATE type::thing($table, $key) SET
+                `UPDATE type::table($table) SET
                     count = $count,
                     lastSeen = $now,
                     message = $message,
                     context = $context,
                     severity = $severity,
                     category = $category
+                 WHERE logicalKey = $key OR key = $key
                  RETURN NONE`,
                 {
                     table: TABLE,
@@ -192,12 +214,12 @@ export async function upsertErrorOccurrence(input: ErrorOccurrenceInput): Promis
             firstSeen: now,
             lastSeen: now,
         };
-        await db.query('UPSERT type::thing($table, $key) CONTENT $data RETURN NONE', {
-            table: TABLE,
-            key: id,
-            data: {
+        await surrealUpsertByKey(
+            db,
+            TABLE,
+            id,
+            {
                 key: id,
-                id: record.id,
                 code: record.code,
                 category: record.category,
                 severity: record.severity,
@@ -207,7 +229,8 @@ export async function upsertErrorOccurrence(input: ErrorOccurrenceInput): Promis
                 firstSeen: record.firstSeen,
                 lastSeen: record.lastSeen,
             },
-        });
+            [TABLE],
+        );
         return record;
     } catch (err: unknown) {
         const e = err instanceof Error ? err : new Error(String(err));
@@ -234,6 +257,7 @@ function clampLimit(limit: number | undefined): number {
 
 export async function listErrorOccurrences(filter: ErrorListFilter = {}): Promise<ErrorOccurrence[]> {
     const db = getDb();
+    await ensureSchema(db);
     const limit = clampLimit(filter.limit);
     const clauses: string[] = [];
     const vars: Record<string, unknown> = { table: TABLE, limit };
@@ -269,15 +293,13 @@ export async function listErrorOccurrences(filter: ErrorListFilter = {}): Promis
 
 export async function getErrorOccurrenceById(id: string): Promise<ErrorOccurrence | null> {
     const db = getDb();
-    const result = await db.query('SELECT * FROM ONLY type::thing($table, $key)', {
-        table: TABLE,
-        key: id,
-    });
+    await ensureSchema(db);
+    const result = await surrealSelectOnlyByKey(db, TABLE, id, [TABLE]);
     const row = unwrapOne(result);
     if (!row) return null;
     return rowToOccurrence(row);
 }
 
 export function resetErrorAdapterCache(): void {
-
+    schemaReady = false;
 }

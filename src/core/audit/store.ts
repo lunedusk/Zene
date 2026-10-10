@@ -1,3 +1,8 @@
+import {
+    surrealUpsertByKey,
+    surrealSelectOnlyByKey,
+    readLogicalKey,
+} from '#core/database/surrealRecord.js';
 import { randomBytes } from 'node:crypto';
 import type { Surreal } from 'surrealdb';
 import { surrealDB } from '#core/database/index.js';
@@ -11,6 +16,14 @@ import type {
 } from './types.js';
 
 const TABLE = 'audit_entries';
+
+let schemaReady = false;
+
+async function ensureSchema(db: Surreal): Promise<void> {
+    if (schemaReady) return;
+    await db.query(`DEFINE TABLE IF NOT EXISTS ${TABLE} SCHEMALESS`);
+    schemaReady = true;
+}
 
 function newId(): string {
     return randomBytes(16).toString('hex');
@@ -115,7 +128,7 @@ function rowToRecord(row: Record<string, unknown>): AuditRecord {
     const actorType = String(row.actorType ?? row.actor_type ?? 'system');
     const outcome = String(row.outcome ?? 'success');
     return {
-        id: String(row.id ?? row.key ?? ''),
+        id: String(row.logicalKey ?? row.key ?? (typeof row.id === 'string' ? row.id : '')),
         actorType: (actorType === 'user' || actorType === 'api_key' || actorType === 'system'
             ? actorType
             : 'system') as AuditRecord['actorType'],
@@ -139,6 +152,7 @@ function rowToRecord(row: Record<string, unknown>): AuditRecord {
 
 export async function insertAuditRecord(input: AuditRecordInput): Promise<AuditRecord> {
     const db = getDb();
+    await ensureSchema(db);
     const before = input.before ? sanitizeAuditFields(input.before) : null;
     const after = input.after ? sanitizeAuditFields(input.after) : null;
     const targetRef = input.targetRef
@@ -176,7 +190,6 @@ export async function insertAuditRecord(input: AuditRecordInput): Promise<AuditR
 
     const data: Record<string, unknown> = {
         key: record.id,
-        id: record.id,
         actorType: record.actorType,
         actorId: record.actorId,
         action: record.action,
@@ -192,11 +205,7 @@ export async function insertAuditRecord(input: AuditRecordInput): Promise<AuditR
         after: record.after,
     };
 
-    await db.query('UPSERT type::thing($table, $key) CONTENT $data RETURN NONE', {
-        table: TABLE,
-        key: record.id,
-        data,
-    });
+    await surrealUpsertByKey(db, TABLE, record.id, data, [TABLE]);
     return record;
 }
 
@@ -221,6 +230,7 @@ function clampLimit(limit: number | undefined): number {
 
 export async function listAuditRecords(filter: AuditListFilter = {}): Promise<AuditRecord[]> {
     const db = getDb();
+    await ensureSchema(db);
     const limit = clampLimit(filter.limit);
     const clauses: string[] = [];
     const vars: Record<string, unknown> = { table: TABLE, limit };
@@ -268,15 +278,13 @@ export async function listAuditRecords(filter: AuditListFilter = {}): Promise<Au
 
 export async function getAuditRecordById(id: string): Promise<AuditRecord | null> {
     const db = getDb();
-    const result = await db.query('SELECT * FROM ONLY type::thing($table, $key)', {
-        table: TABLE,
-        key: id,
-    });
+    await ensureSchema(db);
+    const result = await surrealSelectOnlyByKey(db, TABLE, id, [TABLE]);
     const row = unwrapOne(result);
     if (!row) return null;
     return rowToRecord(row);
 }
 
 export function resetAuditAdapterCache(): void {
-
+    schemaReady = false;
 }

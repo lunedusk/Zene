@@ -1,4 +1,10 @@
 import { type IHeart } from '#core/heart/index.js';
+import {
+    surrealUpsertByKey,
+    surrealSelectOnlyByKey,
+    surrealDeleteByKey,
+    readLogicalKey,
+} from '#core/database/surrealRecord.js';
 import { resolveDashboardBackend } from '#core/database/backendSelector.js';
 import { openSqlAdapter, type SqlAdapter, type Row } from '#core/database/sqlAdapter.js';
 
@@ -240,28 +246,19 @@ export class SurrealDocCollection {
             data[k] = v;
         }
 
-        await this.db.query(
-            'UPSERT type::thing($table, $key) CONTENT $data RETURN NONE',
-            { table: this.table, key, data },
-        );
+        await surrealUpsertByKey(this.db, this.table, key, data, [this.table]);
         return key;
     }
 
     public async get(id: string): Promise<DashDoc | null> {
-        const result = await this.db.query<[DashDoc[]]>(
-            'SELECT * FROM ONLY type::thing($table, $key)',
-            { table: this.table, key: id },
-        );
+        const result = await surrealSelectOnlyByKey(this.db, this.table, id, [this.table]);
         const row = unwrapQueryRow(result);
         if (!row || typeof row !== 'object') return null;
         return normalizeDoc(row as Record<string, unknown>, id);
     }
 
     public async delete(id: string): Promise<boolean> {
-        await this.db.query('DELETE type::thing($table, $key) RETURN NONE', {
-            table: this.table,
-            key: id,
-        });
+        await surrealDeleteByKey(this.db, this.table, id, [this.table]);
         return true;
     }
 
@@ -299,6 +296,12 @@ function unwrapQueryList(result: unknown): unknown[] {
 }
 
 function extractRecordKey(row: Record<string, unknown>): string | null {
+    if (typeof row.logicalKey === 'string' && row.logicalKey.length > 0) {
+        return row.logicalKey;
+    }
+    if (typeof row.key === 'string' && row.key.length > 0) {
+        return row.key;
+    }
     const id = row.id;
     if (typeof id === 'string') {
         const idx = id.indexOf(':');
@@ -313,7 +316,7 @@ function extractRecordKey(row: Record<string, unknown>): string | null {
 function normalizeDoc(row: Record<string, unknown>, key: string): DashDoc {
     const out: DashDoc = { _id: key };
     for (const [k, v] of Object.entries(row)) {
-        if (k === 'id' || k === 'key') continue;
+        if (k === 'id' || k === 'key' || k === 'logicalKey') continue;
         out[k] = v;
     }
     return out;

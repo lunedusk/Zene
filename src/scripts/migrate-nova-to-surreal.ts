@@ -1,34 +1,39 @@
 /**
  * One-shot helper: copy former NovaDB dash collections into SurrealDB `main`.
  *
- * NovaDB was removed from the runtime. This script expects you to either:
- * - Restore a backup of `.data/database/<alias>/` **and** a prior release binary
- *   that can read NovaDB, then adapt this script; or
- * - Point `NOVA_EXPORT_JSON` at a JSON export produced offline.
- *
- * Supported JSON export shape (array of docs per collection):
+ * Expects NOVA_EXPORT_JSON pointing at:
  * {
  *   "dash_infractions": [ { "_id": "...", ... }, ... ],
  *   "dash_audit_log": [ ... ],
  *   "dash_command_counters": [ ... ]
  * }
  *
- * Usage (after Surreal `main` is reachable — embedded or remote):
+ * Usage:
  *   NOVA_EXPORT_JSON=./nova-export.json npx tsx --import ./src/core/dependency/index.mts ./src/scripts/migrate-nova-to-surreal.ts
  *
  * Env:
- *   SURREAL_URI          default rocksdb://local (resolved under .data/database/surreal/rocksdb/migrate)
+ *   SURREAL_URI          default rocksdb://local
  *   SURREAL_NAMESPACE    default main
  *   SURREAL_DATABASE     default main
- *   SURREAL_USERNAME / SURREAL_PASSWORD / SURREAL_TOKEN  optional auth
+ *   SURREAL_USERNAME / SURREAL_PASSWORD / SURREAL_TOKEN  optional (non-empty only)
  *   NOVA_EXPORT_JSON     path to export file (required)
  */
 
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import { Surreal, createRemoteEngines } from 'surrealdb';
+import {
+    Surreal,
+    createRemoteEngines,
+    type DriverOptions,
+    type ConnectOptions,
+} from 'surrealdb';
 import { createNodeEngines } from '@surrealdb/node';
+import { WebSocket as NodeWebSocket } from 'ws';
 import { resolveSurrealUri } from '#core/database/surreal.js';
+import {
+    surrealUpsertByKey,
+    surrealDeleteByKey,
+} from '#core/database/surrealRecord.js';
 
 const TABLES = ['dash_infractions', 'dash_audit_log', 'dash_command_counters'] as const;
 
@@ -57,19 +62,15 @@ async function upsertDoc(db: Surreal, table: string, doc: Doc): Promise<void> {
     const key = String(doc._id ?? '');
     if (!key) return;
     if (doc.__deleted__ === true) {
-        await db.query('DELETE type::thing($table, $key) RETURN NONE', { table, key });
+        await surrealDeleteByKey(db, table, key, TABLES);
         return;
     }
     const data: Record<string, unknown> = { key };
     for (const [k, v] of Object.entries(doc)) {
-        if (k === '_id' || k.startsWith('__')) continue;
+        if (k === '_id' || k === 'id' || k.startsWith('__')) continue;
         data[k] = v;
     }
-    await db.query('UPSERT type::thing($table, $key) CONTENT $data RETURN NONE', {
-        table,
-        key,
-        data,
-    });
+    await surrealUpsertByKey(db, table, key, data, TABLES);
 }
 
 async function main(): Promise<void> {
@@ -83,41 +84,59 @@ async function main(): Promise<void> {
     const uri = process.env.SURREAL_URI ?? 'rocksdb://local';
     const resolved = resolveSurrealUri(uri, 'migrate');
 
-    const db = new Surreal({
+    const driverOptions: DriverOptions = {
         engines: {
             ...createRemoteEngines(),
             ...createNodeEngines(),
         },
-    });
+        websocketImpl: NodeWebSocket as unknown as DriverOptions['websocketImpl'],
+    };
+    const db = new Surreal(driverOptions);
+
+    const connectOpts: ConnectOptions = {
+        namespace: process.env.SURREAL_NAMESPACE ?? 'main',
+        database: process.env.SURREAL_DATABASE ?? 'main',
+    };
+    const token = process.env.SURREAL_TOKEN;
+    const user = process.env.SURREAL_USERNAME;
+    if (token !== undefined && token !== '') {
+        connectOpts.authentication = token;
+    } else if (user !== undefined && user !== '') {
+        connectOpts.authentication = {
+            username: user,
+            password: process.env.SURREAL_PASSWORD ?? '',
+        };
+    }
 
     console.log(`Connecting Surreal at ${resolved}…`);
-    await db.connect(resolved);
-
-    const ns = process.env.SURREAL_NAMESPACE ?? 'main';
-    const database = process.env.SURREAL_DATABASE ?? 'main';
-    await db.use({ namespace: ns, database });
-
-    if (process.env.SURREAL_TOKEN) {
-        await db.authenticate(process.env.SURREAL_TOKEN);
-    } else if (process.env.SURREAL_USERNAME && process.env.SURREAL_PASSWORD) {
-        await db.signin({
-            username: process.env.SURREAL_USERNAME,
-            password: process.env.SURREAL_PASSWORD,
-        });
+    try {
+        await db.connect(resolved, connectOpts);
+    } catch (err) {
+        try {
+            await db.close();
+        } catch {
+            // ignore
+        }
+        throw err;
     }
 
     let total = 0;
-    for (const table of TABLES) {
-        const docs = data[table] ?? [];
-        console.log(`Migrating ${table}: ${docs.length} docs`);
-        for (const doc of docs) {
-            await upsertDoc(db, table, doc);
-            total += 1;
+    try {
+        for (const table of TABLES) {
+            const docs = data[table] ?? [];
+            console.log(`Migrating ${table}: ${docs.length} docs`);
+            for (const doc of docs) {
+                await upsertDoc(db, table, doc);
+                total += 1;
+            }
         }
+    } finally {
+        await db.close();
     }
 
-    await db.close();
-    console.log(`Done. Upserted ${total} documents into Surreal (${ns}/${database}).`);
+    console.log(
+        `Done. Upserted ${total} documents into Surreal (${connectOpts.namespace}/${connectOpts.database}).`,
+    );
 }
 
 main().catch((err: unknown) => {
