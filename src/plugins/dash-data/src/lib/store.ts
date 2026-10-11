@@ -228,12 +228,21 @@ export type DashDoc = Record<string, unknown> & { _id?: string };
 
 
 export class SurrealDocCollection {
+    private tableReady = false;
+
     public constructor(
         private readonly db: import('surrealdb').Surreal,
         private readonly table: string,
     ) {}
 
+    private async ensureTable(): Promise<void> {
+        if (this.tableReady) return;
+        await this.db.query(`DEFINE TABLE IF NOT EXISTS ${this.table} SCHEMALESS`);
+        this.tableReady = true;
+    }
+
     public async upsert(doc: DashDoc): Promise<string> {
+        await this.ensureTable();
         const key = String(doc._id ?? newId('doc'));
         if (doc.__deleted__ === true) {
             await this.delete(key);
@@ -251,6 +260,7 @@ export class SurrealDocCollection {
     }
 
     public async get(id: string): Promise<DashDoc | null> {
+        await this.ensureTable();
         const result = await surrealSelectOnlyByKey(this.db, this.table, id, [this.table]);
         const row = unwrapQueryRow(result);
         if (!row || typeof row !== 'object') return null;
@@ -258,11 +268,13 @@ export class SurrealDocCollection {
     }
 
     public async delete(id: string): Promise<boolean> {
+        await this.ensureTable();
         await surrealDeleteByKey(this.db, this.table, id, [this.table]);
         return true;
     }
 
     public async *scan(start: string, end: string): AsyncGenerator<DashDoc> {
+        await this.ensureTable();
         const result = await this.db.query<[DashDoc[]]>(
             `SELECT * FROM type::table($table)
              WHERE key >= $start AND key <= $end
