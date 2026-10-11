@@ -2,8 +2,6 @@
 
 **Zene** is a modular Discord application framework for Node.js, written in TypeScript and published as pure ECMAScript modules. The repository version at the documentation baseline is `0.5.7`; the minimum Node.js engine declared by the root package is `>=20.0.0`. Zene builds on `discord.js` v14 and provides a plugin loader, host-injected plugin services, multiple database managers, configuration and localization loading, permission services, runtime lifecycle management, signed-artifact verification, and an optional Cross-Host control plane.
 
-These docs describe implementation at commit [`c510bbf8fde1fedffd05efe2779ee71e90d5597d`](https://github.com/lunedusk/Zene/commit/c510bbf8fde1fedffd05efe2779ee71e90d5597d). Defaults and implementation details may evolve; verify any operationally sensitive assumption against the code for the version you deploy.
-
 ## Start here
 
 - **[Setup](SETUP.md):** install, configure, start, validate, and diagnose a first deployment.
