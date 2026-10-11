@@ -9,12 +9,16 @@ on:
 permissions:
   issues: write
   pull-requests: write
-  contents: write
+  contents: read
 
 jobs:
   greet-user:
     runs-on: ubuntu-latest
     if: github.event.action == 'opened'
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: read
     steps:
       - name: Send Greeting
         uses: actions/github-script@v7
@@ -41,6 +45,9 @@ jobs:
       github.event_name == 'pull_request' &&
       github.event.action == 'closed' &&
       github.event.pull_request.merged == true
+    permissions:
+      contents: write
+      pull-requests: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

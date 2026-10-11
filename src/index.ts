@@ -222,6 +222,25 @@ async function runBotMode(): Promise<void> {
 
                 if (this.isPrimaryShard) {
                     httpServer.finalize();
+                    try {
+                        const { startDashboardSupervisor } = await import(
+                            '#core/dashboard/supervisor.js'
+                        );
+                        const dash = await startDashboardSupervisor();
+                        if (dash.started) {
+                            this.log.info(
+                                `Dashboard process active (mode=${dash.mode}: ${dash.reason}).`,
+                            );
+                        } else {
+                            this.log.info(
+                                `Dashboard process not started (mode=${dash.mode}: ${dash.reason}).`,
+                            );
+                        }
+                    } catch (dashErr: unknown) {
+                        const msg = dashErr instanceof Error ? dashErr.message : String(dashErr);
+                        this.log.error(`Dashboard supervisor failed: ${msg}`);
+                        throw dashErr;
+                    }
                 }
 
                 await emojis.init(hotReloadEnabled);
@@ -297,6 +316,14 @@ async function runBotMode(): Promise<void> {
                 await pluginManager.shutdownAll().catch((e: unknown) => this.log.error('Plugin shutdown error:', e));
 
                 if (this.isPrimaryShard) {
+                    try {
+                        const { stopDashboardSupervisor } = await import(
+                            '#core/dashboard/supervisor.js'
+                        );
+                        await stopDashboardSupervisor();
+                    } catch (e: unknown) {
+                        this.log.error('Dashboard supervisor shutdown error:', e);
+                    }
                     await httpServer.stop().catch((e: unknown) => this.log.error('HTTP Server shutdown error:', e));
                 }
 

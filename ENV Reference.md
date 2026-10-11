@@ -53,6 +53,11 @@ A dash (`—`) below means no general default is registered for that key in `def
 | `GuildID` | — | Optional primary guild ID used by some command-sync/feature paths. Guild-specific behavior may differ from global mode. | No |
 | `APIPort` | `3000` | Main HTTP API listen port. Parsed as a number by callers; invalid strings can cause startup/config issues. | No |
 | `APIHost` | `0.0.0.0` | Main HTTP server bind host. Binding all interfaces exposes the service on all available interfaces unless firewalled. | No |
+| `DashboardMode` | `auto` | Separate dashboard process lifecycle: `auto` (start Vite/prod host when apps/web is available), `true` (require dashboard or fail Core startup), `false` (never start dashboard). Invalid values fail configuration. Core API remains on `APIPort`. | No |
+| `DashboardPort` | `5173` | TCP port for the Vite dev server or production `dashboard-host` process. Independent of `APIPort`. | No |
+| `ApiPublicUrl` | derived | Optional absolute Core API origin advertised to the dashboard host (defaults to http://127.0.0.1:$APIPort when APIHost is a wildcard bind). | No |
+| `DashboardPublicUrl` | derived | Optional public dashboard origin (defaults to http://127.0.0.1:$DashboardPort). | No |
+| `GatewayMasterKey` | (required when configured) | Bearer master key for the api plugin when `auth.masterKeySource=env`. Distinct from the rotating dashboard-service runtime key. | Yes |
 | `hotReloadEnabled` | `false` | Enables supported config/language/emoji hot-reload behavior. Does not make arbitrary env updates safe. | No |
 | `isSharded` | `false` | Indicates classic shard deployment to mode/requirements logic. It is not by itself proof that a shard manager is actually running. | No |
 | `SHARD_LIST` | Runtime-dependent | Used by classic sharding/worker detection. Should be set by the sharding launcher, not used as a casual user preference. | Runtime-managed |

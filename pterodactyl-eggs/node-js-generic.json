@@ -1,30 +1,29 @@
 {
-    "_comment": "Zene egg for Pelican Panel (compatible with Pterodactyl PTDL_v2)",
+    "_comment": "Generic Node.js egg (PTDL_v2).",
     "meta": {
         "version": "PTDL_v2",
         "update_url": null
     },
-    "exported_at": "2026-09-04T00:00:00+00:00",
-    "name": "Zene",
+    "exported_at": "2026-10-11T00:00:00+00:00",
+    "name": "Node.js Generic",
     "author": "lunedusk",
-    "description": "Zene Discord framework (Node 20+, pure ESM). Clones a git repo, installs deps, builds when src/ is present, starts with node --import ./core/dependency/index.mjs when available.",
+    "description": "Generic Node.js application egg. Installs from git or user upload and runs node MAIN_FILE. Does not assume Zene layout or build scripts.",
     "features": null,
     "docker_images": {
         "Node.js 20": "ghcr.io/pelican-eggs/yolks:nodejs_20",
-        "Node.js 22": "ghcr.io/pelican-eggs/yolks:nodejs_22",
-        "Node.js 24": "ghcr.io/pelican-eggs/yolks:nodejs_24"
+        "Node.js 22": "ghcr.io/pelican-eggs/yolks:nodejs_22"
     },
     "file_denylist": [],
-    "startup": "if [[ -d .git ]] && [[ \"{{AUTO_UPDATE}}\" == \"1\" ]]; then git pull; fi; if [[ -n \"${NODE_PACKAGES}\" ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ -n \"${UNNODE_PACKAGES}\" ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; if [ -d /home/container/src ]; then /usr/local/bin/npm run build; fi; fi; if [[ -f /home/container/core/dependency/index.mjs ]]; then /usr/local/bin/node --import ./core/dependency/index.mjs \"/home/container/${MAIN_FILE}\" ${NODE_ARGS}; elif [[ \"${MAIN_FILE}\" == *.ts ]]; then /usr/local/bin/npx --yes tsx \"/home/container/${MAIN_FILE}\" ${NODE_ARGS}; else /usr/local/bin/node \"/home/container/${MAIN_FILE}\" ${NODE_ARGS}; fi",
+    "startup": "set -euo pipefail\nif [[ -d .git ]] && [[ \"${AUTO_UPDATE:-0}\" == \"1\" ]]; then git pull --ff-only; fi\nif [[ -n \"${NODE_PACKAGES:-}\" ]]; then /usr/local/bin/npm install --no-save ${NODE_PACKAGES}; fi\nif [[ -f /home/container/package.json ]] && [[ ! -d /home/container/node_modules ]]; then /usr/local/bin/npm install; fi\nexec /usr/local/bin/node \"/home/container/${MAIN_FILE}\" ${NODE_ARGS:-}",
     "config": {
         "files": "{}",
-        "startup": "{\n    \"done\": [\n        \"REST API active\",\n        \"HttpServer pipeline finalized\",\n        \"Ecosystem Boot Complete\",\n        \"Worker control plane active\",\n        \"Cross-Host boot starting\"\n    ]\n}",
+        "startup": "{\n    \"done\": [\n        \"Server started\",\n        \"listening on\"\n    ]\n}",
         "logs": "{}",
         "stop": "^C"
     },
     "scripts": {
         "installation": {
-            "script": "#!/bin/bash\nset -euo pipefail\napt update\napt install -y git curl jq file unzip make gcc g++ python3 python3-dev python3-pip libtool\nnpm install npm@latest --location=global\nmkdir -p /mnt/server\ncd /mnt/server\nif [ \"${USER_UPLOAD:-}\" = \"true\" ] || [ \"${USER_UPLOAD:-}\" = \"1\" ]; then echo user_upload; exit 0; fi\nif [[ \"${GIT_ADDRESS}\" != *.git ]]; then GIT_ADDRESS=\"${GIT_ADDRESS}.git\"; fi\nif [ -z \"${USERNAME:-}\" ] && [ -z \"${ACCESS_TOKEN:-}\" ]; then\n  git clone --branch \"${GIT_BRANCH:-main}\" --single-branch \"${GIT_ADDRESS}\" .\nelse\n  git clone --branch \"${GIT_BRANCH:-main}\" --single-branch \"https://${USERNAME}:${ACCESS_TOKEN}@${GIT_ADDRESS#https://}\" .\nfi\nif [ -f package.json ]; then npm install; if [ -d src ]; then npm run build || true; fi; fi\necho Zene install complete\n",
+            "script": "#!/bin/bash\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\napt-get update\napt-get install -y --no-install-recommends git curl ca-certificates\nmkdir -p /mnt/server\ncd /mnt/server\n\nif [ \"${USER_UPLOAD:-0}\" = \"true\" ] || [ \"${USER_UPLOAD:-0}\" = \"1\" ]; then\n  echo \"user_upload mode — skipping git clone\"\n  exit 0\nfi\n\nGIT_ADDRESS=\"${GIT_ADDRESS:-}\"\nif [ -z \"${GIT_ADDRESS}\" ]; then\n  echo \"ERROR: GIT_ADDRESS is required\"\n  exit 1\nfi\nif [[ \"${GIT_ADDRESS}\" != *.git ]]; then\n  GIT_ADDRESS=\"${GIT_ADDRESS}.git\"\nfi\nBRANCH=\"${GIT_BRANCH:-main}\"\n\nif [ -n \"${ACCESS_TOKEN:-}\" ]; then\n  AUTH_HEADER=\"Authorization: Bearer ${ACCESS_TOKEN}\"\n  if [ -n \"${USERNAME:-}\" ]; then\n    AUTH_HEADER=\"Authorization: Basic $(printf '%s:%s' \"${USERNAME}\" \"${ACCESS_TOKEN}\" | base64 | tr -d '\\n')\"\n  fi\n  git -c http.extraHeader=\"${AUTH_HEADER}\" clone --branch \"${BRANCH}\" --single-branch \"${GIT_ADDRESS}\" .\n  git remote set-url origin \"${GIT_ADDRESS}\"\nelse\n  git clone --branch \"${BRANCH}\" --single-branch \"${GIT_ADDRESS}\" .\nfi\n\nif [ -f package.json ]; then\n  if [ -f package-lock.json ]; then npm ci || npm install; else npm install; fi\nfi\necho \"Node.js generic install complete\"\n",
             "container": "ghcr.io/pelican-eggs/installers:debian",
             "entrypoint": "bash"
         }
@@ -32,12 +31,12 @@
     "variables": [
         {
             "name": "Git Repository Address",
-            "description": "Git HTTPS URL for the Zene repository.",
+            "description": "HTTPS Git URL.",
             "env_variable": "GIT_ADDRESS",
-            "default_value": "https://github.com/lunedusk/zene.git",
+            "default_value": "",
             "user_viewable": true,
             "user_editable": true,
-            "rules": "required|string",
+            "rules": "required|string|max:255",
             "field_type": "text"
         },
         {
@@ -51,8 +50,8 @@
             "field_type": "text"
         },
         {
-            "name": "Auto Update",
-            "description": "git pull on start when 1.",
+            "name": "Auto Update (git pull)",
+            "description": "When 1, git pull --ff-only on start.",
             "env_variable": "AUTO_UPDATE",
             "default_value": "0",
             "user_viewable": true,
@@ -62,7 +61,7 @@
         },
         {
             "name": "User Upload",
-            "description": "Skip git clone.",
+            "description": "Skip git clone during install.",
             "env_variable": "USER_UPLOAD",
             "default_value": "0",
             "user_viewable": true,
@@ -72,47 +71,37 @@
         },
         {
             "name": "Additional Node packages",
-            "description": "Extra npm packages.",
+            "description": "Extra packages on start.",
             "env_variable": "NODE_PACKAGES",
             "default_value": "",
             "user_viewable": true,
             "user_editable": true,
-            "rules": "nullable|string",
-            "field_type": "text"
-        },
-        {
-            "name": "Uninstall Node packages",
-            "description": "Packages to uninstall.",
-            "env_variable": "UNNODE_PACKAGES",
-            "default_value": "",
-            "user_viewable": true,
-            "user_editable": true,
-            "rules": "nullable|string",
+            "rules": "nullable|string|max:255",
             "field_type": "text"
         },
         {
             "name": "Git Username",
-            "description": "Private git username.",
+            "description": "Optional username for private clone.",
             "env_variable": "USERNAME",
             "default_value": "",
             "user_viewable": true,
             "user_editable": true,
-            "rules": "nullable|string",
+            "rules": "nullable|string|max:128",
             "field_type": "text"
         },
         {
             "name": "Git Access Token",
-            "description": "Private git PAT.",
+            "description": "Optional PAT for private clone (not stored in remote URL).",
             "env_variable": "ACCESS_TOKEN",
             "default_value": "",
             "user_viewable": true,
             "user_editable": true,
-            "rules": "nullable|string",
+            "rules": "nullable|string|max:255",
             "field_type": "text"
         },
         {
             "name": "Main file",
-            "description": "Entry after build.",
+            "description": "Node entry script.",
             "env_variable": "MAIN_FILE",
             "default_value": "index.js",
             "user_viewable": true,
@@ -122,7 +111,7 @@
         },
         {
             "name": "Node arguments",
-            "description": "Extra node args (ESM loader applied automatically).",
+            "description": "Extra node arguments.",
             "env_variable": "NODE_ARGS",
             "default_value": "",
             "user_viewable": true,

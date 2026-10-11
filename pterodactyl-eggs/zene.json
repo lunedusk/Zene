@@ -1,30 +1,29 @@
 {
-    "_comment": "Zene egg for Pelican Panel (compatible with Pterodactyl PTDL_v2)",
+    "_comment": "Zene egg for Pelican Panel (PTDL_v2).",
     "meta": {
         "version": "PTDL_v2",
         "update_url": null
     },
-    "exported_at": "2026-09-04T00:00:00+00:00",
+    "exported_at": "2026-10-11T00:00:00+00:00",
     "name": "Zene",
     "author": "lunedusk",
-    "description": "Zene Discord framework (Node 20+, pure ESM). Clones a git repo, installs deps, builds when src/ is present, starts with node --import ./core/dependency/index.mjs when available.",
+    "description": "Zene Discord framework (Node 20+, pure ESM). Install clones the repo, installs locked dependencies, builds when src/ is present (failures abort install), and starts via node --import ./core/dependency/index.mjs. AUTO_UPDATE is panel git-pull only and is independent of Zene AutoUpdater.",
     "features": null,
     "docker_images": {
         "Node.js 20": "ghcr.io/pelican-eggs/yolks:nodejs_20",
-        "Node.js 22": "ghcr.io/pelican-eggs/yolks:nodejs_22",
-        "Node.js 24": "ghcr.io/pelican-eggs/yolks:nodejs_24"
+        "Node.js 22": "ghcr.io/pelican-eggs/yolks:nodejs_22"
     },
     "file_denylist": [],
-    "startup": "if [[ -d .git ]] && [[ \"{{AUTO_UPDATE}}\" == \"1\" ]]; then git pull; fi; if [[ -n \"${NODE_PACKAGES}\" ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ -n \"${UNNODE_PACKAGES}\" ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; if [ -d /home/container/src ]; then /usr/local/bin/npm run build; fi; fi; if [[ -f /home/container/core/dependency/index.mjs ]]; then /usr/local/bin/node --import ./core/dependency/index.mjs \"/home/container/${MAIN_FILE}\" ${NODE_ARGS}; elif [[ \"${MAIN_FILE}\" == *.ts ]]; then /usr/local/bin/npx --yes tsx \"/home/container/${MAIN_FILE}\" ${NODE_ARGS}; else /usr/local/bin/node \"/home/container/${MAIN_FILE}\" ${NODE_ARGS}; fi",
+    "startup": "set -euo pipefail\nif [[ -d .git ]] && [[ \"${AUTO_UPDATE:-0}\" == \"1\" ]]; then git pull --ff-only; fi\nif [[ -n \"${NODE_PACKAGES:-}\" ]]; then /usr/local/bin/npm install --no-save ${NODE_PACKAGES}; fi\nif [[ -n \"${UNNODE_PACKAGES:-}\" ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi\nif [[ ! -f /home/container/core/dependency/index.mjs ]]; then\n  if [[ -f /home/container/package.json ]]; then\n    /usr/local/bin/npm ci || /usr/local/bin/npm install\n    if [[ -d /home/container/src ]]; then /usr/local/bin/npm run slim-build; fi\n  fi\nfi\nif [[ ! -f /home/container/core/dependency/index.mjs ]]; then\n  echo \"ERROR: compiled Core entry core/dependency/index.mjs is missing after install/build.\"\n  exit 1\nfi\n\n# Production UI gate: DashboardMode=true requires a built SPA (never Vite in panel production).\nDM=\"$(echo \"${DashboardMode:-auto}\" | tr '[:upper:]' '[:lower:]')\"\nif [[ \"$DM\" == \"true\" ]]; then\n  if [[ ! -f /home/container/apps/web/dist/index.html ]]; then\n    echo \"ERROR: DashboardMode=true but apps/web/dist/index.html is missing. Rebuild UI or set DashboardMode=false.\"\n    exit 1\n  fi\n  if [[ ! -f /home/container/apps/web/scripts/dashboard-host.mjs ]]; then\n    echo \"ERROR: DashboardMode=true but apps/web/scripts/dashboard-host.mjs is missing.\"\n    exit 1\n  fi\nfi\nif [[ \"${NODE_ENV:-}\" == \"development\" ]]; then\n  echo \"WARNING: NODE_ENV=development enables Vite for the dashboard child; production panels should leave NODE_ENV unset or production.\"\nfi\n\nexec /usr/local/bin/node --import ./core/dependency/index.mjs \"/home/container/${MAIN_FILE}\" ${NODE_ARGS:-}",
     "config": {
         "files": "{}",
-        "startup": "{\n    \"done\": [\n        \"REST API active\",\n        \"HttpServer pipeline finalized\",\n        \"Ecosystem Boot Complete\",\n        \"Worker control plane active\",\n        \"Cross-Host boot starting\"\n    ]\n}",
+        "startup": "{\n    \"done\": [\n        \"REST API active\",\n        \"HttpServer pipeline finalized\",\n        \"Zene fully initialized\",\n        \"Ecosystem Boot Complete\",\n        \"Worker control plane active\",\n        \"Cross-Host boot starting\"\n    ]\n}",
         "logs": "{}",
         "stop": "^C"
     },
     "scripts": {
         "installation": {
-            "script": "#!/bin/bash\nset -euo pipefail\napt update\napt install -y git curl jq file unzip make gcc g++ python3 python3-dev python3-pip libtool\nnpm install npm@latest --location=global\nmkdir -p /mnt/server\ncd /mnt/server\nif [ \"${USER_UPLOAD:-}\" = \"true\" ] || [ \"${USER_UPLOAD:-}\" = \"1\" ]; then echo user_upload; exit 0; fi\nif [[ \"${GIT_ADDRESS}\" != *.git ]]; then GIT_ADDRESS=\"${GIT_ADDRESS}.git\"; fi\nif [ -z \"${USERNAME:-}\" ] && [ -z \"${ACCESS_TOKEN:-}\" ]; then\n  git clone --branch \"${GIT_BRANCH:-main}\" --single-branch \"${GIT_ADDRESS}\" .\nelse\n  git clone --branch \"${GIT_BRANCH:-main}\" --single-branch \"https://${USERNAME}:${ACCESS_TOKEN}@${GIT_ADDRESS#https://}\" .\nfi\nif [ -f package.json ]; then npm install; if [ -d src ]; then npm run build || true; fi; fi\necho Zene install complete\n",
+            "script": "#!/bin/bash\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\napt-get update\napt-get install -y --no-install-recommends git curl jq ca-certificates python3 make g++\nmkdir -p /mnt/server\ncd /mnt/server\n\nif [ \"${USER_UPLOAD:-0}\" = \"true\" ] || [ \"${USER_UPLOAD:-0}\" = \"1\" ]; then\n  echo \"user_upload mode \u2014 skipping git clone\"\n  exit 0\nfi\n\nGIT_ADDRESS=\"${GIT_ADDRESS:-}\"\nif [ -z \"${GIT_ADDRESS}\" ]; then\n  echo \"ERROR: GIT_ADDRESS is required\"\n  exit 1\nfi\nif [[ \"${GIT_ADDRESS}\" != *.git ]]; then\n  GIT_ADDRESS=\"${GIT_ADDRESS}.git\"\nfi\n\nBRANCH=\"${GIT_BRANCH:-main}\"\n\n# Clone without embedding credentials into the persisted remote URL.\nif [ -n \"${ACCESS_TOKEN:-}\" ]; then\n  AUTH_HEADER=\"Authorization: Bearer ${ACCESS_TOKEN}\"\n  if [ -n \"${USERNAME:-}\" ]; then\n    AUTH_HEADER=\"Authorization: Basic $(printf '%s:%s' \"${USERNAME}\" \"${ACCESS_TOKEN}\" | base64 | tr -d '\\n')\"\n  fi\n  git -c http.extraHeader=\"${AUTH_HEADER}\" clone --branch \"${BRANCH}\" --single-branch \"${GIT_ADDRESS}\" .\n  git remote set-url origin \"${GIT_ADDRESS}\"\nelse\n  git clone --branch \"${BRANCH}\" --single-branch \"${GIT_ADDRESS}\" .\nfi\n\nif [ -f package.json ]; then\n  if [ -f package-lock.json ]; then\n    npm ci\n  else\n    npm install\n  fi\n  if [ -d src ]; then\n    npm run slim-build\n  fi\n  if [ -d apps/web ] && [ -f apps/web/package.json ]; then\n    echo \"Building dashboard UI (apps/web)...\"\n    (cd apps/web && npm ci && npm run build)\n    if [ ! -f apps/web/dist/index.html ]; then\n      echo \"ERROR: apps/web/dist/index.html missing after dashboard build.\"\n      exit 1\n    fi\n  fi\nfi\n\nif [ ! -f core/dependency/index.mjs ] && [ ! -f index.js ]; then\n  echo \"ERROR: install finished without a runnable Core artifact\"\n  exit 1\nfi\n\necho \"Zene install complete\"\n",
             "container": "ghcr.io/pelican-eggs/installers:debian",
             "entrypoint": "bash"
         }
@@ -32,12 +31,12 @@
     "variables": [
         {
             "name": "Git Repository Address",
-            "description": "Git HTTPS URL for the Zene repository.",
+            "description": "HTTPS Git URL for the Zene repository (credentials are not written into the remote URL).",
             "env_variable": "GIT_ADDRESS",
-            "default_value": "https://github.com/lunedusk/zene.git",
+            "default_value": "https://github.com/lunedusk/Zene.git",
             "user_viewable": true,
             "user_editable": true,
-            "rules": "required|string",
+            "rules": "required|string|max:255",
             "field_type": "text"
         },
         {
@@ -51,8 +50,8 @@
             "field_type": "text"
         },
         {
-            "name": "Auto Update",
-            "description": "git pull on start when 1.",
+            "name": "Auto Update (git pull)",
+            "description": "When 1, run git pull --ff-only on each start. Independent of Zene AutoUpdater env.",
             "env_variable": "AUTO_UPDATE",
             "default_value": "0",
             "user_viewable": true,
@@ -62,7 +61,7 @@
         },
         {
             "name": "User Upload",
-            "description": "Skip git clone.",
+            "description": "Skip git clone during install (1/true).",
             "env_variable": "USER_UPLOAD",
             "default_value": "0",
             "user_viewable": true,
@@ -71,48 +70,58 @@
             "field_type": "text"
         },
         {
+            "name": "Dashboard Mode",
+            "description": "Separate dashboard process: auto (start when apps/web available), true (required), false (off). Core API stays on APIPort.",
+            "env_variable": "DashboardMode",
+            "default_value": "auto",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:auto,true,false",
+            "field_type": "text"
+        },
+        {
             "name": "Additional Node packages",
-            "description": "Extra npm packages.",
+            "description": "Extra packages installed on start (space-separated). Prefer baking deps into the image/repo.",
             "env_variable": "NODE_PACKAGES",
             "default_value": "",
             "user_viewable": true,
             "user_editable": true,
-            "rules": "nullable|string",
+            "rules": "nullable|string|max:255",
             "field_type": "text"
         },
         {
             "name": "Uninstall Node packages",
-            "description": "Packages to uninstall.",
+            "description": "Packages to uninstall on start (space-separated).",
             "env_variable": "UNNODE_PACKAGES",
             "default_value": "",
             "user_viewable": true,
             "user_editable": true,
-            "rules": "nullable|string",
+            "rules": "nullable|string|max:255",
             "field_type": "text"
         },
         {
             "name": "Git Username",
-            "description": "Private git username.",
+            "description": "Optional username for private clone (used only during install; not stored in remote URL).",
             "env_variable": "USERNAME",
             "default_value": "",
             "user_viewable": true,
             "user_editable": true,
-            "rules": "nullable|string",
+            "rules": "nullable|string|max:128",
             "field_type": "text"
         },
         {
             "name": "Git Access Token",
-            "description": "Private git PAT.",
+            "description": "Optional PAT for private clone (used only during install; not stored in remote URL).",
             "env_variable": "ACCESS_TOKEN",
             "default_value": "",
             "user_viewable": true,
             "user_editable": true,
-            "rules": "nullable|string",
+            "rules": "nullable|string|max:255",
             "field_type": "text"
         },
         {
             "name": "Main file",
-            "description": "Entry after build.",
+            "description": "Entry script after build (default index.js).",
             "env_variable": "MAIN_FILE",
             "default_value": "index.js",
             "user_viewable": true,
@@ -122,12 +131,22 @@
         },
         {
             "name": "Node arguments",
-            "description": "Extra node args (ESM loader applied automatically).",
+            "description": "Extra arguments after the entry file. ESM loader is applied automatically.",
             "env_variable": "NODE_ARGS",
             "default_value": "",
             "user_viewable": true,
             "user_editable": true,
             "rules": "nullable|string|max:128",
+            "field_type": "text"
+        },
+        {
+            "name": "Dashboard Port",
+            "description": "Port for the separate Vite/dashboard-host process (Core uses APIPort).",
+            "env_variable": "DashboardPort",
+            "default_value": "5173",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:5",
             "field_type": "text"
         }
     ]

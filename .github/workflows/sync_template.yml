@@ -36,11 +36,21 @@ jobs:
       - name: Sync Core → plugin-template
         env:
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
 
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          echo "Making plugin-template match $TAG (linear, no force-push)"
+          if [ -n "${INPUT_TAG:-}" ]; then
+            TAG="${INPUT_TAG}"
+          else
+            TAG="${REF_NAME}"
+          fi
+          if ! [[ "${TAG}" =~ ^v?[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+            echo "::error::Invalid tag '${TAG}'"
+            exit 1
+          fi
+          echo "Making plugin-template match ${TAG} (linear, no force-push)"
 
           if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
             git fetch --tags origin "${TAG}"

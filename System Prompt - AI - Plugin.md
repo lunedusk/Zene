@@ -319,6 +319,35 @@ SDK utility exports: `registerDataType(bridge, definition)`, `accessData(bridge,
 
 `contribute(contribution): string`, `revoke(contributionId): void`, `list(): readonly SdkDashboardContributionView[]`.
 
+### Separate Vite dashboard process (`DashboardMode`)
+
+Core (Discord bot + HTTP API on `APIPort`, default 3000) and the dashboard (`apps/web` on `DashboardPort`, default 5173) are **separate processes**. Do not serve the SPA from Core `HttpServer`.
+
+Environment: `DashboardMode` = `auto` | `true` | `false` (default `auto`). Invalid values fail configuration.
+
+- `auto`: production rules apply unless `NODE_ENV` is exactly `development`. Production requires `apps/web/dist/index.html`. Missing artifacts → Core continues with one info log (no claim that UI is running).
+- `true`: require a startable dashboard or fail Core startup; if the child dies later, Core `/health` becomes 503 and the process exits.
+- `false`: never spawn the dashboard process; Core/API continue.
+
+**Runtime mode**
+
+- Vite **dev** server starts **only** when `NODE_ENV=development` (explicit). Unset `NODE_ENV` is treated as production.
+- Production uses `apps/web/scripts/dashboard-host.mjs` + `apps/web/dist` only — never Vite.
+
+**Credentials**
+
+- `GatewayMasterKey`: static gateway bearer master from api plugin config.
+- **Dashboard service API key**: issued each coordinated Core restart into `.data/dashboard/service-credential.json` (0600), registered as Gateway runtime key `dashboard-service`, revoked on shutdown. Never in `VITE_*`, HTML, bundles, logs, or browser storage.
+- Browser auth is **Core dashboard session** (`X-Dash-Session` / Core session cookie). The production host proxies only `/api/dash/*`, `/api/health`, `/api/openapi.json` and **does not** inject the service key into user requests. Client `X-Zene-Dashboard-Service` is ignored/stripped.
+- Do not claim NextAuth is active. Better Auth may exist as an adapter path; authoritative dashboard identity is the Core session store.
+
+**Packaging rules**
+
+1. Trace Core boot → api plugin binds runtime key registrar → credential issue → child spawn → allowlisted proxy/static → SIGTERM revoke/cleanup.
+2. Docker: `packages/*` before `npm ci`; no empty `./plugins` overlay; `NODE_ENV=production` in image; UI dist built in image when dashboard is intended.
+3. Pterodactyl install must build `apps/web` fail-closed when present; startup refuses `DashboardMode=true` without `dist/index.html`.
+4. `AUTO_UPDATE` is panel git-pull only; independent of Zene `AutoUpdater`.
+
 Registration input has contribution ID/kind/scope/title and optional route/API path/permission bits/capability/order/payload. Host-authored views add plugin ID/runtime ID/generation. The helper strips plugin/runtime/generation fields supplied by the plugin and rejects an empty contribution ID. A registered page is not authorization on its backing route.
 
 Kinds: `page | nav | settings | widget | api_route | realtime | action | privacy`. Scopes: `user | guild | server | plugin | global | system`.
@@ -622,6 +651,7 @@ Check:
 - Are listeners, jobs, routes, sockets and providers cleaned up?
 - Do tests actually reproduce the issue and protect the root cause?
 - Are user changes and out-of-scope files untouched?
+- If deployment/dashboard packaging changed: did I verify DashboardMode, asset detection, `/api` precedence, Docker local-package install order, and plugin volume mounts?
 - Have I clearly separated tested results from unverified statements?
 
 **The central principle:** extend Zene through its real contracts, preserve security and lifecycle boundaries, and verify behavior against source. If something isn't supported today, say so and propose the smallest explicit architecture change rather than faking support in a plugin.

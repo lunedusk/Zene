@@ -1,4 +1,8 @@
-# ##--- AI GENERATED FILE ---##
+# Zene production Compose stack.
+# Plugins are baked into the image by the Dockerfile. Do not bind-mount ./plugins
+# over /app/plugins — an empty host directory would hide image plugins.
+# Rebuild the image to refresh bundled plugins.
+
 services:
   zene:
     container_name: zene
@@ -10,7 +14,13 @@ services:
       NODE_ENV: production
       TZ: ${TZ:-UTC}
       DefaultLocale: ${DefaultLocale:-en}
+      APIHost: ${APIHost:-0.0.0.0}
       APIPort: ${APIPort:-3000}
+      DashboardMode: ${DashboardMode:-auto}
+      DashboardPort: ${DashboardPort:-5173}
+      ApiPublicUrl: ${ApiPublicUrl:-}
+      DashboardPublicUrl: ${DashboardPublicUrl:-}
+      GatewayMasterKey: ${GatewayMasterKey:-}
       DiscordToken: ${DiscordToken}
       DiscordIntents: ${DiscordIntents:-default}
       LogLevel: ${LogLevel:-info}
@@ -27,23 +37,29 @@ services:
       CROSS_HOST: ${CROSS_HOST:-false}
     ports:
       - "${APIPort:-3000}:${APIPort:-3000}"
+      - "${DashboardPort:-5173}:${DashboardPort:-5173}"
     env_file:
-      - .env
+      - path: .env
+        required: false
     volumes:
-      - ./plugins:/app/plugins
-      - ./.data:/app/.data
-      - ./logs:/app/logs
-      - ./configuration:/app/configuration
-      - ./takebacks.json:/app/takebacks.json:ro
+      - zene-data:/app/.data
+      - zene-logs:/app/logs
+      - zene-config:/app/configuration
     healthcheck:
       test:
         [
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:'+(process.env.APIPort||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+          "fetch('http://127.0.0.1:'+(process.env.APIPort||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
         ]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 40s
+    stop_grace_period: 30s
+
+volumes:
+  zene-data:
+  zene-logs:
+  zene-config:

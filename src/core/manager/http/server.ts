@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { secrets } from '#core/helpers/secretManager.js';
 import { NovaError } from '#core/errors/NovaError.js';
 import { errors } from '#core/errors/index.js';
+import { mountDashboardStatic, type MountDashboardResult } from '#core/manager/http/dashboardStatic.js';
 
 const log = getLogger('HttpServer');
 
@@ -46,7 +47,26 @@ export class HttpServer {
         });
 
         this.app.get('/health', (_req: Request, res: Response) => {
-            res.status(200).json({ ok: true });
+            // Lazy import avoids circular init; supervisor tracks optional dashboard child.
+            void import('#core/dashboard/supervisor.js')
+                .then(({ getDashboardSupervisorStatus, isDashboardHealthOk }) => {
+                    const dash = getDashboardSupervisorStatus();
+                    const dashOk = isDashboardHealthOk();
+                    const body = {
+                        ok: dashOk,
+                        core: true,
+                        dashboard: {
+                            mode: dash.mode,
+                            desired: dash.desired,
+                            running: dash.running,
+                            reason: dash.reason,
+                        },
+                    };
+                    res.status(dashOk ? 200 : 503).json(body);
+                })
+                .catch(() => {
+                    res.status(200).json({ ok: true, core: true, dashboard: { desired: false, running: false } });
+                });
         });
     }
 
@@ -106,6 +126,17 @@ export class HttpServer {
                 reject(error);
             }
         });
+    }
+
+    /**
+     * Mount the optional integrated SPA after plugin routes are registered
+     * and before finalize()'s JSON catch-all. See DashboardMode.
+     */
+    public mountDashboardUI(registryHasDashboard: boolean): MountDashboardResult {
+        if (!this.app) {
+            throw new Error('HttpServer not initialized.');
+        }
+        return mountDashboardStatic(this.app, { registryHasDashboard });
     }
 
     public finalize(): void {

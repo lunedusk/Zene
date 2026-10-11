@@ -52,6 +52,8 @@ export class GatewayConfigManager {
     private static _instance: GatewayConfigManager;
     private _config!: Readonly<GatewayPluginConfig>;
     private _cachedSpec: Record<string, unknown> | null = null;
+    /** Process-local service keys (e.g. dashboard-service). Not persisted in plugin config. */
+    private readonly runtimeKeys = new Map<string, AuthKeyEntry>();
 
     private constructor() {}
 
@@ -76,6 +78,41 @@ export class GatewayConfigManager {
         }
 
         log.info('Gateway config loaded from framework ConfigManager.');
+    }
+
+
+    /**
+     * Register or replace a runtime API key (dashboard service, etc.).
+     * Key material is matched with the same timing-safe path as config keys.
+     */
+    public registerRuntimeKey(entry: AuthKeyEntry): void {
+        if (!entry.key || entry.key.length < 16) {
+            throw new NovaError('Runtime API key must be at least 16 characters.', {
+                code: 'GATEWAY.RUNTIME_KEY_INVALID',
+                category: 'gateway',
+                severity: 'error',
+                userMessage: 'Invalid runtime API key.',
+                statusCode: 500,
+            });
+        }
+        const label = entry.label.trim() || 'runtime';
+        this.runtimeKeys.set(label, {
+            key: entry.key,
+            label,
+            enabled: entry.enabled !== false,
+            bits: Array.isArray(entry.bits) ? [...entry.bits] : [],
+        });
+        log.info(`Registered runtime API key label=${label} enabled=${entry.enabled !== false}`);
+    }
+
+    public revokeRuntimeKey(label: string): boolean {
+        const removed = this.runtimeKeys.delete(label.trim());
+        if (removed) log.info(`Revoked runtime API key label=${label}`);
+        return removed;
+    }
+
+    public clearRuntimeKeys(): void {
+        this.runtimeKeys.clear();
     }
 
     public get cors(): Readonly<CorsConfig> { return this._config.cors; }
@@ -388,6 +425,16 @@ export class GatewayConfigManager {
             const masterKey = secrets.getOptional(this._config.auth.masterKeyEnvVar);
             if (masterKey && this.safeEquals(key, masterKey)) {
                 return { isMaster: true, label: 'env-master', bits: [] };
+            }
+        }
+
+        for (const entry of this.runtimeKeys.values()) {
+            if (entry.enabled && this.safeEquals(key, entry.key)) {
+                return {
+                    isMaster: false,
+                    label: entry.label,
+                    bits: Array.isArray(entry.bits) ? entry.bits : [],
+                };
             }
         }
 

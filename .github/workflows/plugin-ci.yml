@@ -49,14 +49,23 @@ jobs:
 
       - name: Resolve plugin name
         id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_PLUGIN: ${{ github.event.inputs.plugin }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            PLUGIN_NAME="${{ github.event.inputs.plugin }}"
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            PLUGIN_NAME="${DISPATCH_PLUGIN}"
           else
-            PLUGIN_NAME=${GITHUB_REF_NAME#plugin-}
+            PLUGIN_NAME=${REF_NAME#plugin-}
           fi
-          echo "plugin=$PLUGIN_NAME" >> "$GITHUB_OUTPUT"
+          # Strict plugin id: lowercase alnum, dash, underscore only
+          if ! [[ "${PLUGIN_NAME}" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]]; then
+            echo "::error::Invalid plugin id '${PLUGIN_NAME}'. Expected [a-z0-9][a-z0-9_-]{0,63}."
+            exit 1
+          fi
+          echo "plugin=${PLUGIN_NAME}" >> "$GITHUB_OUTPUT"
           MANIFEST="src/plugins/${PLUGIN_NAME}/manifest.json"
           if [ ! -f "$MANIFEST" ]; then
             echo "::error::manifest.json not found at $MANIFEST"

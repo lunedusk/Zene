@@ -116,3 +116,22 @@ export {
     type FrontendContributionView,
     type ContributionActionHandler,
 } from './contributionFrontend.js';
+
+export {
+    issueDashboardServiceCredential,
+    readDashboardServiceCredential,
+    clearDashboardServiceCredentialFile,
+    DASHBOARD_SERVICE_LABEL,
+} from './serviceCredential.js';
+export {
+    startDashboardSupervisor,
+    stopDashboardSupervisor,
+    inspectDashboardAvailability,
+    getDashboardSupervisorStatus,
+    isDashboardHealthOk,
+    isExplicitDevelopmentMode,
+} from './supervisor.js';
+export {
+    bindGatewayRuntimeKeyRegistrar,
+    getGatewayRuntimeKeyRegistrar,
+} from './gatewayKeyBridge.js';

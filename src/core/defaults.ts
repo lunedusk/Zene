@@ -1,3 +1,10 @@
+/**
+ * Single source of truth for framework env/secret defaults.
+ * Required secrets (tokens, URIs, PATs) are listed as required with no value.
+ * Call sites should prefer secrets.getOptional / getBoolean (auto-fallback)
+ * or import constants from this module for boot-critical materialization.
+ */
+
 export const BUILTIN_PUBLIC_KEY =
     'MCowBQYDK2VwAyEAxGjGVv/sK86Px3N7hLY1x1QxS5bugvrqPlo8MW95BwQ=';
 
@@ -6,11 +13,14 @@ export type DefaultKind = 'string' | 'boolean' | 'number';
 export interface DefaultEntry {
     readonly key: string;
     readonly kind: DefaultKind;
+    /** Present for optional keys with a safe default. Absent when required. */
     readonly value?: string | boolean | number;
     readonly required?: boolean;
+    /** When true, never materialize onto process.env at boot. */
     readonly sensitive?: boolean;
 }
 
+/** Keys materialized onto process.env when unset (boot parity with legacy index.ts). */
 export const MATERIALIZE_KEYS = ['NODE_ENV', 'PublicKey'] as const;
 
 const ENTRIES: readonly DefaultEntry[] = [
@@ -25,6 +35,10 @@ const ENTRIES: readonly DefaultEntry[] = [
 
     { key: 'APIPort', kind: 'string', value: '3000' },
     { key: 'APIHost', kind: 'string', value: '0.0.0.0' },
+    { key: 'DashboardMode', kind: 'string', value: 'auto' },
+    { key: 'DashboardPort', kind: 'string', value: '5173' },
+    { key: 'DashboardPublicUrl', kind: 'string' },
+    { key: 'ApiPublicUrl', kind: 'string' },
 
 
     { key: 'hotReloadEnabled', kind: 'boolean', value: false },
@@ -114,6 +128,10 @@ export function defaultNumber(key: string): number | undefined {
     return Number.isFinite(n) ? n : undefined;
 }
 
+/**
+ * Write NODE_ENV and PublicKey onto process.env when unset (legacy boot parity).
+ * Does not materialize other registry keys.
+ */
 export function materializeBootEnv(): void {
     for (const key of MATERIALIZE_KEYS) {
         const current = process.env[key];

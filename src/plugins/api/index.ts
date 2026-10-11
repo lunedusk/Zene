@@ -1,5 +1,6 @@
 import { BasePlugin, type PluginManifest } from '#core/bases/Plugin.js';
 import { GatewayConfigManager, type GatewayPluginConfig } from './src/lib/GatewayConfigManager.js';
+import { bindGatewayRuntimeKeyRegistrar } from '#core/dashboard/gatewayKeyBridge.js';
 import { NovaError } from '#core/errors/NovaError.js';
 
 import { featureRequirements } from '#core/manager/featureRequirements.js';
@@ -31,6 +32,19 @@ export default class ApiGatewayPlugin extends BasePlugin {
         }
 
         GatewayConfigManager.instance.init(config);
+        bindGatewayRuntimeKeyRegistrar({
+            registerRuntimeKey: (entry) =>
+                GatewayConfigManager.instance.registerRuntimeKey({
+                    key: entry.key,
+                    label: entry.label,
+                    enabled: entry.enabled,
+                    ...(entry.bits === undefined
+                        ? {}
+                        : { bits: [...entry.bits] }),
+                }),
+            revokeRuntimeKey: (label) =>
+                GatewayConfigManager.instance.revokeRuntimeKey(label),
+        });
         this.log.info('API Gateway config manager initialised.');
     }
 
@@ -39,6 +53,8 @@ export default class ApiGatewayPlugin extends BasePlugin {
     }
 
     public async onDisable(): Promise<void> {
+        bindGatewayRuntimeKeyRegistrar(null);
+        GatewayConfigManager.instance.clearRuntimeKeys();
         this.log.info('API Gateway shut down.');
     }
     private registerApiFeatureRequirements(): void {
