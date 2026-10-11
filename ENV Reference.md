@@ -1,204 +1,249 @@
-# Environment and configuration reference
+# Zene environment and configuration reference
 
-This document is the production inventory of environment and configuration inputs for Zene.
-It is generated from Core defaults (`src/core/defaults.ts`), `SecretManager` accessors, and direct `process.env` reads under `src/`.
+This is a source-oriented reference for configuration keys read by Zene Core and its first-party runtime subsystems at the documentation baseline `c510bbf8fde1fedffd05efe2779ee71e90d5597d`. It distinguishes framework defaults, runtime inputs, sensitive values, plugin-defined settings, and one-shot script inputs. It deliberately does not list test-harness variables as production configuration.
 
-## How configuration is read
+## 1. How values are resolved
 
-1. Values are stored in `process.env` (including values loaded from `.env` by the process launcher).
-2. `SecretManager` (`src/core/helpers/secretManager.ts`) reads keys via `get`, `getOptional`, `getBoolean`, and related helpers, applying defaults from `src/core/defaults.ts` when present.
-3. Structured JSON may be supplied as a single environment value (notably `Database`).
-4. Boot materializes only `NODE_ENV` and `PublicKey` onto `process.env` when unset (`materializeBootEnv`).
+### Startup loading
 
-**Restart** is required for almost all keys after change. Do not assume live reload unless a subsystem documents it.
+The normal entrypoint imports `dotenv/config` before running Core initialization. On boot, `src/core/defaults.ts` defines framework defaults and `materializeBootEnv()` materializes only `NODE_ENV` and `PublicKey` when those keys are empty/unset. The boot pipeline then assimilates environment settings, expands placeholders, locks SecretManager behavior and runs shared startup preparation.
 
-**Secrets:** any key marked sensitive must never be committed or logged.
+`SecretManager` in `src/core/helpers/secretManager.ts` stores values in `process.env`. Its accessors are:
 
-Test-only harness variables (`ZENE_DATA_INTEGRATION`, `ZENE_TEST_*`, temporary migration helpers used only in local tests) are **not** part of the production contract and are omitted here.
+- `get(key)`: returns a non-empty string; throws `VaultMissingKeyError` if missing/empty.
+- `getOptional(key, fallback?)`: returns the non-empty environment value, otherwise the explicit fallback when passed, otherwise the registered default string when one exists, otherwise `undefined`.
+- `getBoolean(key, fallback?)`: parses non-empty `true`, `1`, or `yes` (case-insensitive/trimmed) as true; other non-empty values are false. When empty/unset, uses a registered boolean/string default where available, then the caller fallback.
+- `has(key)` / `keys()`: inspect current non-empty process environment keys.
+- `set` / `replaceExpanded`: writes to `process.env` and blocks overwriting an already sealed key after lock.
+- `applyEnvReload(mutations, allowSet)`: updates only allowlisted keys and never mutates identity keys `DiscordToken` or `DiscordIntents` through that path.
 
-## Production environment variables
+The vault does **not** encrypt all values in process memory or scrub sensitive settings from `process.env`. In-process code may read those values directly. Treat all in-process plugins as trusted with respect to parent-process secrets.
 
-| Variable | Type | Default | Required | Secret | Purpose |
-|----------|------|---------|----------|--------|----------|
-| `NODE_ENV` | string | `production` | no | no | Process environment mode |
-| `PublicKey` | string | `builtin Ed25519 public key` | no | no | Default plugin verification public key |
-| `DiscordToken` | string | `—` | yes | yes | Discord bot token |
-| `BotOwnerIds` | string | `empty` | no | no | Comma-separated Discord user IDs treated as bot owners |
-| `DefaultLocale` | string | `en` | no | no | Default locale code |
-| `GuildID` | string | `—` | no | no | Optional primary guild id for some features |
-| `APIPort` | string | `3000` | no | no | HTTP API listen port |
-| `APIHost` | string | `0.0.0.0` | no | no | HTTP API bind host |
-| `hotReloadEnabled` | boolean | `false` | no | no | Enable plugin hot-reload behavior when supported |
-| `isSharded` | boolean | `false` | no | no | Classic sharding mode indicator |
-| `CROSS_HOST` | boolean | `false` | no | no | Enable Cross-Host multi-machine mode |
-| `EnableGlobalRatelimit` | boolean | `true` | no | no | Global rate-limit enforcement |
-| `AuditFailClosed` | boolean | `false` | no | no | Fail closed on audit write failures when true |
-| `allowUnCertifiedPlugins` | boolean | `false` | no | no | Allow loading uncertified/unsigned plugins (security risk) |
-| `DisableDefaultSqlite` | boolean | `false` | no | no | Do not auto-provision default SQLite |
-| `DisableDefaultSurrealDB` | boolean | `false` | no | no | Do not auto-provision default Surreal main |
-| `AutoUpdater` | boolean | `true` | no | no | Enable automatic updater checks |
-| `DevBuilds` | boolean | `false` | no | no | Allow development builds in updater policy |
-| `SafeUpdate` | boolean | `true` | no | no | Prefer safe-update baseline policy |
-| `UpdaterKeepExtra` | boolean | `true` | no | no | Keep extra files according to updater policy |
-| `UpdaterAllowForce` | boolean | `false` | no | no | Allow forced updater operations |
-| `UpdaterDryRun` | boolean | `false` | no | no | Plan updates without applying |
-| `UpdaterBackgroundApply` | boolean | `false` | no | no | Apply updates in background when supported |
-| `UpdaterAutoRollback` | boolean | `true` | no | no | Automatic rollback on failed apply |
-| `UpdaterDefaultRepo` | string | `lunedusk/Zene` | no | no | Default GitHub repository for updates |
-| `UpdaterBranch` | string | `main` | no | no | Default branch for update resolution |
-| `UpdaterMaxBackups` | string | `3` | no | no | Maximum retained backups |
-| `UpdaterTimeoutMs` | string | `300000` | no | no | Updater operation timeout in ms |
-| `UpdaterPluginManifest` | string | `manifest.json` | no | no | Plugin manifest filename for updater |
-| `UpdaterMode` | string | `standalone` | no | no | Updater operating mode |
-| `UpdaterIntervalMs` | string | `21600000` | no | no | Background check interval ms |
-| `UpdaterHealthGraceMs` | string | `900000` | no | no | Post-update health grace period ms |
-| `UpdaterNotifyChannel` | string | `—` | no | no | Optional Discord channel id for update notifications |
-| `UpdaterPostUpdateCmd` | string | `—` | no | no | Optional shell command after successful update |
-| `ErrorCoalesceWindowSec` | string | `60` | no | no | Seconds window for error occurrence coalescing |
-| `TokenMasterSecret` | string | `—` | yes | yes | Master secret for token subsystem (required when tokens used) |
-| `TokenTTL` | string | `900` | no | no | Default token TTL seconds |
-| `TokenMaxTTL` | string | `86400` | no | no | Maximum allowed token TTL seconds |
-| `TokenIssuer` | string | `zene` | no | no | JWT/token issuer claim |
-| `TokenAudience` | string | `dashboard` | no | no | JWT/token audience claim |
-| `CROSS_HOST_HTTP_HOST` | string | `0.0.0.0` | no | no | Cross-Host control HTTP bind host |
-| `CROSS_HOST_HTTP_PORT` | string | `8020` | no | no | Cross-Host control HTTP port |
-| `CROSS_HOST_MTLS_ENABLED` | boolean | `false` | no | no | Require mTLS for Cross-Host HTTP |
-| `CROSS_HOST_INDEX_ENABLED` | boolean | `false` | no | no | Enable Cross-Host index features |
-| `CROSS_HOST_API_GATEWAY_ENABLED` | boolean | `true` | no | no | Enable Cross-Host API gateway |
-| `CROSS_HOST_LOAD_WEIGHT_GUILD` | string | `1` | no | no | Load weight: guilds |
-| `CROSS_HOST_LOAD_WEIGHT_MEMBER` | string | `0.001` | no | no | Load weight: members |
-| `CROSS_HOST_LOAD_WEIGHT_EVENT` | string | `10` | no | no | Load weight: events |
-| `CROSS_HOST_LOAD_WEIGHT_COMMAND` | string | `20` | no | no | Load weight: commands |
-| `CROSS_HOST_LOAD_WEIGHT_SHARD` | string | `0.5` | no | no | Load weight: shards |
-| `CROSS_HOST_CLUSTER_SECRET` | string | `—` | no | yes | Shared cluster secret for Cross-Host auth |
-| `CROSS_HOST_MACHINE_ID` | string | `—` | no | no | Stable machine identity for this host |
-| `CROSS_HOST_ROLE` | string | `—` | no | no | Process role (orchestrator/worker/etc.) |
-| `CROSS_HOST_ORCHESTRATOR_URL` | string | `—` | no | no | Orchestrator base URL for workers |
-| `CROSS_HOST_TOKEN_TTL_SEC` | string | `—` | no | no | Cross-Host machine token TTL seconds |
-| `CROSS_HOST_HEARTBEAT_MS` | string | `—` | no | no | Heartbeat interval ms |
-| `CROSS_HOST_DEAD_GRACE_MS` | string | `—` | no | no | Dead-member grace period ms |
-| `CROSS_HOST_SUSPECT_AFTER` | string | `—` | no | no | Suspect threshold |
-| `CROSS_HOST_TOTAL_SHARDS` | string | `—` | no | no | Total shard count when assigned |
-| `CROSS_HOST_MANUAL_SHARDS` | string | `—` | no | no | Manual shard assignment list |
-| `CROSS_HOST_ASSIGNMENT_STRATEGY` | string | `—` | no | no | Shard assignment strategy name |
-| `CROSS_HOST_COMPAT_MODE` | string | `—` | no | no | Compatibility mode flag/string |
-| `CROSS_HOST_MTLS_CA_PATH` | string | `—` | no | yes | mTLS CA certificate path |
-| `CROSS_HOST_MTLS_CERT_PATH` | string | `—` | no | yes | mTLS client/server cert path |
-| `CROSS_HOST_MTLS_KEY_PATH` | string | `—` | no | yes | mTLS private key path |
-| `CROSS_HOST_WORKER_API_HOST` | string | `—` | no | no | Worker API bind host |
-| `CROSS_HOST_WORKER_API_PORT` | string | `—` | no | no | Worker API port |
-| `CROSS_HOST_WORKER_API_ADVERTISE_HOST` | string | `—` | no | no | Advertised worker API host |
-| `CROSS_HOST_API_PROXY_TIMEOUT_MS` | string | `—` | no | no | API proxy timeout ms |
-| `CROSS_HOST_QUERY_TIMEOUT_MS` | string | `—` | no | no | Distributed query timeout ms |
-| `CROSS_HOST_QUERY_CONCURRENCY` | string | `—` | no | no | Distributed query concurrency |
-| `CROSS_HOST_STATS_INTERVAL_MS` | string | `—` | no | no | Stats publish interval ms |
-| `CROSS_HOST_REBALANCE_COOLDOWN_MS` | string | `—` | no | no | Rebalance cooldown ms |
-| `CROSS_HOST_REBALANCE_MAX_MOVES` | string | `—` | no | no | Max moves per rebalance |
-| `CROSS_HOST_REBALANCE_MIN_IMPROVEMENT` | string | `—` | no | no | Minimum improvement threshold |
-| `CROSS_HOST_MAX_CONCURRENT_UPDATES` | string | `—` | no | no | Rolling update concurrency |
-| `CROSS_HOST_INDEX_RETENTION_DAYS` | string | `—` | no | no | Index retention days |
-| `CROSS_HOST_LOAD_IMBALANCE_THRESHOLD` | string | `—` | no | no | Load imbalance threshold |
-| `CROSS_HOST_REGION_LABEL_KEY` | string | `—` | no | no | Region label metadata key |
-| `Database` | json-string | `—` | no | yes | JSON map of database aliases to engine configs |
-| `CoreDataEngine` | string | `—` | no | no | Explicit Core data durable engine selection |
-| `CoreDataAlias` | string | `—` | no | no | Explicit Core data connection alias |
-| `DiscordIntents` | string | `—` | no | no | Discord gateway intents configuration |
-| `LogLevel` | string | `—` | no | no | Logging level (also LOG_LEVEL in some paths) |
-| `LOG_LEVEL` | string | `—` | no | no | Alternate logging level env name |
-| `LogTZ` | string | `—` | no | no | Timezone for log timestamps when supported |
-| `TZ` | string | `—` | no | no | Process timezone |
-| `PluginPublicKeys` | string | `—` | no | no | Additional trusted plugin public keys |
-| `PLUGIN_SIGNING_KEY` | string | `—` | yes | yes | Private key material for packing/signing plugins |
-| `PrivateKey` | string | `—` | no | yes | Legacy/alternate private key env |
-| `GatewayMasterKey` | string | `—` | no | yes | Gateway master key when used |
-| `GithubPat` | string | `—` | no | yes | GitHub PAT for updater/repo access |
-| `GH_TOKEN` | string | `—` | no | yes | Alternate GitHub token env |
-| `RepositoryUrl` | string | `—` | no | no | Override repository URL |
-| `PluginAssetsOrigin` | string | `—` | no | no | Allowed origin for plugin dashboard assets |
-| `BETTER_AUTH_SECRET` | string | `—` | no | yes | Dashboard Better Auth secret when BA adapter is used |
-| `DASH_PREVIEW_SECRET` | string | `—` | no | yes | Dashboard preview secret |
-| `whitelistedPlugins` | string | `—` | no | no | Comma-separated plugin allowlist when policy uses it |
-| `SHARD_LIST` | string | `—` | no | no | Shard list for classic sharding |
-| `REDIS_URL` | string | `—` | no | yes | Convenience Redis URL when used by a subsystem |
-| `UPDATER_ONLY` | string | `—` | no | no | Run updater-only entry behavior when set |
-| `UpdaterOnly` | string | `—` | no | no | Alternate updater-only flag casing |
-| `ZENE_DEFAULT_RUNTIME` | string | `—` | no | no | Default plugin runtime preference for policy |
-| `ZENE_PLUGIN_ID` | string | `—` | no | no | Runtime host context plugin id (isolated hosts) |
-| `ZENE_RUNTIME_ID` | string | `—` | no | no | Runtime host context runtime id (isolated hosts) |
+### Configuration precedence
 
-## Variable details (selected critical keys)
+The non-secret resolver in `src/core/config/precedence.ts` documents this order: runtime override → non-empty `process.env` → supplied `common.json` value → framework default → absent. It does not read secret values through the SecretManager and should not be used to bypass secret-specific access policy.
 
-### DiscordToken
-- **Required** for Discord gateway login.
-- **Secret.**
-- Read at boot via secret/config accessors.
-- Missing value fails Discord login.
+Plugin config (`configuration/*.json5`), language files and some subsystem configuration sections are separate file-based inputs. They are not all environment variables and should not be placed into `.env` unless a specific parser says so.
 
-### BotOwnerIds
-- Comma-separated snowflake user IDs.
-- Default empty string (no owners configured).
-- Used for owner-gated operations.
+### Restart and reload
 
-### Database
-- JSON object mapping **alias → connection config**.
-- Not a list of engines; each alias has one `engine` and one `uri`.
-- Example:
+Treat changing an environment variable as a restart-required operation unless the specific subsystem implements an approved reload path. Config/language/emoji reloads do not make every process environment key hot-reloadable. The updater also excludes `.env`, `.env.local` and other operational config files from ordinary code replacement.
 
-```json
-{
-  "main": {
-    "uri": "rocksdb://local",
-    "engine": "surrealdb",
-    "namespace": "main",
-    "database": "main"
-  }
-}
+## 2. Types and safety markers
+
+- **String:** environment values arrive as strings, even where parsers later interpret numbers.
+- **Boolean:** usually parsed using `SecretManager.getBoolean`; many ad hoc script flags instead compare strings such as `'1'`.
+- **JSON string:** must be valid JSON on one line unless the dotenv parser is explicitly configured for multiline values.
+- **Secret:** credential or private material. Store in secret management; never commit or log it.
+- **Runtime-managed:** an isolated host or launcher may set it. Do not set it manually unless operating that runtime directly.
+- **Script-only:** only consumed by a maintenance/migration command, not ordinary bot boot.
+
+A dash (`—`) below means no general default is registered for that key in `defaults.ts`, unless the description names a subsystem fallback. It does not automatically mean the key is required at startup.
+
+## 3. Process, identity and HTTP
+
+| Key | Default / fallback | Purpose and behavior | Sensitivity |
+|---|---|---|---|
+| `NODE_ENV` | `production` | Process mode. Materialized during boot when unset. Also affects production-sensitive validation/placeholder behavior and logging. | No |
+| `PublicKey` | Built-in Ed25519 public key | Default plugin artifact verification key. Per-plugin `PluginPublicKeys` entries and wildcard may override it. Public verification material, not a signing secret. | Public key |
+| `DiscordToken` | Required; no usable default | Discord bot token. Required for gateway login. Identity key cannot be changed through sanctioned env reload. | **Secret** |
+| `DiscordIntents` | Intent builder default when absent | Optional comma-separated intent selection used by `src/index.ts`; validate against the installed Discord intent builder. Treat identity changes as restart-only. | Not usually secret, but operationally sensitive |
+| `BotOwnerIds` | Empty string | Comma-separated Discord user IDs consulted by owner-sensitive permission paths. Only place trusted operator IDs here. | Personal/admin identity data |
+| `DefaultLocale` | `en` | Master/default locale used in language lookups and fallback selection. | No |
+| `GuildID` | — | Optional primary guild ID used by some command-sync/feature paths. Guild-specific behavior may differ from global mode. | No |
+| `APIPort` | `3000` | Main HTTP API listen port. Parsed as a number by callers; invalid strings can cause startup/config issues. | No |
+| `APIHost` | `0.0.0.0` | Main HTTP server bind host. Binding all interfaces exposes the service on all available interfaces unless firewalled. | No |
+| `hotReloadEnabled` | `false` | Enables supported config/language/emoji hot-reload behavior. Does not make arbitrary env updates safe. | No |
+| `isSharded` | `false` | Indicates classic shard deployment to mode/requirements logic. It is not by itself proof that a shard manager is actually running. | No |
+| `SHARD_LIST` | Runtime-dependent | Used by classic sharding/worker detection. Should be set by the sharding launcher, not used as a casual user preference. | Runtime-managed |
+| `UPDATER_ONLY` | Unset | If string equals `1`, starts updater-only mode. | No |
+| `UpdaterOnly` | Unset | Alternate-casing updater-only flag; if string equals `1`, starts updater-only mode. | No |
+
+## 4. Plugin trust and packaging
+
+| Key | Default / fallback | Purpose and behavior | Sensitivity |
+|---|---|---|---|
+| `allowUnCertifiedPlugins` | `false` | Allows the explicit uncertified/bypass trust path when the implementation permits it. Enabling increases risk; keep false for normal production. | Security-sensitive toggle |
+| `whitelistedPlugins` | — | Comma-separated plugin directory/folder names used by the trust gate's allowlist path. It is not an arbitrary plugin ID capability grant. | No, but security-sensitive |
+| `PluginPublicKeys` | — | JSON object mapping plugin IDs or `*` to public verification keys. Invalid JSON is ignored with a warning by the key parser. | Public key material |
+| `PrivateKey` | — | Legacy/alternate signing private key source consulted by the manifest packer. | **Secret** |
+| `PLUGIN_SIGNING_KEY` | — | Signing private key material consulted by the manifest packer; prefer a protected secret source. | **Secret** |
+| `PluginAssetsOrigin` | — | Origin allowlist/selection for plugin dashboard assets when the relevant subsystem uses it. Validate exact origin semantics before deploying. | No |
+| `ZENE_DEFAULT_RUNTIME` | `process` in runtime policy | Default plugin runtime selector. Recognized levels are `in-process`, `worker`, `process`, `container`, `external`; invalid values normalize to `process` in the current resolver. | Security-sensitive choice |
+| `ZENE_PLUGIN_RUNTIME_<PLUGIN_ID>` | Falls through to `ZENE_DEFAULT_RUNTIME` / `process` | Per-plugin runtime preference. The plugin ID is normalized by replacing non-alphanumeric characters with `_` and uppercasing. Runtime policy/authenticated floors can still reject a choice. | Security-sensitive choice |
+| `ZENE_PLUGIN_ID` | Required by isolated host bootstrap | Runtime-managed plugin ID passed to the process host. Missing value makes `processMain` exit with a startup error. | Runtime-managed |
+| `ZENE_RUNTIME_ID` | Required by isolated host bootstrap | Runtime-managed instance identifier. Missing value makes `processMain` exit with a startup error. | Runtime-managed |
+
+## 5. Logging, audit and error coalescing
+
+| Key | Default / fallback | Purpose and behavior | Sensitivity |
+|---|---|---|---|
+| `LogLevel` | Logger default | Preferred log-level setting read by the logger/default system. | No |
+| `LOG_LEVEL` | No registered default | Alternate logging-level spelling used by some code paths. Confirm precedence before setting both keys. | No |
+| `LogTZ` | `TZ`, then `UTC` in logger path | Time zone for rendered log timestamps where supported. Examples include `Asia/Kolkata` or `UTC`. | No |
+| `TZ` | OS/runtime default; logger fallback is UTC | Process timezone, also a fallback for log timestamps. Not every timestamp stored in data is rendered in this zone. | No |
+| `AuditFailClosed` | `false` | When true, `audit.record()` rethrows a persistence failure; when false, audit recording returns null after logging failure. Choose deliberately for privileged actions. | Security-policy toggle |
+| `ErrorCoalesceWindowSec` | `60` | Error occurrence coalescing window in seconds. Invalid/too-small values normalize to 60; current store clamps valid values to 1–3600 seconds. | No |
+| `GatewayMasterKey` | — | Master key consulted by the metrics authorization path when configured. | **Secret** |
+
+## 6. Database, storage and subsystem aliases
+
+| Key | Default / fallback | Purpose and behavior | Sensitivity |
+|---|---|---|---|
+| `Database` | `{}` if absent | JSON object mapping alias to `{uri, engine?, poolSize?, maxRetries?, namespace?, database?, username?, password?, token?}`. Invalid JSON is logged and configured aliases may not initialize. | **Potentially secret**: URI/password/token |
+| `DisableDefaultSqlite` | `false` | Prevents default local SQLite `main` provisioning. Core features that depend on SQLite can be unavailable without a replacement backend. | No |
+| `DisableDefaultSurrealDB` | `false` | Prevents default embedded SurrealDB `main` provisioning. | No |
+| `CoreDataEngine` | Auto-select when unset | Explicit Core data adapter engine: SQLite/Postgres/Mongo/Surreal/Redis aliases accepted by `backendSelector.ts`. Unknown explicit names fail closed. | No |
+| `CoreDataAlias` | `main` | Alias constraint for Core data backend selection. Alias must be connected; it is not a database name. | No |
+| `PermissionsEngine` | Auto-select/config | Explicit permission subsystem engine input used by backend resolution. | No |
+| `PermissionsDbAlias` | `main` | Permission backend alias. | No |
+| `TokenEngine` | Auto-select/config | Explicit token persistence engine. | No |
+| `TokenDbAlias` | `main` | Token persistence alias. | No |
+| `DashboardEngine` | Auto-select/config | Dashboard persistence engine input where the adapter uses environment-based backend selection. | No |
+| `DashboardDbAlias` | `main` | Dashboard persistence alias. | No |
+| `GuildGateEngine` | Core/backend resolution fallback | Backend selector input for guild-gate persistence. | No |
+| `GuildGateDbAlias` | `main` / resolved Core alias | Guild-gate persistence alias. Inspect resolver path if Core data backend is Surreal/Redis, because gate backend support is narrower. | No |
+| `REDIS_URL` | Subsystem-specific fallback, commonly local Redis | Convenience Redis URL read by the relevant first-party subsystem when no explicit source takes precedence. It does not replace the alias map used by Cross-Host's `resolveCrossHostRedis()`. | **Potentially secret** |
+
+### `Database` example
+
+```dotenv
+Database={"main":{"uri":"rocksdb://local","engine":"surrealdb","namespace":"main","database":"main"}}
 ```
 
-- See [Database.md](Database.md).
+That example requests embedded SurrealDB for the `main` alias. In Cross-Host mode embedded/file-local engines are prohibited. For remote SurrealDB, use the appropriate remote protocol URI and authentication settings. A separate Redis alias is normally used for Cross-Host coordination.
 
-### TokenMasterSecret
-- Required when the token subsystem issues tokens.
-- Marked required+sensitive in defaults; deployments that never use tokens still should set a strong value if boot requires it.
+## 7. Token subsystem
 
-### allowUnCertifiedPlugins
-- Default `false`.
-- When `true`, weakens integrity/trust policy. Production deployments should leave this false.
+| Key | Default / fallback | Purpose and behavior | Sensitivity |
+|---|---|---|---|
+| `TokenMasterSecret` | No secure default; token plugin requires at least 32 characters | Master secret for token signing/verification. The token handler fails initialization if absent/too short. Use high-entropy random material and plan key rotation. | **Secret** |
+| `TokenTTL` | `900` seconds | Default token lifetime used by token-manager construction. | No |
+| `TokenMaxTTL` | `86400` seconds | Maximum token lifetime used by the subsystem where applied. | No |
+| `TokenIssuer` | `zene` | Token issuer claim (`iss`). | No |
+| `TokenAudience` | `dashboard` | Token audience claim (`aud`). | No |
 
-### CROSS_HOST and CROSS_HOST_*
-- `CROSS_HOST` enables multi-machine mode.
-- Companion keys configure HTTP control plane, mTLS paths, shard assignment, rebalance, worker advertisement, and load weights.
-- Secrets: `CROSS_HOST_CLUSTER_SECRET`, mTLS key material.
-- See [CROSS_HOST.md](CROSS_HOST.md).
+These numeric values are stored as strings and parsed by token subsystem code. Verify how invalid values are handled before deploying unusual formats.
 
-### CoreDataEngine / CoreDataAlias
-- Explicit Core data platform backend selection.
-- Invalid engine values fail closed (no silent memory fallback for durable production paths).
+## 8. Updater controls
 
-### Updater*
-- Control check vs apply, dry-run, backups, intervals, and repository identity.
-- `AutoUpdater` defaults true; `UpdaterBackgroundApply` defaults false.
-- See [UPDATER.md](UPDATER.md).
+| Key | Default / fallback | Purpose and behavior | Sensitivity |
+|---|---|---|---|
+| `AutoUpdater` | `true` | Enables the pre-boot update check path unless disabled. | High-impact operational toggle |
+| `DevBuilds` | `false` | Allows development builds under updater policy where supported. | High-impact operational toggle |
+| `SafeUpdate` | `true` | Selects the updater's safe-update baseline policy. | No |
+| `UpdaterKeepExtra` | `true` | Controls keeping extra files according to updater planning. | No |
+| `UpdaterAllowForce` | `false` | Allows forced updater operations. Keep disabled except for deliberate recovery. | High-impact operational toggle |
+| `UpdaterDryRun` | `false` | Plans without applying the update. Useful for review. | No |
+| `UpdaterBackgroundApply` | `false` | Enables background apply behavior where supported. Applying updates and exiting/restarting a process is higher impact than notification/check. | High-impact operational toggle |
+| `UpdaterAutoRollback` | `true` | Enables automatic rollback path for failed update application where supported. | No |
+| `UpdaterDefaultRepo` | `lunedusk/Zene` | Default GitHub repository identifier. | No |
+| `UpdaterBranch` | `main` | Default branch for resolution. | No |
+| `UpdaterMaxBackups` | `3` | Maximum backups retained by updater configuration. Parsed as integer. | No |
+| `UpdaterTimeoutMs` | `300000` | Updater operation timeout in milliseconds. | No |
+| `UpdaterPluginManifest` | `manifest.json` | Plugin manifest path/name used by updater operations. | No |
+| `UpdaterMode` | `standalone` | Updater mode (`standalone` or `background` in the declared config type); unexpected strings should be avoided. | No |
+| `UpdaterIntervalMs` | `21600000` (6 hours) | Background update/check interval in milliseconds where the mode uses it. | No |
+| `UpdaterHealthGraceMs` | `900000` (15 minutes) | Time allowed for post-update health confirmation. | No |
+| `UpdaterNotifyChannel` | — | Optional Discord channel ID for updater notifications. | No |
+| `UpdaterPostUpdateCmd` | — | Shell command invoked after a successful update in supported flow. Treat as arbitrary-code execution authority. | **High risk** |
+| `GithubPat` | — | GitHub personal access token used for update/repository access. | **Secret** |
+| `GH_TOKEN` | — | Alternate GitHub token source when `GithubPat` is absent. | **Secret** |
+| `RepositoryUrl` | — | Repository URL override used by updater configuration. | No |
 
-## JSON / non-env configuration
+For commands/flags such as dry-run, force, baseline-only, target tags, install-plugin, plugin-tag and restore-backup, see [Updater](UPDATER.md). Environment keys are not the only updater inputs; CLI flags and update-state files matter.
 
-| Name | Form | Notes |
-|------|------|-------|
-| `Database` | JSON string in env or config | Alias map; see above |
-| `common.json` | File | Shared static configuration where used |
-| Plugin `config.json5` / `lang/*.json5` | Plugin files | Merged by loader; not process env |
+## 9. Cross-Host cluster configuration
 
-## CLI and scripts
+Cross-Host is optional. `CROSS_HOST=true` enables mode selection and shared-storage validation. The orchestrator requires a cluster secret. Workers need a reachable orchestrator and a Redis control-plane alias. Numeric settings are strings in the environment and are parsed/validated by `src/core/crosshost/env.ts`.
 
-Package scripts (`npm run build`, `slim-build`, `start`, `pack`, `updater`, …) are defined in `package.json`. They are not environment variables.
+| Key | Default / parser behavior | Purpose | Sensitivity |
+|---|---|---|---|
+| `CROSS_HOST` | `false` | Enables multi-machine deployment logic and mode detection. | Security-sensitive toggle |
+| `CROSS_HOST_ROLE` | — | Expected `orchestrator` or `worker`; anything else resolves to no recognized role. | No |
+| `CROSS_HOST_CLUSTER_SECRET` | Empty; required by orchestrator | Shared cluster authentication secret. | **Secret** |
+| `CROSS_HOST_MACHINE_ID` | May resolve to null | Stable machine identifier; ensure uniqueness. | No |
+| `CROSS_HOST_ORCHESTRATOR_URL` | May resolve to null | Orchestrator base URL used by workers. | Internal topology information |
+| `CROSS_HOST_HTTP_HOST` | `0.0.0.0` | Orchestrator control-plane bind host. | No |
+| `CROSS_HOST_HTTP_PORT` | `8020`; must be integer 1–65535 | Orchestrator control-plane port. Invalid values throw. | No |
+| `CROSS_HOST_COMPAT_MODE` | `strict` unless exactly `range` | Compatibility mode for Core/plugin version comparisons. | No |
+| `CROSS_HOST_TOKEN_TTL_SEC` | `3600`; positive integer | Machine-token lifetime in seconds. | No |
+| `CROSS_HOST_MTLS_ENABLED` | `false` | Turns on mutual TLS-related configuration path. | Security-sensitive toggle |
+| `CROSS_HOST_MTLS_CA_PATH` | null | CA certificate path. | Path/security material |
+| `CROSS_HOST_MTLS_CERT_PATH` | null | Certificate path. | Path/security material |
+| `CROSS_HOST_MTLS_KEY_PATH` | null | Private key path. | **Secret/private key** |
+| `CROSS_HOST_HEARTBEAT_MS` | `5000`; positive integer | Worker heartbeat interval in milliseconds. | No |
+| `CROSS_HOST_SUSPECT_AFTER` | `3`; positive integer | Missed-heartbeat multiplier before suspicion. | No |
+| `CROSS_HOST_DEAD_GRACE_MS` | `15000`; positive integer | Additional grace interval before a worker is treated as dead. | No |
+| `CROSS_HOST_TOTAL_SHARDS` | unset/null or positive integer | Overrides gateway-reported total shards. | No |
+| `CROSS_HOST_MANUAL_SHARDS` | `{}` when empty; JSON object machine ID → number array | Manual shard assignment mapping. Must be valid JSON with non-negative integer shard IDs. | No |
+| `CROSS_HOST_ASSIGNMENT_STRATEGY` | `least_loaded` fallback | `least_loaded`, `sticky`, `manual`, or `region_aware`; unknown values fall back to `least_loaded`. | No |
+| `CROSS_HOST_LOAD_WEIGHT_GUILD` | `1`; non-negative number | Guild contribution to worker load score. | No |
+| `CROSS_HOST_LOAD_WEIGHT_MEMBER` | `0.001`; non-negative number | Member contribution to load score. | No |
+| `CROSS_HOST_LOAD_WEIGHT_EVENT` | `10`; non-negative number | Event-rate contribution to load score. | No |
+| `CROSS_HOST_LOAD_WEIGHT_COMMAND` | `20`; non-negative number | Command-rate contribution to load score. | No |
+| `CROSS_HOST_LOAD_WEIGHT_SHARD` | `0.5`; non-negative number | Shard-count contribution to load score. | No |
+| `CROSS_HOST_STATS_INTERVAL_MS` | `900000`; positive integer | Worker stats publishing interval. | No |
+| `CROSS_HOST_REBALANCE_COOLDOWN_MS` | `60000`; positive integer | Minimum rebalance interval. | No |
+| `CROSS_HOST_LOAD_IMBALANCE_THRESHOLD` | `0.25`; non-negative number | Load imbalance threshold below which rebalance may stop. | No |
+| `CROSS_HOST_REBALANCE_MAX_MOVES` | `32`; positive integer | Upper move count per rebalance. | No |
+| `CROSS_HOST_REBALANCE_MIN_IMPROVEMENT` | `0.05`; non-negative number | Minimum score improvement required for moves. | No |
+| `CROSS_HOST_MAX_CONCURRENT_UPDATES` | `1`; positive integer | Concurrent update operations allowed. | No |
+| `CROSS_HOST_REGION_LABEL_KEY` | `region` | Worker label key used by the region-aware strategy. | No |
+| `CROSS_HOST_INDEX_ENABLED` | `false` | Enables optional secondary audit/error index. | No |
+| `CROSS_HOST_INDEX_RETENTION_DAYS` | `14`; positive integer | Retention for the optional index. | No |
+| `CROSS_HOST_API_GATEWAY_ENABLED` | `true` | Enables Cross-Host API gateway feature. | No |
+| `CROSS_HOST_API_PROXY_TIMEOUT_MS` | `30000`; positive integer | API proxy request timeout. | No |
+| `CROSS_HOST_WORKER_API_HOST` | `0.0.0.0` | Worker API bind host. | No |
+| `CROSS_HOST_WORKER_API_PORT` | `APIPort` if set, else `3000`; positive integer | Worker API bind port. | No |
+| `CROSS_HOST_WORKER_API_ADVERTISE_HOST` | null | Optional externally advertised worker API host. | Internal topology information |
+| `CROSS_HOST_QUERY_TIMEOUT_MS` | `5000`; positive integer | Distributed query timeout. | No |
+| `CROSS_HOST_QUERY_CONCURRENCY` | `16`; positive integer | Distributed query concurrency bound. | No |
 
-Migration script (`src/scripts/migrate-nova-to-surreal.ts`) accepts `NOVA_EXPORT_JSON`, `SURREAL_URI`, `SURREAL_NAMESPACE`, `SURREAL_DATABASE`, `SURREAL_USERNAME`, `SURREAL_PASSWORD`, `SURREAL_TOKEN` for one-shot operations—not general bot configuration.
+Redis resolution reads `Database`, prefers an alias named `crosshost` with `redis://`/`rediss://` protocol or `engine: redis`, and falls back to `main` if it is Redis. It does not infer a shared Redis from an arbitrary other alias. See [Cross-Host](CROSS_HOST.md).
 
-## Inventory methodology
+## 10. Dashboard and other subsystem settings
 
-- Defaults registry: `src/core/defaults.ts` (`ENTRIES`).
-- Accessor search: `getOptional`, `getBoolean`, `secrets.get` under `src/`.
-- Direct `process.env.*` and `process.env['…']` under `src/`.
-- Excluded: keys matching `ZENE_TEST_*`, `ZENE_DATA_INTEGRATION`, and pure test fixtures.
+| Key | Default / fallback | Purpose | Sensitivity |
+|---|---|---|---|
+| `BETTER_AUTH_SECRET` | — | Secret for the dashboard Better Auth path when the relevant adapter is enabled. | **Secret** |
+| `DASH_PREVIEW_SECRET` | — | Secret used by dashboard preview functionality. | **Secret** |
+| `EnableGlobalRatelimit` | `true` | Global rate-limit enforcement flag consumed by the relevant subsystem. | No |
 
-**Documented production keys in this table: 105.**
+## 11. Script-only inputs (not ordinary bot configuration)
+
+The one-shot script `src/scripts/migrate-nova-to-surreal.ts` accepts the following environment values:
+
+| Key | Purpose | Security note |
+|---|---|---|
+| `NOVA_EXPORT_JSON` | Path to the exported JSON file consumed by the migration script. | The file can contain production data; protect it. |
+| `SURREAL_URI` | Migration target URI; source fallback is `rocksdb://local`. | May carry credentials; do not log complete URI. |
+| `SURREAL_NAMESPACE` | Migration target namespace. | Usually not secret. |
+| `SURREAL_DATABASE` | Migration target database. | Usually not secret. |
+| `SURREAL_USERNAME` | Migration target login name. | May reveal infrastructure metadata. |
+| `SURREAL_PASSWORD` | Migration target password. | **Secret** |
+| `SURREAL_TOKEN` | Alternative migration target token authentication. | **Secret** |
+
+These are specific to the script and should not be copied into the ordinary production `.env` template unless the migration command is actually being run.
+
+## 12. Runtime and tooling inputs
+
+Some environment values are injected by a launcher, consumed by local web tooling, or read by generic plugin requirement logic rather than being a fixed user-facing Core configuration contract. Examples include `PATH`, `NODE_OPTIONS` (restricted in the runtime environment constructor), `VITE_API_PROXY`, Node test-runner settings, runtime IDs, and plugin-specific keys. They are not a reason to document every arbitrary key as a Zene configuration variable.
+
+`RegisterRequirements.env` and `envTruthy` can inspect additional named environment keys at runtime; the set is determined by the plugin author. These dynamic names are not a finite built-in environment inventory.
+
+## 13. Boolean, numeric and JSON parsing gotchas
+
+- Boolean accessors treat `true`, `1` and `yes` as true; a non-empty `false`, `no`, or misspelled value becomes false. Some scripts compare exactly to `1` instead.
+- Numeric values are often strings. Invalid integer/number input may trigger a thrown validation error, use a subsystem-specific fallback, or produce a `NaN` if the caller does not validate. Read the named parser's implementation.
+- `Database`, `PluginPublicKeys`, and `CROSS_HOST_MANUAL_SHARDS` are JSON contracts. Quote/escape them correctly in `.env`.
+- `PluginPublicKeys` should be a JSON object, not an array. Invalid content is ignored by the public-key parser after a warning rather than accepted as a key map.
+- Paths are interpreted by the current process/container filesystem. A valid path on one host may not exist on another.
+
+## 14. Secret-handling baseline
+
+Never commit actual values for `DiscordToken`, `TokenMasterSecret`, `CROSS_HOST_CLUSTER_SECRET`, `PLUGIN_SIGNING_KEY`, `PrivateKey`, GitHub tokens, dashboard auth secrets, DB passwords/tokens or TLS private key material. Do not include a credential-bearing `Database` URI in a screenshot/issue. Logs should name aliases and safe error categories rather than complete URIs.
+
+## 15. Inventory scope and verification
+
+This document covers fixed Core/subsystem settings found in `src/core/defaults.ts`, direct `process.env` reads, `SecretManager` accessors, backend selection, runtime policy, updater, Cross-Host, dashboard and maintenance-script configuration visible at the baseline commit. Environment keys declared dynamically by plugins and generic requirement predicates cannot be enumerated as a finite built-in list. Test-only harness flags are intentionally excluded.

@@ -1,94 +1,53 @@
 # Zene
 
-Zene is a modular Discord application framework for Node.js. It is designed for long-running bots and multi-plugin deployments that need clear lifecycle boundaries, signed plugin artifacts, durable storage options, and optional multi-machine coordination.
+**Zene** is a modular Discord application framework for Node.js, written in TypeScript and published as pure ECMAScript modules. The repository version at the documentation baseline is `0.5.7`; the minimum Node.js engine declared by the root package is `>=20.0.0`. Zene builds on `discord.js` v14 and provides a plugin loader, host-injected plugin services, multiple database managers, configuration and localization loading, permission services, runtime lifecycle management, signed-artifact verification, and an optional Cross-Host control plane.
 
-**Version:** 0.5.7 · **Runtime:** Node.js ≥ 20 · **Language:** TypeScript (pure ESM) · **Discord API:** discord.js v14
+These docs describe implementation at commit [`c510bbf8fde1fedffd05efe2779ee71e90d5597d`](https://github.com/lunedusk/Zene/commit/c510bbf8fde1fedffd05efe2779ee71e90d5597d). Defaults and implementation details may evolve; verify any operationally sensitive assumption against the code for the version you deploy.
 
-## What Zene provides
+## Start here
 
-- **Plugin workspaces** with dependency-aware boot order, integrity verification, and generation-scoped resources
-- **Core-owned services** for configuration, logging, events, permissions, HTTP routes, and dashboard sessions
-- **Database managers** for SQLite, PostgreSQL, MongoDB, Redis, and SurrealDB (remote or embedded)
-- **A public plugin SDK** (`@lunedusk/zene-sdk`) that does not import Core internals
-- **Optional Cross-Host** operation for multi-worker deployments with shared remote storage
+- **[Setup](SETUP.md):** install, configure, start, validate, and diagnose a first deployment.
+- **[Plugin author guide](PLUGINS.md):** create plugins using the conventions recognized by the loader.
+- **[Architecture](ARCHITECTURE.md):** understand Core, the plugin lifecycle, service domains, runtimes, and storage boundaries.
+- **[AI plugin-development system prompt](System%20Prompt%20-%20AI%20-%20Plugin.md):** one standalone prompt for AI-assisted implementation, debugging, review, and extension work.
+- **[Public SDK reference](SDK_REFERENCE.md):** distinguish the published `@lunedusk/zene-sdk` contract from Core's `IHeart` API.
+- **[Environment reference](ENV%20Reference.md):** environment inputs, defaults, security implications, and structured values.
 
-Zene is a Discord-bot framework, not a generic web application platform.
+## Capabilities at a glance
 
-## Requirements
+| Area | What the repository provides | Key reference |
+|---|---|---|
+| Plugin packaging and discovery | Plugin metadata, dependency ordering, trust/integrity gates, configuration/language assets, and lifecycle loading | [Loader](LOADER.md), [Integrity](INTEGRITY.md) |
+| Plugin-facing Core API | Per-plugin `IHeart` domain surface including assets, event bus, database managers, HTTP/metrics, permissions, tokens, cache, registry, and helpers | [Plugin author guide](PLUGINS.md) |
+| Published plugin SDK | Typed, capability-injected bridge with session/runtime identity and generation-aware cleanup | [SDK reference](SDK_REFERENCE.md) |
+| Runtime isolation | In-process, worker, process, container, and external runtime levels, selected under an explicit policy | [Runtime architecture](RUNTIME.md) |
+| Persistence | SQLite, PostgreSQL, MongoDB, Redis, SurrealDB and a dedicated Core data registry with privacy metadata | [Database](Database.md), [Data and privacy](DATA_SHAPES.md) |
+| Operational diagnostics | Structured event bus, audit records, coalesced error occurrences, metrics, update planning and rollback support where configured | [Events](EVENTS.md), [Audit](AUDIT.md), [Errors](ERRORS.md), [Updater](UPDATER.md) |
+| Multi-machine operation | Optional Cross-Host orchestrator/worker protocol with Redis-backed coordination and shard assignment | [Cross-Host](CROSS_HOST.md) |
 
-- Node.js 20 or later
-- npm (repository scripts assume npm)
-- A Discord bot token
-- Write access for `.data/`, `logs/`, and plugin output directories
+## Supported design boundaries
 
-## Quick start
+Zene is a framework, not a guarantee that arbitrary plugin code is safe. A plugin executing in-process shares the Core process and memory space. Worker and process runtimes improve execution and memory isolation but still share host filesystem and network unless additional restrictions apply. Container and external runtime guarantees depend on the configured backend. Runtime choice does not replace artifact verification, least-privilege service design, or operational isolation.
 
-```bash
-git clone https://github.com/lunedusk/Zene.git
-cd Zene
-npm install
-cp .env.example .env
-```
+The repository exposes two plugin service models that must not be confused:
 
-Edit `.env` and set at least:
+1. **Core `IHeart`:** the rich service surface used by the first-party loader and in-process plugin base classes. Some members expose powerful Core services and require trusted code.
+2. **`@lunedusk/zene-sdk`:** a separate typed public package intended to expose an injected capability bridge. Its contract is narrower and generation-scoped. It does not make Core private internals part of the public SDK.
 
-```bash
-DiscordToken=your_bot_token
-BotOwnerIds=your_discord_user_id
-```
-
-Then:
-
-```bash
-npm run build
-npm start
-```
-
-For a full first-run walkthrough, see [SETUP.md](SETUP.md).
-
-## Documentation map
-
-| Document | Purpose |
-|----------|---------|
-| [SETUP.md](SETUP.md) | Install, configure, and run Zene |
-| [PLUGINS.md](PLUGINS.md) | Human plugin author guide |
-| [System Prompt - AI - Plugin.md](System%20Prompt%20-%20AI%20-%20Plugin.md) | Copy-paste system prompt for AI-assisted plugin work |
-| [Database.md](Database.md) | Database engines, aliases, and Core data storage |
-| [ENV Reference.md](ENV%20Reference.md) | Environment and configuration reference |
-| [CROSS_HOST.md](CROSS_HOST.md) | Multi-machine roles and shared storage |
-| [LOADER.md](LOADER.md) | Plugin discovery and loading |
-| [INTEGRITY.md](INTEGRITY.md) | Artifact signing, verification, and trust |
-| [EVENTS.md](EVENTS.md) | EventBus and Discord event bridging |
-| [ERRORS.md](ERRORS.md) | Error model and persistence |
-| [AUDIT.md](AUDIT.md) | Audit record model |
-| [CACHE.md](CACHE.md) | Cache layers and backends |
-| [DATA_SHAPES.md](DATA_SHAPES.md) | Important type shapes and source locations |
-| [PLACEHOLDERS.md](PLACEHOLDERS.md) | Placeholder expansion |
-| [UPDATER.md](UPDATER.md) | Update check, apply, and rollback |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
-
-## Build and run scripts
-
-| Script | Action |
-|--------|--------|
-| `npm run build` | Full compile and asset copy |
-| `npm run slim-build` | TypeScript compile focused build |
-| `npm start` | Start the compiled application |
-| `npm run dev` | Development entry (see package scripts) |
-| `npm run pack -- <plugin>` | Pack a plugin artifact |
-| `npm run build:zene-sdk` | Build the public SDK package |
-| `npm run docs` | Generate API docs when configured |
-
-## Architecture overview
-
-```text
-Boot → database init → plugin discovery → integrity/trust
-    → dependency order → load (commands/events/handlers/routes)
-    → lifecycle setup/enable → runtime services
-```
-
-Plugins interact with Core through `this.heart.*` (in-tree) or the injected public SDK bridge (third-party). Third-party plugins must not import `#core/*` or private registries.
+Use the published SDK for new third-party plugins where the selected runtime and host integration support it. If a plugin intentionally uses `IHeart`, document that dependency and its runtime trust assumptions.
 
 ## License
 
-See [LICENSE](LICENSE) for the project license terms.
+The root package declares `PolyForm-Noncommercial-1.0.0`. Read the repository's `LICENSE` before redistribution or commercial use. Do not infer licensing rights for a plugin from Zene's license; plugins can have their own terms.
+
+## Documentation map
+
+- [Architecture](ARCHITECTURE.md)
+- [Setup and operations](SETUP.md), [Operations and troubleshooting](OPERATIONS.md), [Testing](TESTING.md)
+- [Plugin authoring](PLUGINS.md), [loader behavior](LOADER.md), [public SDK](SDK_REFERENCE.md), [AI prompt](System%20Prompt%20-%20AI%20-%20Plugin.md)
+- [Runtime selection and isolation](RUNTIME.md), [integrity and trust](INTEGRITY.md), [security model](SECURITY.md)
+- [Database configuration](Database.md), [data shapes and privacy](DATA_SHAPES.md), [environment variables](ENV%20Reference.md)
+- [Events](EVENTS.md), [audit](AUDIT.md), [errors](ERRORS.md), [cache](CACHE.md), [placeholders](PLACEHOLDERS.md)
+- [Contributing](CONTRIBUTING.md) and source-level [traceability](SOURCE_TRACEABILITY.md)
+- [Cross-Host](CROSS_HOST.md), [updater](UPDATER.md), [glossary](GLOSSARY.md)
+
