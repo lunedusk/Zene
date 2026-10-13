@@ -129,9 +129,6 @@ protected register(): void {
                     : (body as Record<string, unknown>);
 
             if ('expectedVersion' in tokens) delete tokens.expectedVersion;
-            if ('tokens' in body && body.tokens) {
-
-            }
             const svc = new ThemeLayoutService(this.heart);
             const result = await svc.putTheme(ctx, { tokens, expectedVersion });
             if (!result.ok) throw result.error;
@@ -170,7 +167,7 @@ protected register(): void {
         assertEnvOwner(req);
         const body = requireBody<{ name: string }>(req.body, ['name']);
         const db = await ensureDashboardAdapter();
-        let tokens = '{}';
+        let tokens: string;
         if (db.engine === 'mongo') {
             const cur = await (await dashMongo('dash_theme')).findOne({ $or: [{ id: 'current' }, { _id: 'current' }] });
             tokens = String(cur?.tokens ?? '{}');
@@ -210,7 +207,7 @@ protected register(): void {
     private async deletePreset(req: DashRequest<PresetParams>, res: Response): Promise<void> {
         assertEnvOwner(req);
         const db = await ensureDashboardAdapter();
-        let changed = false;
+        let changed: boolean;
         if (db.engine === 'mongo') {
             const n = await (await dashMongo('dash_theme_presets')).deleteOne({
                 $or: [{ _id: req.params.presetId }, { id: req.params.presetId }],

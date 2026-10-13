@@ -1,15 +1,5 @@
 import { randomBytes } from "crypto";
-import {
-  b64Encode,
-  b64Decode,
-  hmacSign as sign,
-  packVersion,
-  safeEqual,
-  signingKey as deriveSigningKey,
-  deriveMasterKey,
-  assembleToken,
-  splitToken,
-} from "#core/manager/tokenCrypto.js";
+import { b64Encode, b64Decode, hmacSign as sign, packVersion, safeEqual, signingKey as deriveSigningKey, deriveMasterKey } from "#core/manager/tokenCrypto.js";
 import type { Request, Response, NextFunction } from 'express';
 import { NovaError } from '#core/errors/NovaError.js';
 
@@ -229,7 +219,6 @@ export class DbTokenStore implements TokenStore {
       );
       return next;
     }
-    const excluded = this.db.engine === 'postgres' ? 'token_global.tokenVersion + 1' : 'tokenVersion + 1';
     if (this.db.engine === 'postgres') {
       await this.db.run(
         `INSERT INTO token_global (id, tokenVersion) VALUES (?, 1)

@@ -98,7 +98,7 @@ export async function releaseLease(jobId: string, ownerId: string, token: string
 }
 
 export async function recoverExpiredLeases(now = Date.now()): Promise<string[]> {
-
-    return [];
     void now;
+    // Placeholder: expired-lease recovery is not yet implemented for the active KV backend.
+    return [];
 }

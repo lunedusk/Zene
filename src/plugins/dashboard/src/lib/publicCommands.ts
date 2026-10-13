@@ -27,7 +27,7 @@ export function buildPublicCommandCatalog(): {
     const commands: PublicCommandEntry[] = [];
     for (const root of tree.roots) {
         const reg = getRegisteredRoot(root.name);
-        let description = '';
+        let description: string;
         try {
             const json = reg?.data?.toJSON?.() as { description?: string } | undefined;
             description = typeof json?.description === 'string' ? json.description : '';

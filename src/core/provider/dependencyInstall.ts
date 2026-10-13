@@ -5,13 +5,8 @@
  * those implementations under category `dependency.install`.
  */
 
-import {
-    bunBackend,
-    npmBackend,
-    type DependencyInstallBackend,
-} from '#core/helpers/dependency/backends.js';
+import { bunBackend, npmBackend, type DependencyInstallBackend } from '#core/helpers/dependency/backends.js';
 import { providerRegistry } from './registry.js';
-import type { ProviderRegistration } from './types.js';
 
 export const DEPENDENCY_INSTALL_CATEGORY = 'dependency.install' as const;
 

@@ -244,7 +244,9 @@ export class EmojiSyncer {
             return Buffer.from(arrayBuffer);
         } catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
-            if (err.name === 'AbortError') throw new Error('Request timed out');
+            if (err.name === 'AbortError') {
+                throw new Error('Request timed out', { cause: error });
+            }
             throw err;
         } finally {
             clearTimeout(timeout);

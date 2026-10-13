@@ -1,6 +1,5 @@
 import { EmbedLayout, BuildContext, BuildOptions, EmbedBuildResult, EmbedSpec } from "./types.js";
 import { runBuild } from "./core.js";
-import { AssetManager } from "../helpers/assets.js";
 import { interpolateVariables } from "#core/placeholder/index.js";
 import { LIMITS } from "./constants.js";
 import { assert } from "./errors.js";

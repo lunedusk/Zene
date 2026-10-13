@@ -2,13 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import JSON5 from 'json5';
 import { getLogger } from '#core/utils/logger.js';
-import {
-    defaultPluginConfigSchema,
-    formatIssues,
-    loadPluginConfigRules,
-    loadPluginConfigSchema,
-    validateValue
-} from '#core/validation/index.js';
+import { formatIssues, loadPluginConfigRules, loadPluginConfigSchema, validateValue } from '#core/validation/index.js';
 import { expandValue } from '#core/placeholder/index.js';
 import { mergePreserveObject } from '#core/loader/mergePreserve.js';
 import { writeJson5Preserving, writeJson5Wholesale } from '#core/loader/json5SurgicalWrite.js';

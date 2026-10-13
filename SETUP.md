@@ -92,6 +92,23 @@ npm run slim-build
 
 Optional service-backed integration suites depend on local services and are gated by their test environment variables. Keep test-only environment settings out of the production `.env` file and public deployment documentation. See [Testing](TESTING.md).
 
+
+## 8b. Production dashboard (embedded)
+
+Production serves the compiled SPA from `apps/web/dist` on the **same Core HTTP origin** as the API (`APIHost`/`APIPort`). There is no separate production dashboard listen port.
+
+1. Build the UI: `cd apps/web && npm ci && npm run build` (expects `apps/web/dist/index.html`).
+2. Set `DashboardMode`:
+   - `auto` (default): mount UI only when assets and the `dashboard` plugin are available.
+   - `true`: fail startup if assets or the dashboard plugin are missing.
+   - `false`: API only; do not mount the UI.
+3. Configure Discord OAuth (server-side only; never put the client secret in the frontend):
+   - `DiscordOAuthClientId` / `DiscordOAuthClientSecret`
+   - `DashboardOAuthRedirectUris` — exact pre-registered callback URL(s), e.g. `https://bot.example.com/api/dash/auth/oauth/callback`
+4. Browser login uses authorization-code + PKCE; the session is an HttpOnly cookie. The browser must not send a gateway master key or service credential.
+5. `GET /health` reports Core health and integrated dashboard mount state (`mounted`, `backendPresent`, `mode`). When `DashboardMode=true`, a failed mount yields HTTP 503.
+6. `DashboardPort` is optional and **development-only** (Vite HMR when `NODE_ENV=development`). Do not require it in production.
+
 ## 9. Common first-boot failures
 
 ### Missing Discord token or login errors

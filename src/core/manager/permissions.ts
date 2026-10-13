@@ -3,16 +3,7 @@ import { getLogger } from '#core/utils/logger.js';
 import { audit } from '#core/audit/index.js';
 import { secrets } from '#core/helpers/secretManager.js';
 import { configManager } from '#core/manager/config.js';
-import {
-    OWNER_BIT,
-    BOT_PROTECTED_BIT,
-    SERVER_PROTECTED_BIT,
-    bitsIncludeOwner,
-    bitsIncludeBotProtected,
-    bitsIncludeServerProtected,
-    envOwnerIds,
-    isEnvOwner,
-} from '#core/manager/permissions/guards.js';
+import { OWNER_BIT, BOT_PROTECTED_BIT, SERVER_PROTECTED_BIT, bitsIncludeOwner, bitsIncludeBotProtected, bitsIncludeServerProtected, isEnvOwner } from '#core/manager/permissions/guards.js';
 import {
     PermissionError,
     BUILT_IN_BITS,
@@ -24,17 +15,10 @@ import {
     type CreateBotRoleInput,
     type CreateServerRoleInput,
 } from '#core/types/permissions.js';
-import {
-    PermissionsBitField,
-    type Interaction,
-    type GuildMember,
-    type APIInteractionGuildMember,
-    type PermissionResolvable,
-} from 'discord.js';
-import type { Request, Response, NextFunction } from 'express';
+import { PermissionsBitField, type Interaction, type GuildMember, type APIInteractionGuildMember } from 'discord.js';
 import type { PermissionCache } from '#core/manager/permissionCache.js';
 import { resolvePermissionsBackend } from '#core/database/backendSelector.js';
-import { openSqlAdapter, type SqlAdapter, type Row } from '#core/database/sqlAdapter.js';
+import { openSqlAdapter, type SqlAdapter } from '#core/database/sqlAdapter.js';
 import { AdapterPermissionStore, type PermissionStore } from '#core/manager/permissions/store.js';
 
 const log = getLogger('PermissionsManager');
@@ -45,7 +29,7 @@ function nowSeconds(): number {
     return Math.floor(Date.now() / 1000);
 }
 
-function parseJsonArray(value: unknown): string[] {
+function _parseJsonArray(value: unknown): string[] {
     if (!value) return [];
     if (Array.isArray(value)) return value.map(String);
     try {

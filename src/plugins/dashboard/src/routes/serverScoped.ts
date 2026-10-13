@@ -318,7 +318,7 @@ protected register(): void {
 
     private async getNotes(req: DashRequest<GuildUserParams>, res: Response): Promise<void> {
         const dbN = await ensureDashboardAdapter();
-        let rows: unknown[] = [];
+        let rows: unknown[];
         if (dbN.engine === 'mongo') {
             const parts = [req.params.userId, req.params.guildId];
             rows = await (await dashMongo('dash_member_notes')).find({ userId: parts[0], guildId: parts[1] });

@@ -99,7 +99,7 @@ export class RedisDataAdapter implements DataStorageAdapter {
                     key,
                 );
             }
-        } catch (err) {
+        } catch (_err) {
             throw new DataRegistryError(
                 'DATA_PERSISTENCE_FAILURE',
                 'Redis storage operation failed',
@@ -142,7 +142,7 @@ export class RedisDataAdapter implements DataStorageAdapter {
     ): Promise<readonly DataRecord[]> {
         const subject =
             filter && typeof filter === 'object' ? (filter as DataSubject) : {};
-        let keys: string[] = [];
+        let keys: string[];
         if (subject.userId) {
             keys = await this.#redis.smembers(this.#userIdx(typeId, subject.userId));
         } else if (subject.guildId) {

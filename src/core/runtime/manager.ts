@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { materializeVerifiedArtifact, disposeMaterialization, snapshotDirectoryForExecution } from '#core/helpers/integrity/artifactMaterialization.js';
-import { createPluginRuntimeRecord, deactivatePluginRuntimeRecord } from './pluginRuntimeRecord.js';
+import { createPluginRuntimeRecord } from './pluginRuntimeRecord.js';
 import { getAuthenticatedPluginContext } from '#core/helpers/integrity/authenticatedContext.js';
 /**
  * Phase 2D — RuntimeManager is the runtime orchestration boundary for ALL backends.

@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { sign, verify, createPrivateKey, createPublicKey, timingSafeEqual, createHash } from 'node:crypto';
+import { verify, createPrivateKey, createPublicKey, timingSafeEqual, createHash } from 'node:crypto';
 import * as flatbuffers from 'flatbuffers';
 import { getLogger } from '#core/utils/logger.js';
 
@@ -28,7 +28,7 @@ import {
     type SignedLogicalPayload,
 } from './signedPayload.js';
 import { CANONICALIZATION_VERSION } from './jcs.js';
-import { parseAndRequireCanonicalJcs, canonicalizeJcs } from './jcs.js';
+import { parseAndRequireCanonicalJcs } from './jcs.js';
 import { computeLockfileDigest } from './dependencyClosure.js';
 import { setAuthenticatedPluginContext } from './authenticatedContext.js';
 import { setAuthenticatedRuntimeFloor } from '#core/runtime/authenticatedPolicy.js';
@@ -226,7 +226,9 @@ export class PackageManager {
         try {
             signKey = createPrivateKey(signingPrivKeyPem);
         } catch (err) {
-            throw new IntegrityError('Invalid Private Key provided for packaging. Must be a valid PEM.');
+            throw new IntegrityError('Invalid Private Key provided for packaging. Must be a valid PEM.', {
+                cause: err,
+            });
         }
 
         // Phase 2E: primary signature is domain-separated over JCS canonical bytes.
@@ -272,7 +274,7 @@ export class PackageManager {
         try {
             publicKey = createPublicKey({ key: Buffer.from(signingPubKeyB64, 'base64'), format: 'der', type: 'spki' });
         } catch (err) {
-            throw new VaultMissingKeyError('PluginPublicKey in Vault is malformed or invalid DER format.');
+            throw new VaultMissingKeyError('PluginPublicKey in Vault is malformed or invalid DER format.', { cause: err });
         }
 
         // Parse FlatBuffer envelope first (structure only), then verify signature target.
@@ -293,6 +295,7 @@ export class PackageManager {
         } catch (err: unknown) {
             throw new IntegrityError(
                 `Malformed FlatBuffer envelope: ${err instanceof Error ? err.message : String(err)}`,
+                { cause: err },
             );
         }
 
@@ -582,6 +585,7 @@ export class PackageManager {
                 if (err instanceof IntegrityError) throw err;
                 throw new IntegrityError(
                     `Malformed or noncanonical signed payload: ${err instanceof Error ? err.message : String(err)}`,
+                    { cause: err },
                 );
             }
         }

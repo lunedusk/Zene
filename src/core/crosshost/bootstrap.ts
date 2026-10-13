@@ -40,7 +40,6 @@ import {
 } from '#core/heart/control.js';
 import { channelControlShutdown } from './protocol/channels.js';
 import { controlShutdownSchema } from './protocol/messages.js';
-import { encodeMessage } from './protocol/codec.js';
 
 const log = getLogger('CrossHost');
 

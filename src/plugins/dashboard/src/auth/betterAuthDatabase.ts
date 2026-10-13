@@ -37,6 +37,7 @@ export async function resolveBetterAuthNativeDatabase(): Promise<BetterAuthNativ
             `Postgres pool [${adapter.alias}] not available for Better Auth: ${
                 e instanceof Error ? e.message : 'missing'
             }`,
+            { cause: e },
         );
     }
 }

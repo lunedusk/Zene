@@ -1,4 +1,3 @@
-import { eventBus } from './events/EventBus.js';
 
 export type {
     EventCallback,

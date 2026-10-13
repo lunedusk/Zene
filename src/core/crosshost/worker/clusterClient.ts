@@ -1,5 +1,4 @@
 import { getLogger } from '#core/utils/logger.js';
-import type { CrossHostEnv } from '../types.js';
 
 const log = getLogger('CrossHost:ClusterClient');
 

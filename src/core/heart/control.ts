@@ -3,11 +3,7 @@ import { secrets } from '#core/helpers/secretManager.js';
 import { markUpdaterHealthy } from '#core/manager/updater/index.js';
 import { getCrossHostQuery } from '#core/crosshost/query/facade.js';
 import type { CrossHostQueryFacade } from '#core/crosshost/query/facade.js';
-import {
-    isCrossHostWorker,
-    getCrossHostWorkerMachineId,
-    getCrossHostWorkerShards,
-} from '#core/crosshost/runtimeFlag.js';
+import { getCrossHostWorkerMachineId, getCrossHostWorkerShards } from '#core/crosshost/runtimeFlag.js';
 import type { CrossHostRole } from '#core/crosshost/types.js';
 import { getHeartClient } from './holders.js';
 

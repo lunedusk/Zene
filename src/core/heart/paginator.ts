@@ -1,15 +1,6 @@
 import type { IHeart } from './index.js';
-import type { ButtonInteraction, ChatInputCommandInteraction } from 'discord.js';
-import {
-    Paginator,
-    unitsFromLines,
-    replyOrPaginate,
-    clearUserSessions,
-    canPaginateWithNav,
-    parseNavCustomId,
-    type PaginatorCreateOptions,
-    type AutoPaginateOptions,
-} from '#core/paginator/index.js';
+import type { ButtonInteraction } from 'discord.js';
+import { Paginator, unitsFromLines, replyOrPaginate, clearUserSessions, canPaginateWithNav, parseNavCustomId, type PaginatorCreateOptions, type AutoPaginateOptions } from '#core/paginator/index.js';
 
 export interface PaginatorDomain {
     create(options: Omit<PaginatorCreateOptions, 'heart'> & { heart?: IHeart }): Paginator;

@@ -114,6 +114,7 @@ export function parseAndRequireCanonicalJcs(stored: string): unknown {
     } catch (err: unknown) {
         throw new Error(
             `JCS: invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
+            { cause: err },
         );
     }
 

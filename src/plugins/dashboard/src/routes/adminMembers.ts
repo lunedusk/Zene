@@ -163,7 +163,7 @@ protected register(): void {
         }
 
         const db = await ensureDashboardAdapter();
-        let globalBan: unknown = null;
+        let globalBan: unknown;
         if (db.engine === 'mongo') {
             globalBan = await (await dashMongo('dash_global_member_bans')).findOne({ $or: [{ userId }, { _id: userId }] });
         } else {
@@ -309,7 +309,7 @@ protected register(): void {
 
     private async getNotes(req: DashRequest<UserParams>, res: Response): Promise<void> {
         const db = await ensureDashboardAdapter();
-        let rows: unknown[] = [];
+        let rows: unknown[];
         if (db.engine === 'mongo') {
             rows = await (await dashMongo('dash_member_notes')).find({ userId: req.params.userId, guildId: null });
         } else {
@@ -351,7 +351,7 @@ protected register(): void {
 
     private async deleteNote(req: DashRequest<UserNoteParams>, res: Response): Promise<void> {
         const db = await ensureDashboardAdapter();
-        let changed = false;
+        let changed: boolean;
         if (db.engine === 'mongo') {
             const n = await (await dashMongo('dash_member_notes')).deleteOne({
                 $and: [

@@ -81,7 +81,7 @@ export function buildUpdaterStatusDto(): UpdaterStatusDto {
 
     let backgroundApplyEnabled = false;
     let message: string | null = null;
-    let mode: UpdaterStatusDto['mode'] = 'combined';
+    let mode: UpdaterStatusDto['mode'];
 
     try {
         const cfg = getUpdaterConfig();

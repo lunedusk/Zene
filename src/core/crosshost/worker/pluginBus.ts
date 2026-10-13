@@ -11,11 +11,7 @@ import {
 import type { PluginBusHandler, CrossHostBus } from '#core/heart/crossHost.js';
 import { performLocalShutdown } from '#core/heart/control.js';
 import { fetchPeerRoster } from '../orchestrator/peerRoster.js';
-import {
-    generateTrackingId,
-    resolveTrackingId,
-    getTrackingContext,
-} from '../tracking.js';
+import { resolveTrackingId, getTrackingContext } from '../tracking.js';
 
 const log = getLogger('CrossHost:PluginBus');
 

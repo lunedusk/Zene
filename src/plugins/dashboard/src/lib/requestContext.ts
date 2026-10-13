@@ -180,7 +180,7 @@ function cryptoRandomId(): string {
 
     try {
 
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
+         
         const nodeCrypto = require('node:crypto') as { randomUUID: () => string };
         return nodeCrypto.randomUUID();
     } catch {

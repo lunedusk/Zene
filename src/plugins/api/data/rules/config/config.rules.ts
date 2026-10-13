@@ -34,7 +34,7 @@ export const validate: RulesValidateFn = (data, _ctx) => {
         for (const origin of cors.allowedOrigins ?? []) {
             if (origin === '*' || origin.startsWith('/')) continue;
             try {
-                // eslint-disable-next-line no-new
+                 
                 new URL(origin);
             } catch {
                 issues.push(`cors.allowedOrigins: invalid origin "${origin}" (use URL, *, or /regex/flags)`);

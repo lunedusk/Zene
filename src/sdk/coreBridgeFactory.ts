@@ -41,12 +41,7 @@ import { configManager } from '#core/manager/config.js';
 import { httpServer } from '#core/manager/http/server.js';
 import { interactionRegistry } from '#core/manager/interaction/registry.js';
 import type { RegisterRequirements } from '#core/loader/requirements.js';
-import {
-    registerRootCommand,
-    unregisterRootCommand,
-    getRegisteredRoot,
-    extendCommand,
-} from '#core/loader/commandRegistry.js';
+import { registerRootCommand, unregisterRootCommand, extendCommand } from '#core/loader/commandRegistry.js';
 import { HeartFactory } from '#core/heart/index.js';
 import { getHeartClient, getHeartPermissions } from '#core/heart/holders.js';
 import { SlashCommandBuilder } from 'discord.js';
@@ -568,7 +563,7 @@ export function installPluginSdkBridge(input: {
                     .setDescription(def.description);
                 if (def.build) def.build(data);
 
-                let registered = false;
+                let registered: boolean;
                 try {
                     registered = await registerRootCommand({
                         heart,

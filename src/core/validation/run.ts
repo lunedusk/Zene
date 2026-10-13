@@ -8,7 +8,7 @@ import type {
 } from './types.js';
 
 export type AnyZodSchema = {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     safeParse: (data: unknown) => {
         success: boolean;
         data?: unknown;

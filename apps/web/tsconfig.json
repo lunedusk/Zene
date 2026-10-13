@@ -12,9 +12,8 @@
     "resolveJsonModule": true,
     "noUncheckedIndexedAccess": true,
     "types": ["vite/client", "node"],
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src"]

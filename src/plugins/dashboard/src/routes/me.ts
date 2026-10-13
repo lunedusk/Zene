@@ -89,7 +89,7 @@ protected register(): void {
         const userId = req.dashSession!.payload.userId;
         const db = await ensureDashboardAdapter();
 
-        let notes: unknown[] = [];
+        let notes: unknown[];
         if (db.engine === 'mongo') {
             notes = await (await dashMongo('dash_member_notes')).find({ userId });
         } else {
@@ -105,7 +105,7 @@ protected register(): void {
             if (doc.userId === userId) infractions.push(doc);
         }
 
-        let deletionRequest: unknown = null;
+        let deletionRequest: unknown;
         if (db.engine === 'mongo') {
             deletionRequest = await (await dashMongo('dash_deletion_requests')).findOne({
                 $or: [{ userId }, { _id: userId }],
@@ -127,7 +127,7 @@ protected register(): void {
     private async requestDeletion(req: DashRequest, res: Response): Promise<void> {
         const userId = req.dashSession!.payload.userId;
         const db = await ensureDashboardAdapter();
-        let existing: unknown = null;
+        let existing: unknown;
         if (db.engine === 'mongo') {
             existing = await (await dashMongo('dash_deletion_requests')).findOne({
                 $or: [{ userId }, { _id: userId }],
@@ -160,7 +160,7 @@ protected register(): void {
     private async cancelDeletion(req: DashRequest, res: Response): Promise<void> {
         const userId = req.dashSession!.payload.userId;
         const db = await ensureDashboardAdapter();
-        let changed = false;
+        let changed: boolean;
         if (db.engine === 'mongo') {
             const n = await (await dashMongo('dash_deletion_requests')).deleteOne({
                 $and: [{ $or: [{ userId }, { _id: userId }] }, { status: 'pending' }],

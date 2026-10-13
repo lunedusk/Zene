@@ -140,6 +140,12 @@ function resolveDashboardPort(): number {
 /**
  * Start the dashboard child process when DashboardMode requires it.
  */
+/**
+ * Development-only optional Vite/HMR child process.
+ * Production dashboard UI is served in-process by Core HTTP (mountDashboardUI).
+ * This supervisor must never start a production child host or issue service keys
+ * outside explicit NODE_ENV=development.
+ */
 export async function startDashboardSupervisor(options?: {
     readonly cwd?: string;
     readonly registerKey?: boolean;
@@ -161,23 +167,26 @@ export async function startDashboardSupervisor(options?: {
             return { started: false, mode, reason: lastReason };
         }
 
-        const explicitDev = availability.explicitDevelopment;
-        const canStart = explicitDev
-            ? availability.canStartDev || availability.canStartProd
-            : availability.canStartProd;
+        // Production path: never spawn a child host or issue service credentials.
+        // Embedded static serving on Core HTTP is the only production UI path.
+        if (!availability.explicitDevelopment) {
+            desiredRunning = false;
+            lastReason =
+                'production uses embedded Core HTTP static serving; child supervisor is development-only';
+            log.info(
+                'Dashboard supervisor skipped in production — use mountDashboardUI on Core HTTP.',
+            );
+            return { started: false, mode, reason: lastReason };
+        }
+
+        const explicitDev = true;
+        const canStart = availability.canStartDev;
 
         if (!canStart) {
-            const msg = explicitDev
-                ? 'apps/web source (or dist) is missing for development mode'
-                : 'compiled apps/web/dist/index.html is missing (production requires a built UI; NODE_ENV unset is production)';
+            const msg = 'apps/web source is missing for development Vite HMR';
             lastReason = msg;
-            desiredRunning = mode === 'true';
-            if (mode === 'true') {
-                throw new Error(
-                    `DashboardMode=true but the dashboard cannot start (${msg}). Build apps/web or set DashboardMode=false.`,
-                );
-            }
-            log.info(`DashboardMode=auto — dashboard not started (${msg}).`);
+            desiredRunning = false;
+            log.info(`DashboardMode=${mode} — dev dashboard not started (${msg}).`);
             return { started: false, mode, reason: msg };
         }
 
@@ -187,6 +196,7 @@ export async function startDashboardSupervisor(options?: {
             return { started: true, mode, reason: lastReason };
         }
 
+        // Service credentials are development-only (Vite proxy → Core API). Never used by the browser.
         const credential = issueDashboardServiceCredential(cwd);
         if (options?.registerKey !== false) {
             try {
@@ -195,6 +205,7 @@ export async function startDashboardSupervisor(options?: {
                 clearDashboardServiceCredentialFile(cwd);
                 throw new Error(
                     `Failed to register dashboard service API key with gateway: ${err instanceof Error ? err.message : String(err)}`,
+                    { cause: err },
                 );
             }
         }
@@ -221,26 +232,17 @@ export async function startDashboardSupervisor(options?: {
         let args: string[];
         let childCwd: string;
 
-        // Vite dev server only when NODE_ENV is explicitly "development".
-        if (explicitDev && availability.canStartDev) {
-            command = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-            args = ['run', 'dev', '--', '--port', String(port), '--host', '0.0.0.0'];
-            childCwd = web;
-        } else {
-            const hostScript = path.resolve(cwd, 'apps', 'web', 'scripts', 'dashboard-host.mjs');
-            if (!fs.existsSync(hostScript) || !availability.distPresent) {
-                await revokeDashboardServiceKeyFromGateway();
-                clearDashboardServiceCredentialFile(cwd);
-                const msg = `production dashboard requires ${hostScript} and apps/web/dist/index.html`;
-                if (mode === 'true') throw new Error(msg);
-                lastReason = msg;
-                desiredRunning = false;
-                return { started: false, mode, reason: msg };
-            }
-            command = process.execPath;
-            args = [hostScript];
-            childCwd = cwd;
+        // Vite HMR only — production child host path removed (embedded Core static serving).
+        if (!(explicitDev && availability.canStartDev)) {
+            await revokeDashboardServiceKeyFromGateway();
+            clearDashboardServiceCredentialFile(cwd);
+            lastReason = 'development Vite source unavailable';
+            desiredRunning = false;
+            return { started: false, mode, reason: lastReason };
         }
+        command = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+        args = ['run', 'dev', '--', '--port', String(port), '--host', '0.0.0.0'];
+        childCwd = web;
 
         startedGeneration = credential.generation;
         stopping = false;

@@ -10,13 +10,7 @@ import {
     expandValue,
     redactExpandedForApi,
 } from '#core/placeholder/index.js';
-import {
-    formatIssues,
-    langDocumentSchema,
-    loadPluginLangRules,
-    loadPluginLangSchema,
-    validateValue
-} from '#core/validation/index.js';
+import { formatIssues, loadPluginLangRules, loadPluginLangSchema, validateValue } from '#core/validation/index.js';
 import { guildLocale } from '#core/manager/guildLocale.js';
 
 const log = getLogger('LanguageManager');

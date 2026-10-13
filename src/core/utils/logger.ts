@@ -69,6 +69,7 @@ const redactFormat = winston.format((info) => {
 
 const humanReadableFormat = winston.format.printf((info) => {
     const { level, message, timestamp, name, stack, metadata } = info;
+    // eslint-disable-next-line no-control-regex -- intentional ANSI SGR strip for log level parsing
     const rawLevel = level.replace(/\u001b\[[0-9;]*m/g, '').toLowerCase();
     const colorize = info.colorize === true;
     const color  = colorize ? (LEVEL_COLORS[rawLevel] || '') : '';
@@ -138,6 +139,7 @@ class ErrorInterceptTransport extends TransportStream {
     override log(info: any, callback: () => void): void {
         setImmediate(() => {
             if (_errorEmitter) {
+                // eslint-disable-next-line no-control-regex -- intentional ANSI SGR strip for log level parsing
                 const rawLevel = (info.level as string).replace(/\u001b\[[0-9;]*m/g, '').toLowerCase();
                 if (rawLevel === 'error' || rawLevel === 'fatal') {
                     const redactedInfo = redactSensitiveData(info) as Record<string, unknown>;

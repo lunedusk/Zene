@@ -1,24 +1,11 @@
 import type { IHeart } from './index.js';
 import { BaseCommand } from '#core/bases/Command.js';
-import { BaseEvent } from '#core/bases/Event.js';
-import { BaseRoute } from '#core/bases/Route.js';
-import { BaseHandler } from '#core/bases/Handler.js';
+
 import { BaseMiddleware } from '#core/bases/Middleware.js';
-import {
-    registerRootCommand,
-    extendCommand,
-    listCommandTree,
-    freezeCommandStructure,
-    isCommandStructureFrozen,
-    type CommandExtension,
-} from '#core/loader/commandRegistry.js';
+import { registerRootCommand, extendCommand, listCommandTree, freezeCommandStructure, isCommandStructureFrozen, type CommandExtension } from '#core/loader/commandRegistry.js';
 import { registerMiddlewareInstance } from '#core/loader/middlewares.js';
 import type { RegisterRequirements } from '#core/loader/requirements.js';
-import type {
-    ChatInputCommandInteraction,
-    AutocompleteInteraction,
-    SlashCommandBuilder,
-} from 'discord.js';
+import type { ChatInputCommandInteraction, AutocompleteInteraction, SlashCommandBuilder } from 'discord.js';
 import type { CommandConfig } from '#core/bases/Command.js';
 
 export interface CommandDefinition {

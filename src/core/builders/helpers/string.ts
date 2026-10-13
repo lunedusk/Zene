@@ -7,7 +7,7 @@ export function sanitizeMarkdownString(
     if (str.length <= maxLen) return str;
 
     let truncated = str.substring(0, maxLen - 3);
-    truncated = truncated.replace(/\[[^\]]*\]\([^\)]*$/, '');
+    truncated = truncated.replace(/\[[^\]]*\]\([^)]*$/, '');
 
     const openBold = (truncated.match(/\*\*/g) || []).length;
     if (openBold % 2 !== 0) {

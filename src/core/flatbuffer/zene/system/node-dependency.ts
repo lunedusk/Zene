@@ -1,7 +1,3 @@
-
-
-/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
-
 import * as flatbuffers from 'flatbuffers';
 
 export class NodeDependency {

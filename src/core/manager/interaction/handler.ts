@@ -1,12 +1,4 @@
-import {
-    type Interaction,
-    Events,
-    MessageFlags,
-    type InteractionReplyOptions,
-    REST,
-    Routes,
-    type Client
-} from 'discord.js';
+import { type Interaction, MessageFlags, type InteractionReplyOptions, REST, Routes, type Client } from 'discord.js';
 import { performance } from 'node:perf_hooks';
 import { guildGate } from '#core/manager/guildGate.js';
 import { interactionRegistry } from './registry.js';
@@ -387,10 +379,11 @@ export class InteractionHandler {
                             : '%%emoji_cross%% A critical internal error occurred while processing your request.',
                     );
                     break;
-                case 'RATE_LIMIT':
+                case 'RATE_LIMIT': {
                     const remainingSec = ((contextData ?? 0) / 1000).toFixed(1);
                     payload.content = resolveGlobalPlaceholders(`%%emoji_clock%% Please wait **${remainingSec}s** before interacting again.`);
                     break;
+                }
             }
 
             try {

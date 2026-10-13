@@ -35,7 +35,7 @@ export class Formatter {
 
             try {
                 formatter = new Intl.NumberFormat(locale, options);
-            } catch (error) {
+            } catch (_error) {
                 this.log.debug(`Invalid locale requested: ${locale}. Falling back to en-US.`);
                 formatter = new Intl.NumberFormat('en-US', options);
             }

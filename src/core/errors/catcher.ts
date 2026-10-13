@@ -1,4 +1,4 @@
-import { loadGrantFromRedis } from '#core/crosshost/orchestrator/identifyQueue.js';
+
 import { getLogger } from '#core/utils/logger.js';
 
 const log = getLogger('GlobalCatcher');

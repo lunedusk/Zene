@@ -26,11 +26,13 @@
     "dev": "npm run prepare-plugin-deps && tsx --import ./src/core/dependency/index.mts ./src/index.ts",
     "docs": "npm run rmdocs && typedoc",
     "rmdocs": "rm -rf docs",
-    "lint": "eslint src --fix",
+    "lint": "node ./node_modules/eslint/bin/eslint.js src --max-warnings 0",
     "flush": "rm -rf core plugins configuration logs .data scripts index.js index.d.ts",
     "updater": "node --import ./core/dependency/index.mjs ./index.js --updater",
     "build:zene-sdk": "npm run rebuild --prefix packages/zene-sdk",
-    "pack:zene-sdk": "npm run pack:artifact --prefix packages/zene-sdk"
+    "pack:zene-sdk": "npm run pack:artifact --prefix packages/zene-sdk",
+    "lint:fix": "node ./node_modules/eslint/bin/eslint.js src --fix",
+    "test": "node --import tsx --test \"src/**/*.test.ts\" \"src/core/**/*.test.ts\""
   },
   "dependencies": {
     "@lunedusk/gateway-multiplex": "file:packages/gateway-multiplex",
@@ -81,7 +83,11 @@
     "tsc-alias": "^1.9.4",
     "tsx": "^4.23.13",
     "typedoc": "^0.28.18",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "eslint": "^10.12.0",
+    "@eslint/js": "^10.0.1",
+    "@typescript-eslint/parser": "^8.58.0",
+    "@typescript-eslint/eslint-plugin": "^8.58.0"
   },
   "overrides": {
     "glob": "^13.0.6"

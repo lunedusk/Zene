@@ -1,10 +1,5 @@
 import { type IHeart } from '#core/heart/index.js';
-import {
-    surrealUpsertByKey,
-    surrealSelectOnlyByKey,
-    surrealDeleteByKey,
-    readLogicalKey,
-} from '#core/database/surrealRecord.js';
+import { surrealUpsertByKey, surrealSelectOnlyByKey, surrealDeleteByKey } from '#core/database/surrealRecord.js';
 import { resolveDashboardBackend } from '#core/database/backendSelector.js';
 import { openSqlAdapter, type SqlAdapter, type Row } from '#core/database/sqlAdapter.js';
 

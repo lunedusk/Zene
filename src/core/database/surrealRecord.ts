@@ -35,7 +35,7 @@ function classifyMajor(versionInfo: unknown): 2 | 3 {
 export async function resolveSurrealRecordCtor(db: Surreal): Promise<SurrealRecordCtor> {
     const cached = ctorByClient.get(db as object);
     if (cached) return cached;
-    let ctor: SurrealRecordCtor = 'type::record';
+    let ctor: SurrealRecordCtor;
     try {
         const info = await db.version();
         ctor = classifyMajor(info) >= 3 ? 'type::record' : 'type::thing';

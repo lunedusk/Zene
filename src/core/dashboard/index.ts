@@ -53,6 +53,7 @@ export {
     issueCsrfToken,
     validateCsrfToken,
     validateOrigin,
+    resolveDashboardAllowedOrigins,
 } from './csrf.js';
 
 export {

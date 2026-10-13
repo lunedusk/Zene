@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { BaseRoute } from '#core/bases/Route.js';
 import { type Response } from 'express';
 import { applyGateway, requireSession, type DashRequest } from '../lib/authz.js';

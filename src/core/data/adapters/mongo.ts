@@ -100,7 +100,7 @@ export class MongoDataAdapter implements DataStorageAdapter {
                 },
                 { upsert: true },
             );
-        } catch (err) {
+        } catch (_err) {
             throw new DataRegistryError(
                 'DATA_PERSISTENCE_FAILURE',
                 'Mongo storage operation failed',

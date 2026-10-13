@@ -47,7 +47,6 @@ import { workerHooks } from './hooks.js';
 import type { UpdateInstructMessage, UpdateAckMessage, QueryOp } from '../types.js';
 import { flushLogs } from '#core/utils/logger.js';
 import { httpServer } from '#core/manager/http/server.js';
-import { secrets } from '#core/helpers/secretManager.js';
 import { startQueryRpcServer } from '../query/rpc.js';
 import { configureIndexWriter } from '../indexStore/writer.js';
 import { resolveIndexBackend } from '../indexStore/resolve.js';
@@ -418,7 +417,7 @@ export async function runWorkerControlPlane(
             plugins: instruct.desiredState.plugins,
         });
         let ok = false;
-        let message = '';
+        let message: string;
         try {
             const { runWorkerUpdate } = await import('./updateClient.js');
             await runWorkerUpdate(instruct);

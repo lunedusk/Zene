@@ -214,32 +214,51 @@ async function runBotMode(): Promise<void> {
 
                 if (this.isPrimaryShard) {
                     httpServer.init();
-                    await httpServer.start(parseInt(secrets.getOptional('APIPort') || '3000', 10));
                 }
 
                 this.log.info('Booting Plugins...');
                 await pluginManager.bootAll(this.client);
 
                 if (this.isPrimaryShard) {
-                    httpServer.finalize();
+                    // Production path: embed SPA on the same Core HTTP origin after routes register.
+                    const registryHasDashboard = pluginManager
+                        .listLoadedPlugins()
+                        .some((p) => p.manifest.id === 'dashboard' && p.isEnabled);
+                    let mountResult: {
+                        mode: string;
+                        mounted: boolean;
+                        reason: string;
+                        assetRoot: string | null;
+                        backendPresent: boolean;
+                    };
                     try {
-                        const { startDashboardSupervisor } = await import(
+                        mountResult = httpServer.mountDashboardUI(registryHasDashboard);
+                        this.log.info(
+                            `Dashboard UI mount: mode=${mountResult.mode} mounted=${mountResult.mounted} reason=${mountResult.reason}`,
+                        );
+                    } catch (dashErr: unknown) {
+                        const msg = dashErr instanceof Error ? dashErr.message : String(dashErr);
+                        this.log.error(`Dashboard UI mount failed: ${msg}`);
+                        throw dashErr;
+                    }
+
+                    httpServer.finalize();
+                    await httpServer.start(parseInt(secrets.getOptional('APIPort') || '3000', 10));
+
+                    // Explicit development only: optional Vite child for HMR. Production never uses it.
+                    try {
+                        const { isExplicitDevelopmentMode, startDashboardSupervisor } = await import(
                             '#core/dashboard/supervisor.js'
                         );
-                        const dash = await startDashboardSupervisor();
-                        if (dash.started) {
+                        if (isExplicitDevelopmentMode() && !mountResult.mounted) {
+                            const dash = await startDashboardSupervisor();
                             this.log.info(
-                                `Dashboard process active (mode=${dash.mode}: ${dash.reason}).`,
-                            );
-                        } else {
-                            this.log.info(
-                                `Dashboard process not started (mode=${dash.mode}: ${dash.reason}).`,
+                                `Dev dashboard process (mode=${dash.mode}: ${dash.reason}, started=${dash.started}).`,
                             );
                         }
                     } catch (dashErr: unknown) {
                         const msg = dashErr instanceof Error ? dashErr.message : String(dashErr);
-                        this.log.error(`Dashboard supervisor failed: ${msg}`);
-                        throw dashErr;
+                        this.log.warn(`Optional dev dashboard supervisor skipped: ${msg}`);
                     }
                 }
 

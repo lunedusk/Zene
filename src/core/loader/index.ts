@@ -10,11 +10,12 @@ import { type Client } from 'discord.js';
 import {
     shouldDisablePluginForConfig,
     formatPluginDisableMessage,
-    getPluginDisableReason
+    formatPluginDisableReason,
+    getPluginDisableReason,
 } from '#core/validation/pluginGate.js';
 import { getLogger } from '#core/utils/logger.js';
 import { HeartFactory } from '#core/heart/index.js';
-import { BasePlugin, PluginState, type PluginManifest } from '#core/bases/Plugin.js';
+import { BasePlugin, PluginState } from '#core/bases/Plugin.js';
 import { CommandLoader } from './commands.js';
 import { MiddlewareLoader } from './middlewares.js';
 import { freezeCommandStructure } from './commandRegistry.js';
@@ -167,13 +168,12 @@ export class PluginManager extends EventEmitter {
 
             if (shouldDisablePluginForConfig(id)) {
                 this.bootStatuses.set(id, PluginBootStatus.Skipped);
-                log.error(formatPluginDisableMessage(id));
                 const reason = getPluginDisableReason(id);
-                this.emit(
-                    'pluginFailed',
-                    manifest,
-                    new Error(formatPluginDisableMessage(id) || 'Validation failed')
-                );
+                const message = reason
+                    ? formatPluginDisableReason(reason)
+                    : formatPluginDisableMessage(id) || 'Validation failed';
+                log.error(message);
+                this.emit('pluginFailed', manifest, new Error(message));
                 continue;
             }
 
@@ -618,7 +618,8 @@ export class PluginManager extends EventEmitter {
                 const {
                     shouldDisablePluginForConfig,
                     formatPluginDisableMessage,
-                    getPluginDisableReason
+                    formatPluginDisableReason,
+                    getPluginDisableReason,
                 } = await import('#core/validation/pluginGate.js');
 
                 try {
@@ -632,8 +633,10 @@ export class PluginManager extends EventEmitter {
 
                 if (shouldDisablePluginForConfig(pluginId)) {
                     const reason = getPluginDisableReason(pluginId);
-                    const detail = formatPluginDisableMessage(pluginId);
-                    throw new Error(detail || `Validation failed for ${pluginId}`);
+                    const message = reason
+                        ? formatPluginDisableReason(reason)
+                        : formatPluginDisableMessage(pluginId) || `Validation failed for ${pluginId}`;
+                    throw new Error(message);
                 }
 
                 // Unified reload via RuntimeManager — isolated plugins never imported into Core

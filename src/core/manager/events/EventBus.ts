@@ -1,4 +1,4 @@
-import type { Client, ClientEvents, Interaction } from 'discord.js';
+import type { Client, ClientEvents } from 'discord.js';
 import { Events } from 'discord.js';
 import type { AuditRecord } from '#core/audit/types.js';
 import type { ErrorOccurrence } from '#core/errors/types.js';

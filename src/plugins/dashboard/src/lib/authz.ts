@@ -1,9 +1,8 @@
 import { type Request, type Response, type NextFunction, type Router } from 'express';
 import { type IHeart } from '#core/heart/index.js';
-import { TokenError, type VerifiedToken, type Bit } from '#core/manager/token.js';
-import { err, HttpError, type AuthzFailureClass } from './http.js';
+import { type VerifiedToken } from '#core/manager/token.js';
+import { err, type AuthzFailureClass } from './http.js';
 import { BOT_OWNER_BIT } from './bits.js';
-import { tryTokens } from './tokens.js';
 import type GatewayManager from '../../../api/src/handlers/manager.js';
 import type { ActorCapabilityId } from '#core/types/capabilities.js';
 import { authorizeCapability, resolveActorPermissions } from '#core/permissions/capabilities.js';
@@ -24,22 +23,142 @@ function gateway(heart: IHeart): GatewayManager | undefined {
 
 
 
+const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/**
+ * Cookie-authenticated mutations: exact Origin policy + CSRF token (X-CSRF-Token / body.csrf).
+ * Safe methods (GET/HEAD/OPTIONS) pass through. OAuth start/callback remain unauthenticated
+ * and are not covered by this middleware (they use OAuth state/PKCE instead).
+ */
+export function requireMutationProtection(heart: IHeart) {
+    return async (req: DashRequest, res: Response, next: NextFunction): Promise<void> => {
+        const method = (req.method ?? 'GET').toUpperCase();
+        if (!MUTATION_METHODS.has(method)) {
+            next();
+            return;
+        }
+
+        // Unauthenticated OAuth endpoints use protocol state, not CSRF cookies.
+        const path = (req.path ?? '').replace(/\/+$/, '') || '/';
+        if (
+            path.endsWith('/oauth/start') ||
+            path.endsWith('/oauth/callback') ||
+            path === '/oauth/start' ||
+            path === '/oauth/callback'
+        ) {
+            next();
+            return;
+        }
+
+        try {
+            const { validateOrigin, validateCsrfToken, resolveDashboardAllowedOrigins } =
+                await import('#core/dashboard/csrf.js');
+            const { getDashboardSessionRecord } = await import('#core/dashboard/index.js');
+
+            const allowed = resolveDashboardAllowedOrigins();
+            // In production, empty allowlist fails closed inside validateOrigin.
+            // For explicit development, derive origin from the request host when allowlist empty.
+            const isDev =
+                (process.env.NODE_ENV ?? '').trim().toLowerCase() === 'development';
+            let origins = allowed;
+            if (origins.length === 0 && isDev) {
+                const host = req.get('host');
+                const proto = (req.get('x-forwarded-proto') ?? req.protocol ?? 'http')
+                    .toString()
+                    .split(',')[0]
+                    ?.trim();
+                if (host && proto) {
+                    origins = [`${proto}://${host}`];
+                }
+            }
+
+            validateOrigin({
+                origin: typeof req.headers.origin === 'string' ? req.headers.origin : undefined,
+                referer: typeof req.headers.referer === 'string' ? req.headers.referer : undefined,
+                allowedOrigins: origins,
+            });
+
+            const coreId = req.coreSessionId ?? readCoreSessionCookie(req);
+            const isLogout = path.endsWith('/logout') || path === '/logout';
+
+            // Logout without a valid session: origin check is enough; clear cookie downstream.
+            if (!coreId) {
+                if (isLogout) {
+                    next();
+                    return;
+                }
+                err(res, 401, 'core_session_required', 'Core dashboard session required');
+                return;
+            }
+            const rec = getDashboardSessionRecord(coreId);
+            if (!rec || rec.revoked) {
+                if (isLogout) {
+                    next();
+                    return;
+                }
+                err(res, 401, 'unauthorized', heart.assets.lang.get(heart.id, 'errors.unauthorized'));
+                return;
+            }
+
+            const headerToken =
+                typeof req.headers['x-csrf-token'] === 'string'
+                    ? req.headers['x-csrf-token']
+                    : undefined;
+            const bodyToken =
+                req.body &&
+                typeof req.body === 'object' &&
+                req.body !== null &&
+                typeof (req.body as { csrf?: unknown }).csrf === 'string'
+                    ? (req.body as { csrf: string }).csrf
+                    : undefined;
+
+            validateCsrfToken({
+                csrfSecret: rec.csrfSecret,
+                sessionId: rec.sessionId,
+                token: headerToken ?? bodyToken,
+            });
+
+            next();
+        } catch (e: unknown) {
+            const { DashboardAuthError } = await import('#core/dashboard/authContext.js');
+            if (e instanceof DashboardAuthError) {
+                const status =
+                    e.code === 'csrf_failure' || e.code === 'origin_failure' ? 403 : 401;
+                err(res, status, e.code, e.message);
+                return;
+            }
+            heart.log.error(
+                `requireMutationProtection failed: ${e instanceof Error ? e.message : String(e)}`,
+            );
+            err(res, 500, 'internal', heart.assets.lang.get(heart.id, 'errors.internal'));
+        }
+    };
+}
+
+/**
+ * Dashboard namespace uses Core session + per-route authz, not generic API-gateway bearer keys.
+ * Also attaches mutation CSRF/origin protection for cookie-authenticated state changes.
+ */
 export function applyGateway(heart: IHeart, router: Router, options?: { requireGateway?: boolean }): void {
     const api = gateway(heart);
     if (!api) {
-        if (options?.requireGateway !== false) {
+        if (options?.requireGateway === true) {
             heart.log.error(
-                'api plugin handler unavailable — dashboard routes FAIL CLOSED (gateway required).',
+                'api plugin handler unavailable — dashboard routes FAIL CLOSED (gateway required by option).',
             );
             router.use((_req, res) => {
                 err(res, 503, 'gateway_unavailable', 'API gateway is unavailable.');
             });
             return;
         }
-        heart.log.warn('api plugin handler unavailable — dashboard routes are running WITHOUT gateway auth.');
-        return;
+        heart.log.debug(
+            'api plugin handler unavailable — dashboard routes continue with Core session auth only.',
+        );
     }
-    api.applyMiddleware(router);
+    // Intentionally do NOT call api.applyMiddleware(router): dashboard must not require
+    // Authorization: Bearer <gateway-key>. Session middleware is applied per-route via requireSession.
+    // Mutation protection applies to all dashboard routers that call applyGateway.
+    router.use(requireMutationProtection(heart));
 }
 
 
@@ -153,18 +272,14 @@ function readCoreSessionCookie(req: Request): string | undefined {
 }
 
 /**
- * Dashboard session middleware: Core opaque session is required for authorization.
- * Legacy X-Dash-Session token may accompany Core session but cannot authorize alone.
+ * Dashboard session middleware: HttpOnly Core session cookie is the only authorization source.
+ * Client-supplied session IDs (headers, body, localStorage tokens) are not accepted as proof.
  */
 export function requireSession(heart: IHeart) {
     return async (req: DashRequest, res: Response, next: NextFunction): Promise<void> => {
         const { getDashboardSessionRecord } = await import('#core/dashboard/index.js');
 
-        const coreId =
-            readCoreSessionCookie(req) ??
-            (typeof req.header('x-zene-core-session') === 'string'
-                ? req.header('x-zene-core-session')!
-                : undefined);
+        const coreId = readCoreSessionCookie(req);
 
         if (!coreId) {
             err(res, 401, 'core_session_required', 'Core dashboard session required');
@@ -178,43 +293,15 @@ export function requireSession(heart: IHeart) {
 
         req.coreSessionId = core.sessionId;
 
-        // Optional legacy token: if present must match Core principal; never sufficient alone
-        const t = tryTokens(heart);
-        const raw = req.header('X-Dash-Session');
-        if (raw && t) {
-            try {
-                const verified = await t.verify(raw);
-                if (verified.payload.userId !== core.principal.userId) {
-                    err(res, 401, 'context_mismatch', 'Token principal mismatches Core session');
-                    return;
-                }
-                req.dashSession = verified;
-            } catch (e) {
-                if (e instanceof TokenError) {
-                    if (e.tokenCode === 'TOKEN_REVOKED' || e.code === 'TOKEN.TOKEN_REVOKED') {
-                        err(res, 401, 'rotation_detected', heart.assets.lang.get(heart.id, 'errors.rotationDetected'));
-                        return;
-                    }
-                    if (e.tokenCode === 'TOKEN_EXPIRED' || e.code === 'TOKEN.TOKEN_EXPIRED') {
-                        err(res, 401, 'session_expired', heart.assets.lang.get(heart.id, 'errors.sessionExpired'));
-                        return;
-                    }
-                }
-                // Token invalid but Core session valid: allow with synthetic session for downstream
-            }
-        }
-
-        if (!req.dashSession) {
-            // Provide minimal compatible shape for routes that still read dashSession.payload
-            req.dashSession = {
-                payload: {
-                    userId: core.principal.userId,
-                    bits: [...core.principal.bits],
-                    exp: Math.floor(core.expiresAt / 1000),
-                    jti: core.sessionId,
-                },
-            } as VerifiedToken;
-        }
+        // Compatible shape for routes that still read dashSession.payload (never from client token).
+        req.dashSession = {
+            payload: {
+                userId: core.principal.userId,
+                bits: [...core.principal.bits],
+                exp: Math.floor(core.expiresAt / 1000),
+                jti: core.sessionId,
+            },
+        } as VerifiedToken;
         next();
     };
 }
@@ -299,6 +386,19 @@ export function requireGuildBit(heart: IHeart, bit: string, crossServerBit?: str
                 return;
             }
             try {
+                // Authoritative membership from Core session (OAuth guild list), not client claim.
+                const { getDashboardSessionRecord } = await import('#core/dashboard/index.js');
+                const core = req.coreSessionId
+                    ? getDashboardSessionRecord(req.coreSessionId)
+                    : undefined;
+                const membership = core?.principal.guildIds ?? [];
+                const isOwner =
+                    core?.principal.isEnvOwner === true ||
+                    (await resolveActorPermissions(verified.payload.userId)).resolved.botOwner;
+                if (!isOwner && membership.length > 0 && !membership.includes(guildId)) {
+                    sendAuthzFailure(res, heart, 'forbidden', 'forbidden', 'Not a member of the requested guild');
+                    return;
+                }
 
                 const actor = await resolveActorPermissions(verified.payload.userId, guildId);
                 if (actor.resolved.botOwner || actor.resolved.bits.has(BOT_OWNER_BIT)) {
@@ -310,12 +410,6 @@ export function requireGuildBit(heart: IHeart, bit: string, crossServerBit?: str
                     return;
                 }
 
-                const tokenGuild = verified.payload.guildId;
-                if (tokenGuild && tokenGuild !== guildId) {
-
-                    sendAuthzFailure(res, heart, 'forbidden');
-                    return;
-                }
                 if (actor.resolved.bits.has(bit)) {
                     next();
                     return;

@@ -1,8 +1,4 @@
-
-
-
-
-import { apiClient, SESSION_STORAGE_KEY } from '../api/client.js';
+import { apiClient, SESSION_STORAGE_KEY, clearCsrfToken } from '../api/client.js';
 import { DashApiError, type SessionUser } from '../api/types.js';
 import { identityFromApiPayload, setIdentity } from '../identity/store.js';
 import { logger } from '../lib/logger.js';
@@ -44,21 +40,18 @@ function setState(next: SessionState): void {
   emit();
 }
 
-export function setSessionToken(token: string | null): void {
+/** Clear any legacy token storage from older clients. Cookie session is authoritative. */
+export function setSessionToken(_token: string | null): void {
   try {
-    if (token) sessionStorage.setItem(SESSION_STORAGE_KEY, token);
-    else sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    localStorage.removeItem(SESSION_STORAGE_KEY);
   } catch {
-
+    /* ignore */
   }
 }
 
 export function getSessionToken(): string | null {
-  try {
-    return sessionStorage.getItem(SESSION_STORAGE_KEY);
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 async function loadRuntimeIdentity(): Promise<void> {
@@ -91,21 +84,10 @@ export async function bootstrapSession(): Promise<SessionState> {
   logger.debug('session.bootstrap.start', {});
   logger.debug('app.bootstrap.start', {});
   setState({ status: 'initializing', user: null, bits: new Set(), isBotOwner: false });
+  // Drop legacy stored tokens so they cannot be sent as gateway bearers.
+  setSessionToken(null);
   await loadRuntimeIdentity();
 
-  const token = getSessionToken();
-  if (!token) {
-    const next: SessionState = {
-      status: 'unauthenticated',
-      user: null,
-      bits: new Set(),
-      isBotOwner: false,
-    };
-    setState(next);
-    logger.debug('session.bootstrap.unauthenticated', {});
-    logger.debug('app.bootstrap.complete', { status: 'unauthenticated' });
-    return next;
-  }
   try {
     const data = (await apiClient.getMe()) as Record<string, unknown>;
     const id = String(data.id ?? data.userId ?? '');
@@ -133,7 +115,6 @@ export async function bootstrapSession(): Promise<SessionState> {
     return next;
   } catch (e) {
     if (e instanceof DashApiError && e.isUnauthenticated) {
-      setSessionToken(null);
       const next: SessionState = {
         status: 'unauthenticated',
         user: null,
@@ -165,6 +146,21 @@ export function hasBit(bit: string): boolean {
 
 export function logoutLocal(): void {
   setSessionToken(null);
+  clearCsrfToken();
   setState({ status: 'unauthenticated', user: null, bits: new Set(), isBotOwner: false });
   logger.debug('session.logout', {});
+}
+
+/** Server-side logout then clear local session/CSRF state. */
+export async function logout(): Promise<void> {
+  try {
+    await apiClient.logout();
+  } catch (e) {
+    // Still clear local state even if network logout fails
+    logger.debug('session.logout.server_failure', {
+      reason: e instanceof Error ? e.message : 'unknown',
+    });
+  } finally {
+    logoutLocal();
+  }
 }

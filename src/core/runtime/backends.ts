@@ -3,20 +3,14 @@ import { randomUUID } from 'node:crypto';
  * Phase 2D — Runtime backends: in-process + real Worker/Process hosts.
  */
 
-import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { fork, type ChildProcess } from 'node:child_process';
 import { getLogger } from '#core/utils/logger.js';
 import { clearBridgeResources, handleHostMessage, countOwned } from './bridge.js';
 import { errorMessage } from './errors.js';
 import { resolveHostArtifact } from './hostResolve.js';
-import {
-    RUNTIME_PROTOCOL_VERSION,
-    type CoreToHostMessage,
-    type HostToCoreMessage,
-    isHostToCore,
-} from './protocol.js';
-import { validateHostToCoreMessage, ProtocolValidationError } from './messageValidation.js';
+import { RUNTIME_PROTOCOL_VERSION, type CoreToHostMessage, type HostToCoreMessage } from './protocol.js';
+import { validateHostToCoreMessage } from './messageValidation.js';
 import type {
     InProcessLifecycleHooks,
     IsolationLevel,
@@ -433,7 +427,7 @@ export async function launchWorker(
         }
         clearBridgeResources(request.pluginId, id);
         handle.health = 'stopped';
-        throw new Error(`Worker establish failed: ${message}`);
+        throw new Error(`Worker establish failed: ${message}`, { cause: err });
     }
 }
 
@@ -634,7 +628,7 @@ export async function launchProcess(
         }
         clearBridgeResources(request.pluginId, id);
         handle.health = 'stopped';
-        throw new Error(`Process establish failed: ${message}`);
+        throw new Error(`Process establish failed: ${message}`, { cause: err });
     }
 }
 

@@ -5,7 +5,11 @@ import { performance } from 'node:perf_hooks';
 import { secrets } from '#core/helpers/secretManager.js';
 import { NovaError } from '#core/errors/NovaError.js';
 import { errors } from '#core/errors/index.js';
-import { mountDashboardStatic, type MountDashboardResult } from '#core/manager/http/dashboardStatic.js';
+import {
+    mountDashboardStatic,
+    parseDashboardMode,
+    type MountDashboardResult,
+} from '#core/manager/http/dashboardStatic.js';
 
 const log = getLogger('HttpServer');
 
@@ -16,6 +20,7 @@ export class HttpServer {
     private server: http.Server | null = null;
     private isRunning = false;
     private readonly mounts = new Map<string, MountState>();
+    private dashboardMount: MountDashboardResult | null = null;
 
     public init(): void {
         if (this.app) return;
@@ -47,26 +52,31 @@ export class HttpServer {
         });
 
         this.app.get('/health', (_req: Request, res: Response) => {
-            // Lazy import avoids circular init; supervisor tracks optional dashboard child.
-            void import('#core/dashboard/supervisor.js')
-                .then(({ getDashboardSupervisorStatus, isDashboardHealthOk }) => {
-                    const dash = getDashboardSupervisorStatus();
-                    const dashOk = isDashboardHealthOk();
-                    const body = {
-                        ok: dashOk,
-                        core: true,
-                        dashboard: {
-                            mode: dash.mode,
-                            desired: dash.desired,
-                            running: dash.running,
-                            reason: dash.reason,
-                        },
-                    };
-                    res.status(dashOk ? 200 : 503).json(body);
-                })
-                .catch(() => {
-                    res.status(200).json({ ok: true, core: true, dashboard: { desired: false, running: false } });
-                });
+            // Integrated dashboard state (same-origin static mount), not a child process.
+            let mode: string;
+            try {
+                mode = parseDashboardMode(undefined);
+            } catch {
+                mode = 'invalid';
+            }
+            const mount = this.dashboardMount;
+            const required = mode === 'true';
+            const mounted = mount?.mounted === true;
+            const backendPresent = mount?.backendPresent === true;
+            const dashOk = required ? mounted && backendPresent : true;
+            const body = {
+                ok: dashOk,
+                core: true,
+                dashboard: {
+                    mode,
+                    desired: required || mode === 'auto',
+                    mounted,
+                    backendPresent,
+                    assetRoot: mount?.assetRoot ?? null,
+                    reason: mount?.reason ?? (mode === 'false' ? 'explicitly disabled' : 'not mounted yet'),
+                },
+            };
+            res.status(dashOk ? 200 : 503).json(body);
         });
     }
 
@@ -136,7 +146,14 @@ export class HttpServer {
         if (!this.app) {
             throw new Error('HttpServer not initialized.');
         }
-        return mountDashboardStatic(this.app, { registryHasDashboard });
+        const result = mountDashboardStatic(this.app, { registryHasDashboard });
+        this.dashboardMount = result;
+        return result;
+    }
+
+    /** Last integrated dashboard mount outcome (null before mount attempt). */
+    public getDashboardMountState(): MountDashboardResult | null {
+        return this.dashboardMount;
     }
 
     public finalize(): void {
@@ -256,7 +273,9 @@ export class HttpServer {
                 try {
                     const closer = srv as http.Server & { closeAllConnections?: () => void };
                     closer.closeAllConnections?.();
-                } catch { }
+                } catch {
+                    /* closeAllConnections may be unavailable on older Node */
+                }
                 done();
             }, timeoutMs);
             timer.unref();

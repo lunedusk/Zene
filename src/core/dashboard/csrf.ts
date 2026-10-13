@@ -49,15 +49,25 @@ export function validateCsrfToken(input: {
     }
 }
 
+/**
+ * Exact-origin check for cookie-authenticated mutations.
+ * Empty allowlist fails closed (never silently disables protection).
+ * Prefer Origin; Referer is accepted only when Origin is absent and parses to an allowed origin.
+ */
 export function validateOrigin(input: {
     origin: string | undefined;
     referer: string | undefined;
     allowedOrigins: readonly string[];
 }): void {
-    if (input.allowedOrigins.length === 0) return;
-    const origin = input.origin;
+    if (input.allowedOrigins.length === 0) {
+        throw new DashboardAuthError(
+            'origin_failure',
+            'No allowed origins configured for dashboard mutations',
+        );
+    }
+    const origin = input.origin?.trim();
     if (origin && input.allowedOrigins.includes(origin)) return;
-    if (input.referer) {
+    if (!origin && input.referer) {
         try {
             const u = new URL(input.referer);
             const refOrigin = `${u.protocol}//${u.host}`;
@@ -67,4 +77,27 @@ export function validateOrigin(input: {
         }
     }
     throw new DashboardAuthError('origin_failure', 'Origin not allowed');
+}
+
+/** Resolve configured dashboard allowed origins (exact match). */
+export function resolveDashboardAllowedOrigins(): string[] {
+    const fromEnv = [
+        process.env.DashboardAllowedOrigins ?? '',
+        process.env.ApiPublicUrl ?? '',
+        process.env.DashboardPublicUrl ?? '',
+    ]
+        .join(',')
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .map((raw) => {
+            try {
+                const u = new URL(raw);
+                return `${u.protocol}//${u.host}`;
+            } catch {
+                return raw;
+            }
+        });
+    // Deduplicate
+    return [...new Set(fromEnv)];
 }

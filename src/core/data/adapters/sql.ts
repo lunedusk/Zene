@@ -9,15 +9,7 @@ import type {
     DataTypeCatalogueEntry,
     DurableDataStorageEngine,
 } from '../types.js';
-import {
-    CORE_DATA_TABLE,
-    CORE_DATA_CATALOGUE_TABLE,
-    canonicalizeSubject,
-    decodeRecord,
-    encodeRecord,
-    subjectMatches,
-    type StoredRecordPayload,
-} from './recordCodec.js';
+import { CORE_DATA_TABLE, CORE_DATA_CATALOGUE_TABLE, canonicalizeSubject, decodeRecord, encodeRecord, subjectMatches } from './recordCodec.js';
 
 const CAPABILITIES: DataStorageCapabilities = Object.freeze({
     durable: true,
@@ -173,7 +165,7 @@ export class SqlDataAdapter implements DataStorageAdapter {
                     ],
                 );
             }
-        } catch (err) {
+        } catch (_err) {
             throw new DataRegistryError(
                 'DATA_PERSISTENCE_FAILURE',
                 'SQL storage operation failed',

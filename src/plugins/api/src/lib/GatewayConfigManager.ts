@@ -25,7 +25,8 @@ export interface AuthKeyEntry {
     key: string;
     label: string;
     enabled: boolean;
-    bits?: string[];
+    /** Permission bits granted by this key; treated as immutable input (copied on register). */
+    bits?: readonly string[];
 }
 
 export interface AuthConfig {
@@ -433,7 +434,7 @@ export class GatewayConfigManager {
                 return {
                     isMaster: false,
                     label: entry.label,
-                    bits: Array.isArray(entry.bits) ? entry.bits : [],
+                    bits: Array.isArray(entry.bits) ? [...entry.bits] : [],
                 };
             }
         }
@@ -444,7 +445,7 @@ export class GatewayConfigManager {
         return {
             isMaster: false,
             label: matchedKey.label,
-            bits: Array.isArray(matchedKey.bits) ? matchedKey.bits : [],
+            bits: Array.isArray(matchedKey.bits) ? [...matchedKey.bits] : [],
         };
     }
 

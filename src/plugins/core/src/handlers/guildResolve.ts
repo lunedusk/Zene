@@ -1,4 +1,4 @@
-import type { Client, Guild } from 'discord.js';
+import type { Guild } from 'discord.js';
 import { BaseHandler } from '#core/bases/Handler.js';
 import {
     ensureGuildOnClient,

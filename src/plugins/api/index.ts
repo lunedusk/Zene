@@ -33,17 +33,8 @@ export default class ApiGatewayPlugin extends BasePlugin {
 
         GatewayConfigManager.instance.init(config);
         bindGatewayRuntimeKeyRegistrar({
-            registerRuntimeKey: (entry) =>
-                GatewayConfigManager.instance.registerRuntimeKey({
-                    key: entry.key,
-                    label: entry.label,
-                    enabled: entry.enabled,
-                    ...(entry.bits === undefined
-                        ? {}
-                        : { bits: [...entry.bits] }),
-                }),
-            revokeRuntimeKey: (label) =>
-                GatewayConfigManager.instance.revokeRuntimeKey(label),
+            registerRuntimeKey: (entry) => GatewayConfigManager.instance.registerRuntimeKey(entry),
+            revokeRuntimeKey: (label) => GatewayConfigManager.instance.revokeRuntimeKey(label),
         });
         this.log.info('API Gateway config manager initialised.');
     }

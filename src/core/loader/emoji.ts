@@ -71,6 +71,7 @@ export class EmojiLoader {
                 } catch (error: unknown) {
                     const err = error as NodeJS.ErrnoException;
                     if (err.code === 'ENOENT') {
+                        /* optional emoji.json absent — skip */
                     } else if (error instanceof SyntaxError) {
                         log.error(`[${pluginName}] Malformed emoji.json syntax. Skipping URL map.`);
                     } else {

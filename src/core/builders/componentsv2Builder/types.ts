@@ -1,4 +1,4 @@
-import { ComponentBuilder, AttachmentBuilder } from "discord.js";
+import { AttachmentBuilder } from "discord.js";
 import { AssetManager, AttachmentInput } from "../helpers/assets.js";
 
 export type Cv2ComponentType = "container" | "text" | "section" | "separator" | "mediaGallery" | "file" | "actionRow" | "button" | "selectMenu";

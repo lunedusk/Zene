@@ -125,7 +125,7 @@ protected register(): void {
     private async detail(req: DashRequest<GuildParams>, res: Response): Promise<void> {
         const guild = getGuild(this.heart, req.params.guildId);
         const db = await ensureDashboardAdapter();
-        let ban: unknown = null;
+        let ban: unknown;
         if (db.engine === 'mongo') {
             ban = await (await dashMongo('dash_server_bans')).findOne({
                 $or: [{ guildId: guild.id }, { _id: guild.id }],
@@ -181,7 +181,7 @@ protected register(): void {
     private async unban(req: DashRequest<GuildParams>, res: Response): Promise<void> {
         const { guildId } = req.params;
         const db = await ensureDashboardAdapter();
-        let changed = false;
+        let changed: boolean;
         if (db.engine === 'mongo') {
             const n = await (await dashMongo('dash_server_bans')).deleteOne({
                 $or: [{ _id: guildId }, { guildId }],

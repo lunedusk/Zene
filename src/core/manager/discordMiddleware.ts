@@ -183,7 +183,7 @@ function patchMethod(proto: any, method: string): void {
 
     proto[method] = function (this: any, ...args: any[]) {
         if (args[0] !== undefined) args[0] = applyMiddleware(args[0]);
-        return (original as Function).apply(this, args);
+        return (original as (...args: unknown[]) => unknown).apply(this, args);
     };
 }
 export class DiscordMiddleware {
@@ -245,7 +245,7 @@ export class DiscordMiddleware {
                     if (args[0].state)   args[0].state   = resolveGlobalPlaceholders(args[0].state);
                     if (args[0].details) args[0].details = resolveGlobalPlaceholders(args[0].details);
                 }
-                return (originalSetActivity as Function).apply(this, args);
+                return (originalSetActivity as (...args: unknown[]) => unknown).apply(this, args);
             };
         }
 

@@ -8,7 +8,7 @@ const isProd = process.env.NODE_ENV === 'production';
 function buildDataSourceOptions(
     protocol: string,
     uri: string,
-    entities: Function[],
+    entities: Array<new (...args: unknown[]) => unknown>,
     poolSize: number,
 ): DataSourceOptions {
     const pathname = (() => {
@@ -62,7 +62,7 @@ function buildDataSourceOptions(
 export class SqlRegistry {
     private engines = new Map<string, DataSource>();
 
-    public async connect(alias: string, uri: string, entities: Function[] = [], poolSize: number = 10): Promise<void> {
+    public async connect(alias: string, uri: string, entities: Array<new (...args: unknown[]) => unknown> = [], poolSize: number = 10): Promise<void> {
         if (this.engines.has(alias)) return;
 
         const url = new URL(uri);

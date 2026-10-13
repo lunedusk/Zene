@@ -134,10 +134,11 @@ export class ApplyEngine {
                     try {
                         fs.rmSync(dir, { recursive: true, force: true });
                     } catch {
-
+                        /* best-effort cleanup of partial backup dir */
                     }
                     throw new Error(
                         `createBackup failed copying core/: ${(e as Error).message}. Apply aborted.`,
+                        { cause: e },
                     );
                 }
             }
@@ -232,7 +233,7 @@ export class ApplyEngine {
         };
         walkBackup(match.dir, '');
 
-        let deps: UpdateReceipt['depsInstall'] = 'skipped';
+        let deps: UpdateReceipt['depsInstall'];
         try {
             await this.rebuild();
             deps = fs.existsSync(path.join(cwd, 'package-lock.json')) ? 'npm-ci' : 'npm-install';
@@ -260,7 +261,7 @@ export class ApplyEngine {
                 };
             }
         } catch {
-
+            /* backup-meta.json optional / unreadable */
         }
 
         const rehashFiles = walkLocal().filter((f) => !shouldHardExclude(f));

@@ -25,20 +25,27 @@ export function shouldDisablePlugin(pluginId: string): boolean {
     return shouldDisablePluginForConfig(pluginId);
 }
 
-export function formatPluginDisableMessage(pluginId: string): string {
-    const reason = getPluginDisableReason(pluginId);
-    if (!reason) return '';
+/** Format a structured disable reason into a human-readable diagnostic. */
+export function formatPluginDisableReason(reason: PluginDisableReason): string {
     const parts: string[] = [];
     if (reason.configFiles.length) {
-        parts.push(`config: ${reason.configFiles.map(f => f.endsWith('.json5') ? f : f + '.json5').join(', ')}`);
+        parts.push(
+            `config: ${reason.configFiles.map((f) => (f.endsWith('.json5') ? f : f + '.json5')).join(', ')}`,
+        );
     }
     if (reason.langFiles.length) {
         parts.push(`lang: ${reason.langFiles.join(', ')}`);
     }
     return (
-        `[${pluginId}] Boot SKIPPED – validation failed (${parts.join('; ')}). ` +
+        `[${reason.pluginId}] Boot SKIPPED – validation failed (${parts.join('; ')}). ` +
         `Fix configuration / configuration/lang files or plugin data/schema|rules.`
     );
+}
+
+export function formatPluginDisableMessage(pluginId: string): string {
+    const reason = getPluginDisableReason(pluginId);
+    if (!reason) return '';
+    return formatPluginDisableReason(reason);
 }
 
 export function logDisabledPlugins(): void {

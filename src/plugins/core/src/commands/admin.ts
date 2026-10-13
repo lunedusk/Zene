@@ -1467,7 +1467,7 @@ export default class AdminCommand extends BaseCommand {
         const c = this.heart.control;
         const client = this.heart.client;
         const shards = c.shards();
-        let ecosystemLine = '';
+        let ecosystemLine: string;
         try {
             const { listCommandTree } = await import('#core/loader/commandRegistry.js');
             const tree = listCommandTree();

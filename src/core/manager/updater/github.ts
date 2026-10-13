@@ -48,7 +48,7 @@ export class GitHubClient {
             return data;
         } catch (e: any) {
             if (e?.name === 'AbortError') {
-                throw new Error(`GitHub request timed out after ${this.timeoutMs}ms: ${url}`);
+                throw new Error(`GitHub request timed out after ${this.timeoutMs}ms: ${url}`, { cause: e });
             }
             throw e;
         } finally {
@@ -254,7 +254,7 @@ export class GitHubClient {
             log.info(`Archive ${ref}: ${(ab.byteLength / 1024).toFixed(1)} KiB`);
             return Buffer.from(ab);
         } catch (e: any) {
-            if (e?.name === 'AbortError') throw new Error(`Archive download timed out: ${ref}`);
+            if (e?.name === 'AbortError') throw new Error(`Archive download timed out: ${ref}`, { cause: e });
             throw e;
         } finally {
             clearTimeout(timer);

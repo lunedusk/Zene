@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getLogger } from '#core/utils/logger.js';
 import { hashFile } from '#core/helpers/hash/index.js';
 import type { FileMetadata } from './types.js';
 import {
@@ -9,7 +8,6 @@ import {
     looksLikePrivateKeyMaterial,
 } from './scannerPolicy.js';
 
-const log = getLogger('IntegrityScanner');
 
 export class IntegrityScannerError extends Error {
     constructor(

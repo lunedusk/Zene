@@ -1,4 +1,4 @@
-import { getLogger, flushLogs, isLogsClosed } from '#core/utils/logger.js';
+import { getLogger, flushLogs } from '#core/utils/logger.js';
 
 const log = getLogger('CrossHost:WorkerShutdown');
 

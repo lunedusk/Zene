@@ -17,7 +17,7 @@ import {
 } from '../lib/brokerLimits.js';
 import { issueFrameNonce, bindFrameOnReady, getBoundFrame, revokeFrame } from '../lib/brokerNonce.js';
 
-function resolveBits(req: DashRequest, heart: DashRequest['dashSession'] extends never ? never : import('#core/heart/index.js').IHeart): Set<string> {
+function resolveBits(req: DashRequest, _heart: DashRequest['dashSession'] extends never ? never : import('#core/heart/index.js').IHeart): Set<string> {
     const session = req.dashSession!;
     const bits = new Set<string>((session.payload.bits ?? []).map(String));
     return bits;

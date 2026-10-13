@@ -71,12 +71,15 @@ export async function resolve(
             let parentPath = '';
             try {
                 parentPath = fileURLToPath(context.parentURL);
-            } catch {              }
+            } catch {
+                /* parentURL may be non-file */
+            }
 
             const pluginMatch = parentPath.replace(/\\/g, '/').match(/\/plugins\/([^/]+)/);
             if (pluginMatch) {
                 throw new Error(
-                    `[Plugin Engine] '${pluginMatch[1]}' requested '${specifier}' but it was not found in its sandbox OR globally.`
+                    `[Plugin Engine] '${pluginMatch[1]}' requested '${specifier}' but it was not found in its sandbox OR globally.`,
+                    { cause: error },
                 );
             }
         }

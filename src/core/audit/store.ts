@@ -1,19 +1,9 @@
-import {
-    surrealUpsertByKey,
-    surrealSelectOnlyByKey,
-    readLogicalKey,
-} from '#core/database/surrealRecord.js';
+import { surrealUpsertByKey, surrealSelectOnlyByKey } from '#core/database/surrealRecord.js';
 import { randomBytes } from 'node:crypto';
 import type { Surreal } from 'surrealdb';
 import { surrealDB } from '#core/database/index.js';
 import { sanitizeAuditFields, sanitizeAuditMeta } from './redact.js';
-import type {
-    AuditMeta,
-    AuditRecord,
-    AuditRecordInput,
-    AuditSurface,
-    AuditTargetRef,
-} from './types.js';
+import type { AuditMeta, AuditRecord, AuditRecordInput, AuditSurface, AuditTargetRef } from './types.js';
 
 const TABLE = 'audit_entries';
 

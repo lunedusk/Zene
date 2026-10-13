@@ -27,7 +27,7 @@ export interface DbConfig {
     alias: string;
     uri: string;
     engine?: 'native-pg' | 'native-sqlite' | 'typeorm' | 'redis' | 'mongo' | 'surrealdb';
-    entities?: any[];
+    entities?: Array<new (...args: unknown[]) => unknown>;
     poolSize?: number;
     maxRetries?: number;
     /** SurrealDB: namespace selected after connect */

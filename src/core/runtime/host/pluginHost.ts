@@ -35,7 +35,7 @@ export interface IsolatedPluginModule {
     forceThrow?: () => void;
 }
 
-function assertInsideRoot(pluginDir: string, entryRelative: string): string {
+function _assertInsideRoot(pluginDir: string, entryRelative: string): string {
     const root = path.resolve(pluginDir);
     const resolved = path.resolve(root, entryRelative);
     const rel = path.relative(root, resolved);

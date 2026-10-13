@@ -260,7 +260,7 @@ async function runScope(scope: MigrationScope, adapter: SqlAdapter): Promise<voi
 
 async function tryLoadPluginMigrations(
     pluginDir: string,
-    pluginId: string,
+    _pluginId: string,
 ): Promise<MigrationStep[] | null> {
     const candidates = [
         path.join(pluginDir, 'migrations', 'index.js'),

@@ -246,7 +246,7 @@ export async function resolvePluginIntegrity(
     }
 
     if (manifest.zene_version) {
-        let zeneOk = false;
+        let zeneOk: boolean;
         try {
             zeneOk = SemVer.satisfies(options.coreVersion, manifest.zene_version as string | string[]);
         } catch {

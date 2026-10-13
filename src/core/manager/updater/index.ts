@@ -3,60 +3,17 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getLogger, flushLogs } from '#core/utils/logger.js';
-import { secrets } from '#core/helpers/secretManager.js';
-import { SemVer, SemVerRange } from '#core/utils/semver.js';
+import { SemVer } from '#core/utils/semver.js';
 import { GitHubClient } from './github.js';
 import { parsePluginsTxt } from './pluginsTxt.js';
-import type {
-    Baseline,
-    BaselineFileEntry,
-    BackupInfo,
-    DirtyFile,
-    PendingHealth,
-    PluginDecision,
-    PluginSourceLine,
-    UpdatePlan,
-    UpdateReceipt,
-    UpdaterConfig,
-    TagInfo,
-    TakebacksFile,
-    ApplyState
-} from './types.js';
+import type { Baseline, BaselineFileEntry, DirtyFile, PluginDecision, PluginSourceLine, UpdatePlan, UpdateReceipt, UpdaterConfig, TagInfo, TakebacksFile } from './types.js';
 import { hashFile } from '#core/helpers/hash/index.js';
 import { audit } from '#core/audit/index.js';
-import { loadUpdaterConfig, HARD_EXCLUDES } from './config.js';
+import { loadUpdaterConfig } from './config.js';
 import { emptyPlan, printPlan } from './planner.js';
 import { ApplyEngine } from './apply/engine.js';
-import {
-    STATE_DIR,
-    BASELINE,
-    BACKUP_DIR,
-    STAGING_DIR,
-    ensureDirs,
-    isPluginPath,
-    pluginRoot,
-    shouldHardExclude,
-    sourcePluginPath,
-    runtimePluginPath,
-    localPluginDir,
-    walkLocal,
-    computeLocalHashes,
-    copyDirRecursive,
-} from './paths.js';
-import {
-    readPendingHealth,
-    writePendingHealth,
-    clearPendingHealth,
-    markUpdaterHealthy,
-    readApplyState,
-    writeApplyState,
-    clearApplyState,
-    readBaseline,
-    writeBaseline,
-    writeReceipt,
-    listBackupInfos,
-    listBackups,
-} from './state.js';
+import { ensureDirs, isPluginPath, pluginRoot, shouldHardExclude, sourcePluginPath, runtimePluginPath, localPluginDir, walkLocal, computeLocalHashes, copyDirRecursive } from './paths.js';
+import { readPendingHealth, writePendingHealth, clearPendingHealth, markUpdaterHealthy, readApplyState, writeApplyState, clearApplyState, readBaseline, writeBaseline, writeReceipt, listBackups } from './state.js';
 import {
     readPackageVersion,
     readLocalManifestId,
@@ -250,13 +207,13 @@ export class Updater {
 
         const pluginsTxtRef = coreTarget?.name ?? baseline?.tag ?? null;
         let officialLines: PluginSourceLine[] = [];
-        let pluginsTxtSource: string | null = null;
+        let _pluginsTxtSource: string | null = null;
         let pluginsTxtFetchOk = false;
         try {
             const headBody = await this.gh.getFileText(owner, repo, this.config.branch, 'plugins.txt');
             if (headBody) {
                 officialLines = parsePluginsTxt(headBody);
-                pluginsTxtSource = `branch:${this.config.branch}`;
+                _pluginsTxtSource = `branch:${this.config.branch}`;
                 pluginsTxtFetchOk = true;
                 log.info(
                     `Branch ${this.config.branch} plugins.txt → ${officialLines.length} plugin line(s)`,
@@ -272,7 +229,7 @@ export class Updater {
                 const body = await this.gh.getFileText(owner, repo, pluginsTxtRef, 'plugins.txt');
                 if (body) {
                     officialLines = parsePluginsTxt(body);
-                    pluginsTxtSource = `tag:${pluginsTxtRef}`;
+                    _pluginsTxtSource = `tag:${pluginsTxtRef}`;
                     pluginsTxtFetchOk = true;
                     log.info(
                         `Tag ${pluginsTxtRef} plugins.txt → ${officialLines.length} plugin line(s)`,
@@ -493,22 +450,20 @@ export class Updater {
             });
             throw err;
         }
-        let depsInstall: UpdateReceipt['depsInstall'] = null;
-        try {
-            writeApplyState({
-                phase: 'rebuilding',
-                backupId,
-                toTag: coreTarget.name,
-                fromTag: baseline?.tag ?? null,
-                startedAt: new Date().toISOString(),
-                filesPlanned
-            });
-            await this.apply.rebuild();
-            depsInstall = fs.existsSync(path.join(process.cwd(), 'package-lock.json')) ? 'npm-ci' : 'npm-install';
-        } catch (e) {
-            depsInstall = 'failed';
-            throw e;
-        }
+        writeApplyState({
+            phase: 'rebuilding',
+            backupId,
+            toTag: coreTarget.name,
+            fromTag: baseline?.tag ?? null,
+            startedAt: new Date().toISOString(),
+            filesPlanned,
+        });
+        await this.apply.rebuild();
+        const depsInstall: UpdateReceipt['depsInstall'] = fs.existsSync(
+            path.join(process.cwd(), 'package-lock.json'),
+        )
+            ? 'npm-ci'
+            : 'npm-install';
 
         const pluginsToApply = pluginDecisions.filter(
             d => d.action === 'update' || d.action === 'add' || d.action === 'remove'
@@ -533,9 +488,8 @@ export class Updater {
         }
         for (const d of pluginsToApply) {
             const root = d.localPath || `src/plugins/${d.pluginId}`;
-            const files = walkLocal(path.join(process.cwd(), root)).map(
-                f => path.join(root, f).replace(/\\/g, '/')
-            );
+            // Validate plugin tree is readable before baseline merge.
+            void walkLocal(path.join(process.cwd(), root));
         }
         const allLocal = walkLocal().filter(f => !shouldHardExclude(f));
         for (const d of pluginsToApply) {

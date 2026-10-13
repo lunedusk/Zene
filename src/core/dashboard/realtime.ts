@@ -4,11 +4,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import {
-    getDashboardSessionRecord,
-    type DashboardSessionRecord,
-    DashboardAuthError,
-} from './authContext.js';
+import { getDashboardSessionRecord, DashboardAuthError } from './authContext.js';
 import {
     getContribution,
     type DashboardContributionRecord,

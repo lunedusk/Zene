@@ -203,7 +203,7 @@ export class SecureVault {
                 }
                 
                 decryptedChunks.push(plainChunk);
-            } catch (err) {
+            } catch (_err) {
                 throw new VaultIntegrityError(`AEAD Authentication failed for chunk ${chunkIdx}.`);
             }
             chunkIdx++;
