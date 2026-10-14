@@ -32,7 +32,7 @@
     "build:zene-sdk": "npm run rebuild --prefix packages/zene-sdk",
     "pack:zene-sdk": "npm run pack:artifact --prefix packages/zene-sdk",
     "lint:fix": "node ./node_modules/eslint/bin/eslint.js src --fix",
-    "test": "node --import tsx --test \"src/**/*.test.ts\" \"src/core/**/*.test.ts\""
+    "generate:flatbuffers": "bash src/scripts/generate-flatbuffers.sh"
   },
   "dependencies": {
     "@lunedusk/gateway-multiplex": "file:packages/gateway-multiplex",

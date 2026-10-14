@@ -1,7 +1,7 @@
 import { createPublicKey, verify } from 'node:crypto';
 import fs from 'node:fs/promises';
 import * as flatbuffers from 'flatbuffers';
-import { ZeneManifest } from '#core/flatbuffer/nova-x/system/nova-xmanifest.js';
+import { ZeneManifest } from '#core/flatbuffer/zene/system/zene-manifest.js';
 import type { PluginManifest } from '#core/bases/Plugin.js';
 import {
     canonicalFromVerifiedFlatFields,
@@ -60,7 +60,8 @@ export async function readSignedManifestMetadata(
         }
     }
 
-    const priorityAuthenticated = manifest.hasPriority();
+    const priorityValue = manifest.priority();
+    const priorityAuthenticated = priorityValue !== null;
     const canonical = canonicalFromVerifiedFlatFields({
         id: manifest.id() ?? '',
         name: manifest.name() ?? '',
@@ -72,7 +73,7 @@ export async function readSignedManifestMetadata(
         node_version: manifest.nodeVersion() ?? undefined,
         nodeDependencies,
         priorityAuthenticated,
-        priority: priorityAuthenticated ? manifest.priority() : undefined,
+        priority: priorityValue ?? undefined,
         ignoreHash: ignoreHashList,
     });
     return toPluginManifest(canonical);

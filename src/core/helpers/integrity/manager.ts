@@ -4,8 +4,8 @@ import { sign, verify, createPrivateKey, createPublicKey, timingSafeEqual } from
 import * as flatbuffers from 'flatbuffers';
 import { getLogger } from '#core/utils/logger.js';
 
-import { Manifest } from '#core/flatbuffer/nova-x/integrity/manifest.js';
-import { FileEntry } from '#core/flatbuffer/nova-x/integrity/file-entry.js';
+import { Manifest } from '#core/flatbuffer/zene/integrity/manifest.js';
+import { FileEntry } from '#core/flatbuffer/zene/integrity/file-entry.js';
 
 import { IntegrityError, ManifestSignatureError, FileTamperingError } from './errors.js';
 import { HASH_ALGORITHM, SIGNATURE_LENGTH } from './constants.js';

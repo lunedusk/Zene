@@ -4,10 +4,10 @@ import { verify, createPrivateKey, createPublicKey, timingSafeEqual, createHash 
 import * as flatbuffers from 'flatbuffers';
 import { getLogger } from '#core/utils/logger.js';
 
-import { ZeneManifest } from '#core/flatbuffer/nova-x/system/nova-xmanifest.js';
-import { IntegrityPayload } from '#core/flatbuffer/nova-x/system/integrity-payload.js';
-import { FileEntry } from '#core/flatbuffer/nova-x/system/file-entry.js';
-import { NodeDependency } from '#core/flatbuffer/nova-x/system/node-dependency.js';
+import { ZeneManifest } from '#core/flatbuffer/zene/system/zene-manifest.js';
+import { IntegrityPayload } from '#core/flatbuffer/zene/system/integrity-payload.js';
+import { FileEntry } from '#core/flatbuffer/zene/system/file-entry.js';
+import { NodeDependency } from '#core/flatbuffer/zene/system/node-dependency.js';
 
 import { IntegrityError, ManifestSignatureError, FileTamperingError, VaultMissingKeyError } from './errors.js';
 import { HASH_ALGORITHM, SIGNATURE_LENGTH } from './constants.js';
@@ -206,7 +206,7 @@ export class PackageManager {
         ZeneManifest.addVersion(builder, versionOffset);
         if (descOffset) ZeneManifest.addDescription(builder, descOffset);
         if (authorOffset) ZeneManifest.addAuthor(builder, authorOffset);
-        if (nvxVersionOffset) ZeneManifest.addzeneVersion(builder, nvxVersionOffset);
+        if (nvxVersionOffset) ZeneManifest.addZeneVersion(builder, nvxVersionOffset);
         if (nodeVersionOffset) ZeneManifest.addNodeVersion(builder, nodeVersionOffset);
         if (depsOffset) ZeneManifest.addDependencies(builder, depsOffset);
 
@@ -299,8 +299,8 @@ export class PackageManager {
             );
         }
 
-        const hasV2Payload = manifest.hasSignedPayload();
-        const jcsFromFb = hasV2Payload ? manifest.signedPayload() : null;
+        const jcsFromFb = manifest.signedPayload();
+        const hasV2Payload = jcsFromFb != null && jcsFromFb.length > 0;
 
         if (hasV2Payload && jcsFromFb) {
             if (jcsFromFb.length > 8 * 1024 * 1024) {
@@ -407,7 +407,8 @@ export class PackageManager {
         }
 
         // Phase 1B: project verified FlatBuffer fields through the canonical layer.
-        const priorityAuthenticated = manifest.hasPriority();
+        const priorityValue = manifest.priority();
+        const priorityAuthenticated = priorityValue !== null;
         const canonical: CanonicalPluginMetadata = canonicalFromVerifiedFlatFields({
             id: manifest.id()!,
             name: manifest.name()!,
@@ -419,7 +420,7 @@ export class PackageManager {
             node_version: manifest.nodeVersion() ?? undefined,
             nodeDependencies,
             priorityAuthenticated,
-            priority: priorityAuthenticated ? manifest.priority() : undefined,
+            priority: priorityValue ?? undefined,
             ignoreHash: ignoreHashList,
         });
 
@@ -428,8 +429,7 @@ export class PackageManager {
         // 1) re-canonicalize and require byte identity
         // 2) cross-check ALL security-sensitive FB fields against signed payload
         // 3) require FB integrity tree projection == signedLogical.integrity
-        const hasV2 = manifest.hasSignedPayload();
-        const rawPayload = hasV2 ? manifest.signedPayload() : null;
+        const rawPayload = manifest.signedPayload();
         let signedLogical: SignedLogicalPayload | undefined;
         if (rawPayload) {
             try {
@@ -465,8 +465,13 @@ export class PackageManager {
                 if (signedLogical.version !== manifest.version()) {
                     throw new IntegrityError('Signed payload version mismatches FlatBuffer version.');
                 }
-                if (manifest.hasPriority() && signedLogical.priority !== manifest.priority()) {
-                    throw new IntegrityError('Signed payload priority mismatches FlatBuffer priority.');
+                if (
+                    priorityValue !== null &&
+                    signedLogical.priority !== priorityValue
+                ) {
+                    throw new IntegrityError(
+                        'Signed payload priority mismatches FlatBuffer priority.',
+                    );
                 }
                 if ((manifest.description() ?? undefined) !== (signedLogical.description ?? undefined)
                     && (manifest.description() || signedLogical.description)) {
