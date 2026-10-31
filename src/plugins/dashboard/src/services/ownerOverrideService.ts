@@ -2,7 +2,6 @@
 
 
 
-import { createHash } from 'node:crypto';
 import type { RequestContext, ServiceResult } from '../lib/requestContext.js';
 import { serviceOk, ServiceError } from '../lib/requestContext.js';
 import {
@@ -17,7 +16,9 @@ import {
     getOverrideByTarget,
     attachPreviewSession,
     clearPreviewSession,
+    hashOwnerOverridePayload,
     OwnerOverrideConflictError,
+    OwnerOverrideIntegrityError,
     type OwnerOverrideRecord,
 } from '../../../dash-data/src/repositories/ownerOverrideRepository.js';
 import { mintPreviewToken, validatePreviewToken, hashPreviewToken } from '../lib/previewToken.js';
@@ -27,12 +28,14 @@ import {
     validateCompositionPayload,
 } from '../lib/compositionValidation.js';
 
-function contentHash(payload: unknown): string {
-    return createHash('sha256').update(JSON.stringify(payload ?? null)).digest('hex');
+function mapIntegrity(e: unknown): never {
+    if (e instanceof OwnerOverrideIntegrityError) {
+        throw new ServiceError('INTEGRITY', 'Override payload integrity check failed', 409);
+    }
+    throw e;
 }
 
 function previewSecret(ctx: RequestContext): string {
-
     const fromEnv = process.env['DASH_PREVIEW_SECRET'] ?? process.env['BETTER_AUTH_SECRET'];
     if (fromEnv && fromEnv.length >= 16) return fromEnv;
     return `dev-preview-secret-${ctx.actor.userId}`;
@@ -63,7 +66,7 @@ export class OwnerOverrideService {
                 targetKind: input.targetKind,
                 targetKey: input.targetKey,
                 payload: input.payload,
-                contentHash: contentHash(input.payload),
+                contentHash: hashOwnerOverridePayload(input.payload),
                 authorUserId: ctx.actor.userId,
                 changeSummary: input.changeSummary,
                 pluginId: input.pluginId,
@@ -91,8 +94,20 @@ export class OwnerOverrideService {
                 });
             }
         }
-        const rec = await publishOverride(overrideId);
-        if (!rec) throw new ServiceError('NOT_FOUND', 'Override not found', 404);
+        // Bind publish to the contentHash of the record we just validated.
+        let rec: OwnerOverrideRecord | null;
+        try {
+            rec = await publishOverride(overrideId, existing.contentHash);
+        } catch (e) {
+            mapIntegrity(e);
+        }
+        if (!rec) {
+            throw new ServiceError(
+                'VERSION_CONFLICT',
+                'Override changed during publish. Reload and try again.',
+                409,
+            );
+        }
         return serviceOk(rec, { requestId: ctx.requestId });
     }
 
@@ -106,14 +121,17 @@ export class OwnerOverrideService {
         }
         const rec = await schedulePublish(overrideId, scheduledAt);
         if (!rec) throw new ServiceError('NOT_FOUND', 'Override not found', 404);
+        // Job is bound to the exact content identity at schedule time (hash + revision + version).
         const { enqueueScheduledPublish } = await import('../lib/scheduledPublishHandler.js');
         const job = await enqueueScheduledPublish({
             overrideId,
             scheduledAt,
             actorUserId: ctx.actor.userId,
             expectedVersion: rec.version,
+            expectedRevision: rec.revision,
+            expectedContentHash: rec.contentHash,
             requestId: ctx.requestId,
-            idempotencyKey: `schedule:${overrideId}:${scheduledAt}`,
+            idempotencyKey: `schedule:${overrideId}:${scheduledAt}:${rec.contentHash}`,
         });
         return serviceOk({ ...rec, jobId: job.jobId }, { requestId: ctx.requestId, jobId: job.jobId });
     }
@@ -140,8 +158,35 @@ export class OwnerOverrideService {
         targetKey: string,
         version: number,
     ): Promise<ServiceResult<OwnerOverrideRecord>> {
-        const rec = await restoreOverrideVersion(targetKind, targetKey, version);
-        if (!rec) throw new ServiceError('NOT_FOUND', 'Version not found', 404);
+        const versions = await listOverrideVersions(targetKind, targetKey);
+        const snap = versions.find((v) => v.version === version);
+        if (!snap) throw new ServiceError('NOT_FOUND', 'Version not found', 404);
+        // Historical payloads must pass current composition rules before becoming active.
+        if (isCompositionPayload(snap.payload)) {
+            const validation = validateCompositionPayload(snap.payload);
+            if (!validation.ok) {
+                throw new ServiceError(
+                    'VALIDATION',
+                    `Cannot restore invalid composition: ${describeCompositionIssues(validation)}`,
+                    400,
+                    { issues: validation.issues },
+                );
+            }
+        }
+        // Promote only if the repository still holds the same snapshot contentHash.
+        let rec: OwnerOverrideRecord | null;
+        try {
+            rec = await restoreOverrideVersion(targetKind, targetKey, version, snap.contentHash);
+        } catch (e) {
+            mapIntegrity(e);
+        }
+        if (!rec) {
+            throw new ServiceError(
+                'VERSION_CONFLICT',
+                'Version changed during restore. Reload history and try again.',
+                409,
+            );
+        }
         return serviceOk(rec, { requestId: ctx.requestId });
     }
 
@@ -152,8 +197,34 @@ export class OwnerOverrideService {
         targetKey: string,
         version: number,
     ): Promise<ServiceResult<OwnerOverrideRecord>> {
-        const rec = await rollbackOverrideVersion(targetKind, targetKey, version);
-        if (!rec) throw new ServiceError('NOT_FOUND', 'Version not found', 404);
+        const versions = await listOverrideVersions(targetKind, targetKey);
+        const snap = versions.find((v) => v.version === version);
+        if (!snap) throw new ServiceError('NOT_FOUND', 'Version not found', 404);
+        // Rollback publishes the historical payload — enforce the same trust boundary as publish().
+        if (isCompositionPayload(snap.payload)) {
+            const validation = validateCompositionPayload(snap.payload);
+            if (!validation.ok) {
+                throw new ServiceError(
+                    'VALIDATION',
+                    `Cannot rollback to invalid composition: ${describeCompositionIssues(validation)}`,
+                    400,
+                    { issues: validation.issues },
+                );
+            }
+        }
+        let rec: OwnerOverrideRecord | null;
+        try {
+            rec = await rollbackOverrideVersion(targetKind, targetKey, version, snap.contentHash);
+        } catch (e) {
+            mapIntegrity(e);
+        }
+        if (!rec) {
+            throw new ServiceError(
+                'VERSION_CONFLICT',
+                'Version changed during rollback. Reload history and try again.',
+                409,
+            );
+        }
         return serviceOk(rec, { requestId: ctx.requestId });
     }
 

@@ -2,6 +2,7 @@
 
 
 
+import { createHash } from 'node:crypto';
 import { kvGet, kvSet, newId } from '../lib/store.js';
 
 export type OverridePublicationState = 'draft' | 'preview' | 'published' | 'scheduled' | 'restored';
@@ -39,6 +40,35 @@ export class OwnerOverrideConflictError extends Error {
     constructor(public readonly currentRevision: number) {
         super(`Draft revision conflict (current ${currentRevision})`);
         this.name = 'OwnerOverrideConflictError';
+    }
+}
+
+/**
+ * Stored contentHash does not match the canonical hash of the payload.
+ * Not an authentication signal — integrity / concurrency only.
+ */
+export class OwnerOverrideIntegrityError extends Error {
+    constructor(message = 'Override payload does not match stored contentHash') {
+        super(message);
+        this.name = 'OwnerOverrideIntegrityError';
+    }
+}
+
+/** Canonical content hash for owner-override payloads (SHA-256 over JSON.stringify). */
+export function hashOwnerOverridePayload(payload: unknown): string {
+    return createHash('sha256').update(JSON.stringify(payload ?? null)).digest('hex');
+}
+
+/**
+ * Refuse to promote a record whose stored hash does not match its payload.
+ * Does not mutate the record. Throws OwnerOverrideIntegrityError on mismatch.
+ */
+export function assertOwnerOverridePayloadIntegrity(rec: Pick<OwnerOverrideRecord, 'payload' | 'contentHash'>): void {
+    const actual = hashOwnerOverridePayload(rec.payload);
+    if (actual !== rec.contentHash) {
+        throw new OwnerOverrideIntegrityError(
+            'Stored contentHash does not match payload; refusing promotion',
+        );
     }
 }
 const NS_BY_TARGET = 'owner_override_target';
@@ -112,9 +142,20 @@ export async function putOverrideDraft(input: {
     return rec;
 }
 
-export async function publishOverride(overrideId: string): Promise<OwnerOverrideRecord | null> {
+export async function publishOverride(
+    overrideId: string,
+    expectedContentHash?: string,
+): Promise<OwnerOverrideRecord | null> {
     const cur = (await kvGet(NS, overrideId)) as OwnerOverrideRecord | null;
     if (!cur) return null;
+    // When the caller validated a specific payload, refuse to publish if the
+    // stored record changed in the meantime (best-effort concurrency guard).
+    // NOTE: kvGet+kvSet is NOT an atomic CAS across processes; see module docs.
+    if (expectedContentHash !== undefined && cur.contentHash !== expectedContentHash) {
+        return null;
+    }
+    // Integrity: stored hash must match the payload about to be published.
+    assertOwnerOverridePayloadIntegrity(cur);
     const next: OwnerOverrideRecord = {
         ...cur,
         state: 'published',
@@ -153,13 +194,23 @@ export async function restoreOverrideVersion(
     targetKind: string,
     targetKey: string,
     version: number,
+    expectedContentHash?: string,
 ): Promise<OwnerOverrideRecord | null> {
     const versions = await listOverrideVersions(targetKind, targetKey);
+    // Shallow-copy the list so we never mutate the in-memory historical array entries
+    // that still reference the stored snapshot objects.
     const snap = versions.find((v) => v.version === version);
     if (!snap) return null;
+    // Bind promotion to the exact snapshot the caller validated.
+    if (expectedContentHash !== undefined && snap.contentHash !== expectedContentHash) {
+        return null;
+    }
+    // Integrity: historical payload must still match its stored hash.
+    assertOwnerOverridePayloadIntegrity(snap);
     const targetId = `${targetKind}:${targetKey}`;
     const id = (await kvGet(NS_BY_TARGET, targetId)) as string | null;
     if (typeof id !== 'string') return null;
+    // New active record — does not rewrite the original history entry in place.
     const restored: OwnerOverrideRecord = {
         ...snap,
         overrideId: id,
@@ -167,6 +218,9 @@ export async function restoreOverrideVersion(
         updatedAt: Date.now(),
         version: snap.version + 1,
         revision: (snap.revision ?? snap.version) + 1,
+        scheduledAt: undefined,
+        previewTokenHash: undefined,
+        previewExpiresAt: undefined,
     };
     await kvSet(NS, id, restored);
     await pushVersion(restored);
@@ -268,13 +322,21 @@ export async function rollbackOverrideVersion(
     targetKind: string,
     targetKey: string,
     version: number,
+    expectedContentHash?: string,
 ): Promise<OwnerOverrideRecord | null> {
     const versions = await listOverrideVersions(targetKind, targetKey);
     const snap = versions.find((v) => v.version === version);
     if (!snap) return null;
+    // Bind promotion to the exact snapshot the caller validated.
+    if (expectedContentHash !== undefined && snap.contentHash !== expectedContentHash) {
+        return null;
+    }
+    // Integrity: historical payload must still match its stored hash.
+    assertOwnerOverridePayloadIntegrity(snap);
     const targetId = `${targetKind}:${targetKey}`;
     const id = (await kvGet(NS_BY_TARGET, targetId)) as string | null;
     if (typeof id !== 'string') return null;
+    // New published record — original history snapshot is left unchanged in the list.
     const published: OwnerOverrideRecord = {
         ...snap,
         overrideId: id,

@@ -85,8 +85,10 @@ function isJson(value: unknown, depth = 0): boolean {
 function isSafeUrl(value: string, kind: 'link' | 'media' = 'link'): boolean {
     const v = value.trim();
     if (!v) return true;
-    if (v.startsWith('/')) return true;
+    // Protocol-relative URLs must be rejected before the relative-path allowance.
+    // Checking '/' first would incorrectly accept '//evil.example/path'.
     if (v.startsWith('//')) return false;
+    if (v.startsWith('/')) return true;
     if (v.startsWith('#')) return kind === 'link';
     const lower = v.toLowerCase();
     if (kind === 'link' && (lower.startsWith('mailto:') || lower.startsWith('tel:'))) return true;
