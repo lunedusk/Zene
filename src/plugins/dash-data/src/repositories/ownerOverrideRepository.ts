@@ -190,26 +190,63 @@ export async function listOverrideVersions(targetKind: string, targetKey: string
     return Array.isArray(raw) ? (raw as OwnerOverrideRecord[]) : [];
 }
 
+/**
+ * Options for historical promotion (restore / rollback).
+ *
+ * - expectedSnapshotContentHash: binds to the historical version the caller validated.
+ * - expectedActiveRevision / expectedActiveContentHash: best-effort guard that the
+ *   *current active* record has not changed since the service read it.
+ *
+ * These checks are sequential kvGet + compare + kvSet — NOT atomic CAS.
+ */
+export interface PromoteHistoricalOptions {
+    expectedSnapshotContentHash?: string;
+    expectedActiveRevision?: number;
+    expectedActiveContentHash?: string;
+}
+
 export async function restoreOverrideVersion(
     targetKind: string,
     targetKey: string,
     version: number,
-    expectedContentHash?: string,
+    options?: PromoteHistoricalOptions | string,
 ): Promise<OwnerOverrideRecord | null> {
+    // Backward-compatible: string argument was previously expectedSnapshotContentHash only.
+    const opts: PromoteHistoricalOptions =
+        typeof options === 'string' ? { expectedSnapshotContentHash: options } : (options ?? {});
+
     const versions = await listOverrideVersions(targetKind, targetKey);
-    // Shallow-copy the list so we never mutate the in-memory historical array entries
-    // that still reference the stored snapshot objects.
     const snap = versions.find((v) => v.version === version);
     if (!snap) return null;
-    // Bind promotion to the exact snapshot the caller validated.
-    if (expectedContentHash !== undefined && snap.contentHash !== expectedContentHash) {
+    if (
+        opts.expectedSnapshotContentHash !== undefined &&
+        snap.contentHash !== opts.expectedSnapshotContentHash
+    ) {
         return null;
     }
     // Integrity: historical payload must still match its stored hash.
     assertOwnerOverridePayloadIntegrity(snap);
+
     const targetId = `${targetKind}:${targetKey}`;
     const id = (await kvGet(NS_BY_TARGET, targetId)) as string | null;
     if (typeof id !== 'string') return null;
+
+    // Re-read the *active* record and reject if it moved since the service captured it.
+    const active = (await kvGet(NS, id)) as OwnerOverrideRecord | null;
+    if (!active) return null;
+    if (
+        opts.expectedActiveRevision !== undefined &&
+        (active.revision ?? active.version) !== opts.expectedActiveRevision
+    ) {
+        return null;
+    }
+    if (
+        opts.expectedActiveContentHash !== undefined &&
+        active.contentHash !== opts.expectedActiveContentHash
+    ) {
+        return null;
+    }
+
     // New active record — does not rewrite the original history entry in place.
     const restored: OwnerOverrideRecord = {
         ...snap,
@@ -245,7 +282,15 @@ export async function schedulePublish(overrideId: string, scheduledAt: number): 
     const cur = (await kvGet(NS, overrideId)) as OwnerOverrideRecord | null;
     if (!cur) return null;
     if (scheduledAt <= Date.now()) return null;
-    const next = { ...cur, state: 'scheduled' as const, scheduledAt, updatedAt: Date.now() };
+    // Bump revision so prior scheduled jobs bound to the old revision are invalidated.
+    // scheduledAt identity is also checked by the job handler.
+    const next: OwnerOverrideRecord = {
+        ...cur,
+        state: 'scheduled' as const,
+        scheduledAt,
+        revision: (cur.revision ?? cur.version) + 1,
+        updatedAt: Date.now(),
+    };
     await kvSet(NS, overrideId, next);
     return next;
 }
@@ -322,20 +367,43 @@ export async function rollbackOverrideVersion(
     targetKind: string,
     targetKey: string,
     version: number,
-    expectedContentHash?: string,
+    options?: PromoteHistoricalOptions | string,
 ): Promise<OwnerOverrideRecord | null> {
+    const opts: PromoteHistoricalOptions =
+        typeof options === 'string' ? { expectedSnapshotContentHash: options } : (options ?? {});
+
     const versions = await listOverrideVersions(targetKind, targetKey);
     const snap = versions.find((v) => v.version === version);
     if (!snap) return null;
-    // Bind promotion to the exact snapshot the caller validated.
-    if (expectedContentHash !== undefined && snap.contentHash !== expectedContentHash) {
+    if (
+        opts.expectedSnapshotContentHash !== undefined &&
+        snap.contentHash !== opts.expectedSnapshotContentHash
+    ) {
         return null;
     }
     // Integrity: historical payload must still match its stored hash.
     assertOwnerOverridePayloadIntegrity(snap);
+
     const targetId = `${targetKind}:${targetKey}`;
     const id = (await kvGet(NS_BY_TARGET, targetId)) as string | null;
     if (typeof id !== 'string') return null;
+
+    // Re-read the *active* record and reject if it moved since the service captured it.
+    const active = (await kvGet(NS, id)) as OwnerOverrideRecord | null;
+    if (!active) return null;
+    if (
+        opts.expectedActiveRevision !== undefined &&
+        (active.revision ?? active.version) !== opts.expectedActiveRevision
+    ) {
+        return null;
+    }
+    if (
+        opts.expectedActiveContentHash !== undefined &&
+        active.contentHash !== opts.expectedActiveContentHash
+    ) {
+        return null;
+    }
+
     // New published record — original history snapshot is left unchanged in the list.
     const published: OwnerOverrideRecord = {
         ...snap,

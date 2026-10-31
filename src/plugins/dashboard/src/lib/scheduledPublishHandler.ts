@@ -72,6 +72,12 @@ export async function executeScheduledPublishJob(
     ) {
         return { ok: false as const, error: 'schedule_revision_changed', retry: false };
     }
+    // Scheduled-time identity: a reschedule replaces scheduledAt; stale jobs must not publish early.
+    if (typeof payload.scheduledAt === 'number') {
+        if (current.scheduledAt !== payload.scheduledAt) {
+            return { ok: false as const, error: 'schedule_time_changed', retry: false };
+        }
+    }
 
     // Integrity: stored hash must match payload bytes.
     try {

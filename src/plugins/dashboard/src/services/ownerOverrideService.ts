@@ -30,7 +30,7 @@ import {
 
 function mapIntegrity(e: unknown): never {
     if (e instanceof OwnerOverrideIntegrityError) {
-        throw new ServiceError('INTEGRITY', 'Override payload integrity check failed', 409);
+        throw new ServiceError('CONFLICT', 'Override payload integrity check failed', 409);
     }
     throw e;
 }
@@ -161,6 +161,9 @@ export class OwnerOverrideService {
         const versions = await listOverrideVersions(targetKind, targetKey);
         const snap = versions.find((v) => v.version === version);
         if (!snap) throw new ServiceError('NOT_FOUND', 'Version not found', 404);
+        // Capture active-record identity before validation so the repository can
+        // reject if the live record moves (best-effort; not atomic CAS).
+        const active = await getOverrideByTarget(targetKind, targetKey);
         // Historical payloads must pass current composition rules before becoming active.
         if (isCompositionPayload(snap.payload)) {
             const validation = validateCompositionPayload(snap.payload);
@@ -173,17 +176,20 @@ export class OwnerOverrideService {
                 );
             }
         }
-        // Promote only if the repository still holds the same snapshot contentHash.
         let rec: OwnerOverrideRecord | null;
         try {
-            rec = await restoreOverrideVersion(targetKind, targetKey, version, snap.contentHash);
+            rec = await restoreOverrideVersion(targetKind, targetKey, version, {
+                expectedSnapshotContentHash: snap.contentHash,
+                expectedActiveRevision: active?.revision,
+                expectedActiveContentHash: active?.contentHash,
+            });
         } catch (e) {
             mapIntegrity(e);
         }
         if (!rec) {
             throw new ServiceError(
                 'VERSION_CONFLICT',
-                'Version changed during restore. Reload history and try again.',
+                'Active record or version changed during restore. Reload history and try again.',
                 409,
             );
         }
@@ -200,6 +206,7 @@ export class OwnerOverrideService {
         const versions = await listOverrideVersions(targetKind, targetKey);
         const snap = versions.find((v) => v.version === version);
         if (!snap) throw new ServiceError('NOT_FOUND', 'Version not found', 404);
+        const active = await getOverrideByTarget(targetKind, targetKey);
         // Rollback publishes the historical payload — enforce the same trust boundary as publish().
         if (isCompositionPayload(snap.payload)) {
             const validation = validateCompositionPayload(snap.payload);
@@ -214,14 +221,18 @@ export class OwnerOverrideService {
         }
         let rec: OwnerOverrideRecord | null;
         try {
-            rec = await rollbackOverrideVersion(targetKind, targetKey, version, snap.contentHash);
+            rec = await rollbackOverrideVersion(targetKind, targetKey, version, {
+                expectedSnapshotContentHash: snap.contentHash,
+                expectedActiveRevision: active?.revision,
+                expectedActiveContentHash: active?.contentHash,
+            });
         } catch (e) {
             mapIntegrity(e);
         }
         if (!rec) {
             throw new ServiceError(
                 'VERSION_CONFLICT',
-                'Version changed during rollback. Reload history and try again.',
+                'Active record or version changed during rollback. Reload history and try again.',
                 409,
             );
         }
