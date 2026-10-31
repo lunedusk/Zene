@@ -223,12 +223,19 @@ export function setNodeA11y(
   return updateNode(doc, nodeId, (node) => ({ ...node, a11y }));
 }
 
+/**
+ * Whether `componentType` may be placed in `parentId`/`slotName`.
+ *
+ * @param options.vacateNodeId When set, capacity is computed as if that node
+ *   were already removed from the destination slot (same-slot moves).
+ */
 export function canInsert(
   doc: CompositionDocument,
   parentId: string,
   slotName: string,
   componentType: string,
   registry = compositionRegistry,
+  options?: { vacateNodeId?: string },
 ): { ok: true; definition: ComponentDefinition } | { ok: false; reason: string } {
   const def = registry.get(componentType);
   if (!def) return { ok: false, reason: `Unknown component "${componentType}"` };
@@ -243,7 +250,16 @@ export function canInsert(
   if (slot.accepts && slot.accepts !== '*' && !slot.accepts.includes(componentType)) {
     return { ok: false, reason: `${parentDef?.name ?? parent.type} does not accept ${def.name} in ${slot.label}` };
   }
-  if (slot.max !== undefined && (parent.slots[slotName]?.length ?? 0) >= slot.max) {
+  let occupied = parent.slots[slotName]?.length ?? 0;
+  // Same-slot moves: the source node will leave this slot, so it must not count
+  // against capacity (otherwise a full slot rejects every intra-slot reorder/move).
+  if (options?.vacateNodeId) {
+    const kids = parent.slots[slotName] ?? [];
+    if (kids.some((n) => n.id === options.vacateNodeId)) {
+      occupied = Math.max(0, occupied - 1);
+    }
+  }
+  if (slot.max !== undefined && occupied >= slot.max) {
     return { ok: false, reason: `${slot.label} is full (max ${slot.max})` };
   }
   if (def.allowedParents && !def.allowedParents.includes(parent.type)) {
@@ -359,13 +375,18 @@ export function moveNode(
   if (targetParentId === nodeId || isDescendant(doc, nodeId, targetParentId)) {
     return fail('invalid_move', 'A node cannot be moved inside itself', nodeId);
   }
-  const check = canInsert(doc, targetParentId, targetSlot, node.type, registry);
-  if (!check.ok) return fail('invalid_move', check.reason, nodeId);
   const source = findParent(doc, nodeId);
   if (!source) return fail('node_not_found', `Node "${nodeId}" was not found`, nodeId);
 
+  const sameSlot = source.parent.id === targetParentId && source.slot === targetSlot;
+  const check = canInsert(doc, targetParentId, targetSlot, node.type, registry, {
+    // Capacity after the source vacates this slot (critical for full same-slot moves).
+    vacateNodeId: sameSlot ? nodeId : undefined,
+  });
+  if (!check.ok) return fail('invalid_move', check.reason, nodeId);
+
   let adjustedIndex = targetIndex;
-  if (source.parent.id === targetParentId && source.slot === targetSlot && source.index < targetIndex) {
+  if (sameSlot && source.index < targetIndex) {
     adjustedIndex -= 1;
   }
   const detached = updateDocument(doc, (root) =>
@@ -379,7 +400,8 @@ export function moveNode(
     mapNode(root, targetParentId, (p) => {
       const children = [...(p.slots[targetSlot] ?? [])];
       const at = Math.max(0, Math.min(adjustedIndex, children.length));
-      children.splice(at, 0, node);
+      // Clone the moved node so the source document graph stays independent.
+      children.splice(at, 0, cloneJson(node as unknown as JsonValue) as unknown as CompositionNode);
       return { ...p, slots: { ...p.slots, [targetSlot]: children } };
     }),
   );
@@ -421,6 +443,27 @@ function regenerateIds(node: CompositionNode, ids: Map<string, string>): Composi
   return { ...node, id, slots };
 }
 
+/**
+ * Remap internal references after ID regeneration.
+ * - scroll-to targets that point inside the duplicated subtree → new ids
+ * - external targets stay unchanged
+ * - responsive slotOrder ids already handled by the caller
+ */
+function remapInternalReferences(root: CompositionNode, ids: Map<string, string>): void {
+  walkNodes(root, (n) => {
+    if (!n.interactions?.length) return;
+    n.interactions = n.interactions.map((interaction) => {
+      if (interaction.action.kind !== 'scroll-to') return interaction;
+      const mapped = ids.get(interaction.action.nodeId);
+      if (!mapped) return interaction;
+      return {
+        ...interaction,
+        action: { ...interaction.action, nodeId: mapped },
+      };
+    });
+  });
+}
+
 export function duplicateNode(
   doc: CompositionDocument,
   nodeId: string,
@@ -446,6 +489,7 @@ export function duplicateNode(
     }
     n.responsive = responsive;
   });
+  remapInternalReferences(copy, ids);
   return insertNode(doc, location.parent.id, location.slot, location.index + 1, copy, options);
 }
 
