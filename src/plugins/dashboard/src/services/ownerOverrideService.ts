@@ -164,6 +164,9 @@ export class OwnerOverrideService {
         // Capture active-record identity before validation so the repository can
         // reject if the live record moves (best-effort; not atomic CAS).
         const active = await getOverrideByTarget(targetKind, targetKey);
+        if (!active) {
+            throw new ServiceError('NOT_FOUND', 'No active override to restore into', 404);
+        }
         // Historical payloads must pass current composition rules before becoming active.
         if (isCompositionPayload(snap.payload)) {
             const validation = validateCompositionPayload(snap.payload);
@@ -180,8 +183,8 @@ export class OwnerOverrideService {
         try {
             rec = await restoreOverrideVersion(targetKind, targetKey, version, {
                 expectedSnapshotContentHash: snap.contentHash,
-                expectedActiveRevision: active?.revision,
-                expectedActiveContentHash: active?.contentHash,
+                expectedActiveRevision: active.revision,
+                expectedActiveContentHash: active.contentHash,
             });
         } catch (e) {
             mapIntegrity(e);
@@ -207,6 +210,9 @@ export class OwnerOverrideService {
         const snap = versions.find((v) => v.version === version);
         if (!snap) throw new ServiceError('NOT_FOUND', 'Version not found', 404);
         const active = await getOverrideByTarget(targetKind, targetKey);
+        if (!active) {
+            throw new ServiceError('NOT_FOUND', 'No active override to roll back', 404);
+        }
         // Rollback publishes the historical payload — enforce the same trust boundary as publish().
         if (isCompositionPayload(snap.payload)) {
             const validation = validateCompositionPayload(snap.payload);
@@ -223,8 +229,8 @@ export class OwnerOverrideService {
         try {
             rec = await rollbackOverrideVersion(targetKind, targetKey, version, {
                 expectedSnapshotContentHash: snap.contentHash,
-                expectedActiveRevision: active?.revision,
-                expectedActiveContentHash: active?.contentHash,
+                expectedActiveRevision: active.revision,
+                expectedActiveContentHash: active.contentHash,
             });
         } catch (e) {
             mapIntegrity(e);

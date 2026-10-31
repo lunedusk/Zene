@@ -247,14 +247,15 @@ export async function restoreOverrideVersion(
         return null;
     }
 
-    // New active record — does not rewrite the original history entry in place.
+    // Monotonic counters from the *active* record, not the historical snapshot.
+    // (Snapshot version may be older; never move active version/revision backwards.)
     const restored: OwnerOverrideRecord = {
         ...snap,
         overrideId: id,
         state: 'restored',
         updatedAt: Date.now(),
-        version: snap.version + 1,
-        revision: (snap.revision ?? snap.version) + 1,
+        version: active.version + 1,
+        revision: (active.revision ?? active.version) + 1,
         scheduledAt: undefined,
         previewTokenHash: undefined,
         previewExpiresAt: undefined,
@@ -404,14 +405,14 @@ export async function rollbackOverrideVersion(
         return null;
     }
 
-    // New published record — original history snapshot is left unchanged in the list.
+    // Monotonic counters from the *active* record, not the historical snapshot.
     const published: OwnerOverrideRecord = {
         ...snap,
         overrideId: id,
         state: 'published',
         updatedAt: Date.now(),
-        version: snap.version + 1,
-        revision: (snap.revision ?? snap.version) + 1,
+        version: active.version + 1,
+        revision: (active.revision ?? active.version) + 1,
         changeSummary: `rollback_to_v${version}`,
         scheduledAt: undefined,
         previewTokenHash: undefined,
