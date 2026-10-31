@@ -14,6 +14,7 @@ import {
     projectRegistryDiagnostics,
 } from '../lib/dashRegistry.js';
 import { resolveActorPermissions } from '#core/permissions/capabilities.js';
+import { listPluginComponents } from '../lib/pluginComponents.js';
 
 export default class DashRegistryRoute extends BaseRoute {
     public readonly basePath = '/api/dash';
@@ -47,6 +48,12 @@ export default class DashRegistryRoute extends BaseRoute {
             this.asyncHandler(guarded(this.heart, this.snapshot.bind(this))),
         );
         this.router.get(
+            '/registry/components',
+            ensureRequestId,
+            requireSession(this.heart),
+            this.asyncHandler(guarded(this.heart, this.components.bind(this))),
+        );
+        this.router.get(
             '/registry/diagnostics',
             ensureRequestId,
             requireSession(this.heart),
@@ -67,6 +74,11 @@ export default class DashRegistryRoute extends BaseRoute {
         });
         const external = projectExternalRegistry(data);
         ok(res, external, 200, { requestId: req.requestId });
+    }
+
+    private async components(req: DashRequest, res: Response): Promise<void> {
+        const projection = listPluginComponents();
+        ok(res, projection, 200, { requestId: req.requestId });
     }
 
     private async diagnostics(req: DashRequest, res: Response): Promise<void> {

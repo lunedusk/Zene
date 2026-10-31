@@ -17,9 +17,15 @@ import {
     getOverrideByTarget,
     attachPreviewSession,
     clearPreviewSession,
+    OwnerOverrideConflictError,
     type OwnerOverrideRecord,
 } from '../../../dash-data/src/repositories/ownerOverrideRepository.js';
 import { mintPreviewToken, validatePreviewToken, hashPreviewToken } from '../lib/previewToken.js';
+import {
+    describeCompositionIssues,
+    isCompositionPayload,
+    validateCompositionPayload,
+} from '../lib/compositionValidation.js';
 
 function contentHash(payload: unknown): string {
     return createHash('sha256').update(JSON.stringify(payload ?? null)).digest('hex');
@@ -41,21 +47,50 @@ export class OwnerOverrideService {
             payload: unknown;
             changeSummary?: string;
             pluginId?: string;
+            expectedRevision?: number;
         },
     ): Promise<ServiceResult<OwnerOverrideRecord>> {
-        const rec = await putOverrideDraft({
-            targetKind: input.targetKind,
-            targetKey: input.targetKey,
-            payload: input.payload,
-            contentHash: contentHash(input.payload),
-            authorUserId: ctx.actor.userId,
-            changeSummary: input.changeSummary,
-            pluginId: input.pluginId,
-        });
-        return serviceOk(rec, { requestId: ctx.requestId });
+        if (isCompositionPayload(input.payload)) {
+            const validation = validateCompositionPayload(input.payload);
+            if (!validation.ok) {
+                throw new ServiceError('VALIDATION', `Invalid composition: ${describeCompositionIssues(validation)}`, 400, {
+                    issues: validation.issues,
+                });
+            }
+        }
+        try {
+            const rec = await putOverrideDraft({
+                targetKind: input.targetKind,
+                targetKey: input.targetKey,
+                payload: input.payload,
+                contentHash: contentHash(input.payload),
+                authorUserId: ctx.actor.userId,
+                changeSummary: input.changeSummary,
+                pluginId: input.pluginId,
+                expectedRevision: input.expectedRevision,
+            });
+            return serviceOk(rec, { requestId: ctx.requestId });
+        } catch (e) {
+            if (e instanceof OwnerOverrideConflictError) {
+                throw new ServiceError('VERSION_CONFLICT', 'This draft changed elsewhere. Reload and try again.', 409, {
+                    currentRevision: e.currentRevision,
+                });
+            }
+            throw e;
+        }
     }
 
     async publish(ctx: RequestContext, overrideId: string): Promise<ServiceResult<OwnerOverrideRecord>> {
+        const existing = await getOverride(overrideId);
+        if (!existing) throw new ServiceError('NOT_FOUND', 'Override not found', 404);
+        if (isCompositionPayload(existing.payload)) {
+            const validation = validateCompositionPayload(existing.payload);
+            if (!validation.ok) {
+                throw new ServiceError('VALIDATION', `Cannot publish invalid composition: ${describeCompositionIssues(validation)}`, 400, {
+                    issues: validation.issues,
+                });
+            }
+        }
         const rec = await publishOverride(overrideId);
         if (!rec) throw new ServiceError('NOT_FOUND', 'Override not found', 404);
         return serviceOk(rec, { requestId: ctx.requestId });

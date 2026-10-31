@@ -54,10 +54,18 @@ export default class OwnerOverridesRoute extends BaseRoute {
             payload: unknown;
             changeSummary?: string;
             pluginId?: string;
+            revision?: number;
         }>(req.body, ['targetKind', 'targetKey', 'payload']);
+        const ifMatch = req.header('if-match');
+        const expectedRevision =
+            typeof body.revision === 'number'
+                ? body.revision
+                : typeof ifMatch === 'string' && /^\d+$/.test(ifMatch.trim())
+                  ? Number(ifMatch.trim())
+                  : undefined;
         try {
             const ctx = await buildRequestContext(req);
-            const result = await ownerOverrideService.saveDraft(ctx, body);
+            const result = await ownerOverrideService.saveDraft(ctx, { ...body, expectedRevision });
             ok(res, unwrapServiceResult(result), 200, { requestId: ctx.requestId });
         } catch (e) {
             sendService(res, e);

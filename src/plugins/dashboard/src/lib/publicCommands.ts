@@ -22,6 +22,7 @@ export interface PublicCommandEntry {
 export function buildPublicCommandCatalog(): {
     frozen: boolean;
     commands: PublicCommandEntry[];
+    count: number;
 } {
     const tree = listCommandTree();
     const commands: PublicCommandEntry[] = [];
@@ -47,5 +48,5 @@ export function buildPublicCommandCatalog(): {
         });
     }
     commands.sort((a, b) => a.name.localeCompare(b.name));
-    return { frozen: tree.frozen, commands };
+    return { frozen: tree.frozen, commands, count: commands.length };
 }

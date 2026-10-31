@@ -24,6 +24,8 @@ export interface OwnerOverrideRecord {
     updatedAt: number;
     state: OverridePublicationState;
     version: number;
+    /** Bumped on every write; used for optimistic draft concurrency. */
+    revision: number;
     changeSummary?: string;
     scheduledAt?: number;
     previewTokenHash?: string;
@@ -31,6 +33,14 @@ export interface OwnerOverrideRecord {
 }
 
 const NS = 'owner_override';
+
+/** Thrown when a draft save is based on a stale revision. */
+export class OwnerOverrideConflictError extends Error {
+    constructor(public readonly currentRevision: number) {
+        super(`Draft revision conflict (current ${currentRevision})`);
+        this.name = 'OwnerOverrideConflictError';
+    }
+}
 const NS_BY_TARGET = 'owner_override_target';
 const NS_VERSIONS = 'owner_override_versions';
 
@@ -46,6 +56,7 @@ export async function putOverrideDraft(input: {
     sourceFile?: string;
     exportName?: string;
     changeSummary?: string;
+    expectedRevision?: number;
 }): Promise<OwnerOverrideRecord> {
     const targetId = `${input.targetKind}:${input.targetKey}`;
     const existingId = (await kvGet(NS_BY_TARGET, targetId)) as string | null;
@@ -53,6 +64,10 @@ export async function putOverrideDraft(input: {
     if (typeof existingId === 'string') {
         const cur = (await kvGet(NS, existingId)) as OwnerOverrideRecord | null;
         if (cur) {
+            const currentRevision = cur.revision ?? cur.version;
+            if (input.expectedRevision !== undefined && input.expectedRevision !== currentRevision) {
+                throw new OwnerOverrideConflictError(currentRevision);
+            }
             const next: OwnerOverrideRecord = {
                 ...cur,
                 payload: input.payload,
@@ -66,6 +81,7 @@ export async function putOverrideDraft(input: {
                 sdkCompat: input.sdkCompat ?? cur.sdkCompat,
                 sourceFile: input.sourceFile ?? cur.sourceFile,
                 exportName: input.exportName ?? cur.exportName,
+                revision: currentRevision + 1,
             };
             await kvSet(NS, cur.overrideId, next);
             return next;
@@ -88,6 +104,7 @@ export async function putOverrideDraft(input: {
         updatedAt: now,
         state: 'draft',
         version: 1,
+        revision: 1,
         changeSummary: input.changeSummary,
     };
     await kvSet(NS, overrideId, rec);
@@ -102,6 +119,7 @@ export async function publishOverride(overrideId: string): Promise<OwnerOverride
         ...cur,
         state: 'published',
         version: cur.version + 1,
+        revision: (cur.revision ?? cur.version) + 1,
         updatedAt: Date.now(),
     };
     await kvSet(NS, overrideId, next);
@@ -148,6 +166,7 @@ export async function restoreOverrideVersion(
         state: 'restored',
         updatedAt: Date.now(),
         version: snap.version + 1,
+        revision: (snap.revision ?? snap.version) + 1,
     };
     await kvSet(NS, id, restored);
     await pushVersion(restored);
@@ -262,6 +281,7 @@ export async function rollbackOverrideVersion(
         state: 'published',
         updatedAt: Date.now(),
         version: snap.version + 1,
+        revision: (snap.revision ?? snap.version) + 1,
         changeSummary: `rollback_to_v${version}`,
         scheduledAt: undefined,
         previewTokenHash: undefined,
