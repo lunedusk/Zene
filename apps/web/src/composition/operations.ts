@@ -507,32 +507,53 @@ export function groupNodes(
   groupType = 'structure.container',
   options: { registry?: typeof compositionRegistry } = {},
 ): OperationResult {
-  if (nodeIds.length === 0) return fail('invalid_group', 'Select at least two nodes to group');
+  if (nodeIds.length < 2) {
+    return fail('invalid_group', 'Select at least two nodes to group');
+  }
+  const uniqueIds = new Set(nodeIds);
+  if (uniqueIds.size !== nodeIds.length) {
+    return fail('invalid_group', 'Grouped selection contains duplicate node ids');
+  }
   const registry = options.registry ?? compositionRegistry;
   const groupDef = registry.get(groupType);
   if (!groupDef) return fail('unknown_component', `Unknown group component "${groupType}"`, undefined);
+
   const locations = nodeIds.map((id) => ({ id, location: findParent(doc, id) }));
-  const first = locations[0]?.location;
-  if (!first) return fail('node_not_found', 'A selected node was not found');
-  if (nodeIds.some((id) => id === doc.root.id)) return fail('cannot_group_root', 'The page root cannot be grouped');
-  if (locations.some((l) => !l.location || l.location.parent.id !== first.parent.id || l.location.slot !== first.slot)) {
+  if (locations.some((l) => !l.location)) {
+    return fail('node_not_found', 'A selected node was not found');
+  }
+  if (nodeIds.some((id) => id === doc.root.id)) {
+    return fail('cannot_group_root', 'The page root cannot be grouped');
+  }
+  const first = locations[0]!.location!;
+  if (
+    locations.some(
+      (l) =>
+        !l.location ||
+        l.location.parent.id !== first.parent.id ||
+        l.location.slot !== first.slot,
+    )
+  ) {
     return fail('invalid_group', 'Grouped nodes must share the same parent and slot');
   }
-  const indices = locations.map((l) => l.location!.index).sort((a, b) => a - b);
-  const minIndex = indices[0]!;
-  const nodes = nodeIds
-    .map((id) => findNode(doc, id))
-    .filter((n): n is CompositionNode => Boolean(n));
+
+  // Document order (slot index), not selection order.
+  const ordered = [...locations].sort((a, b) => a.location!.index - b.location!.index);
+  const minIndex = ordered[0]!.location!.index;
+  const nodesInDocumentOrder: CompositionNode[] = [];
+  for (const entry of ordered) {
+    const node = findNode(doc, entry.id);
+    if (!node) return fail('node_not_found', `Node "${entry.id}" was not found`, entry.id);
+    nodesInDocumentOrder.push(cloneJson(node as unknown as JsonValue) as unknown as CompositionNode);
+  }
+
   const group = createDefaultNode(groupDef);
-  group.slots[DEFAULT_SLOT] = nodes.map((n) => cloneJson(n as unknown as JsonValue) as unknown as CompositionNode);
+  group.slots[DEFAULT_SLOT] = nodesInDocumentOrder;
 
   let next = doc;
   // Remove highest indices first so earlier indices remain valid.
-  for (const idx of [...indices].reverse()) {
-    const currentParent = findNode(next, first.parent.id);
-    const child = currentParent?.slots[first.slot]?.[idx];
-    if (!child) continue;
-    const removed = removeNode(next, child.id, { registry });
+  for (const entry of [...ordered].reverse()) {
+    const removed = removeNode(next, entry.id, { registry });
     if (!removed.ok) return removed;
     next = removed.document;
   }
