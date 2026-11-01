@@ -8,9 +8,7 @@ import { applyGateway, requireSession, type DashRequest } from '../lib/authz.js'
 import { ok, guarded, HttpError, requireBody } from '../lib/http.js';
 import { isEnvOwnerUser } from '../lib/owner.js';
 import { buildRequestContext, ServiceError, unwrapServiceResult } from '../lib/requestContext.js';
-import { ownerOverrideService } from '../services/ownerOverrideService.js';
-import { getOverride } from '../../../dash-data/src/repositories/ownerOverrideRepository.js';
-import { hashPreviewToken, validatePreviewToken } from '../lib/previewToken.js';
+import { ownerOverrideService, resolveActivePreview } from '../services/ownerOverrideService.js';
 import { ensureScheduledPublishHandlerRegistered } from '../lib/scheduledPublishHandler.js';
 
 function assertEnvOwner(req: DashRequest): void {
@@ -137,52 +135,25 @@ export default class OwnerOverridesRoute extends BaseRoute {
         const token = typeof req.query.token === 'string' ? req.query.token : '';
         if (!token) throw new HttpError(400, 'bad_request', 'token required');
         try {
-            // Shared secret contract: tokens are only valid when signed with the
-            // configured DASH_PREVIEW_SECRET / BETTER_AUTH_SECRET (min 16 chars).
-            // Anonymous and authenticated validation use the same secret source.
+            // Shared core: signature, expiry, identity, active hash, stored expiry.
+            // Authenticated callers still get the full service result shape.
             if (!req.dashSession) {
-                const secret = process.env['DASH_PREVIEW_SECRET'] ?? process.env['BETTER_AUTH_SECRET'] ?? '';
-                if (!secret || secret.length < 16) {
-                    throw new HttpError(503, 'misconfigured', 'Preview secret not configured');
-                }
-                const v = validatePreviewToken(secret, token);
-                if (!v.ok) {
-                    throw new HttpError(v.reason === 'expired' ? 403 : 401, v.reason, 'Preview invalid');
-                }
-                // Load and bind the override exclusively from signed claims.
-                const rec = await getOverride(v.claims.overrideId);
-                if (!rec) {
-                    throw new HttpError(404, 'not_found', 'Override not found');
-                }
-                if (
-                    rec.overrideId !== v.claims.overrideId ||
-                    rec.targetKind !== v.claims.targetKind ||
-                    rec.targetKey !== v.claims.targetKey
-                ) {
-                    throw new HttpError(403, 'forbidden', 'Preview invalid');
-                }
-                if (!rec.previewTokenHash || rec.previewTokenHash !== hashPreviewToken(token)) {
-                    throw new HttpError(403, 'forbidden', 'Preview revoked');
-                }
-                if (rec.previewExpiresAt !== undefined && rec.previewExpiresAt <= Date.now()) {
-                    throw new HttpError(403, 'forbidden', 'Preview expired');
-                }
+                const { claims, record } = await resolveActivePreview(token);
                 res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-                // Minimized anonymous response — no author or internal bookkeeping fields.
                 ok(
                     res,
                     {
                         claims: {
-                            overrideId: v.claims.overrideId,
-                            targetKind: v.claims.targetKind,
-                            targetKey: v.claims.targetKey,
-                            exp: v.claims.exp,
+                            overrideId: claims.overrideId,
+                            targetKind: claims.targetKind,
+                            targetKey: claims.targetKey,
+                            exp: claims.exp,
                         },
                         record: {
-                            payload: rec.payload,
-                            version: rec.version,
-                            targetKind: rec.targetKind,
-                            targetKey: rec.targetKey,
+                            payload: record.payload,
+                            version: record.version,
+                            targetKind: record.targetKind,
+                            targetKey: record.targetKey,
                         },
                         robots: 'noindex',
                     },

@@ -21,7 +21,12 @@ import {
     OwnerOverrideIntegrityError,
     type OwnerOverrideRecord,
 } from '../../../dash-data/src/repositories/ownerOverrideRepository.js';
-import { mintPreviewToken, validatePreviewToken, hashPreviewToken } from '../lib/previewToken.js';
+import {
+    mintPreviewToken,
+    validatePreviewToken,
+    hashPreviewToken,
+    type PreviewClaims,
+} from '../lib/previewToken.js';
 import {
     describeCompositionIssues,
     isCompositionPayload,
@@ -35,12 +40,80 @@ function mapIntegrity(e: unknown): never {
     throw e;
 }
 
-function previewSecret(_ctx: RequestContext): string {
-    // Tokens must verify for anonymous preview with the same secret; never use
-    // a per-user development fallback that cannot be reconstructed without a session.
+/**
+ * Shared preview secret contract. No per-user or development fallback.
+ * Missing/short secrets fail closed so anonymous and authenticated paths stay aligned.
+ */
+export function resolvePreviewSecret(): string {
     const fromEnv = process.env['DASH_PREVIEW_SECRET'] ?? process.env['BETTER_AUTH_SECRET'];
     if (fromEnv && fromEnv.length >= 16) return fromEnv;
     throw new ServiceError('UNAVAILABLE', 'Preview secret not configured (set DASH_PREVIEW_SECRET)', 503);
+}
+
+function previewSecret(_ctx: RequestContext): string {
+    return resolvePreviewSecret();
+}
+
+/**
+ * Single authorization core for preview tokens (anonymous and authenticated).
+ * Loads the record only from signed claims; requires active stored session fields.
+ */
+export async function resolveActivePreview(token: string): Promise<{
+    claims: PreviewClaims;
+    record: OwnerOverrideRecord;
+}> {
+    const secret = resolvePreviewSecret();
+    const v = validatePreviewToken(secret, token);
+    if (!v.ok) {
+        if (v.reason === 'expired') throw new ServiceError('FORBIDDEN', 'Preview expired', 403);
+        throw new ServiceError('UNAUTHENTICATED', 'Invalid preview token', 401);
+    }
+    const claims = v.claims;
+    if (
+        typeof claims.overrideId !== 'string' ||
+        !claims.overrideId ||
+        typeof claims.targetKind !== 'string' ||
+        !claims.targetKind ||
+        typeof claims.targetKey !== 'string' ||
+        !claims.targetKey ||
+        typeof claims.exp !== 'number'
+    ) {
+        throw new ServiceError('UNAUTHENTICATED', 'Invalid preview token', 401);
+    }
+
+    const rec = await getOverride(claims.overrideId);
+    if (!rec) throw new ServiceError('NOT_FOUND', 'Override not found', 404);
+
+    if (
+        rec.overrideId !== claims.overrideId ||
+        rec.targetKind !== claims.targetKind ||
+        rec.targetKey !== claims.targetKey
+    ) {
+        throw new ServiceError('FORBIDDEN', 'Preview invalid', 403);
+    }
+
+    // Absent hash means revoked (clearPreviewSession clears the field). Never treat as open.
+    if (typeof rec.previewTokenHash !== 'string' || !rec.previewTokenHash) {
+        throw new ServiceError('FORBIDDEN', 'Preview revoked', 403);
+    }
+    if (rec.previewTokenHash !== hashPreviewToken(token)) {
+        throw new ServiceError('FORBIDDEN', 'Preview revoked', 403);
+    }
+
+    // Absent stored expiry fails closed — an active preview always has both session fields.
+    if (typeof rec.previewExpiresAt !== 'number' || !Number.isFinite(rec.previewExpiresAt)) {
+        throw new ServiceError('FORBIDDEN', 'Preview expired', 403);
+    }
+
+    // Effective end is the earlier of signed exp (sec→ms) and stored previewExpiresAt (ms).
+    // Disagreement cannot extend validity past the stored session end.
+    const signedEndsAtMs = claims.exp * 1000;
+    const endsAtMs = Math.min(signedEndsAtMs, rec.previewExpiresAt);
+    if (Date.now() >= endsAtMs) {
+        throw new ServiceError('FORBIDDEN', 'Preview expired', 403);
+    }
+
+    return { claims, record: rec };
 }
 
 export class OwnerOverrideService {
@@ -278,20 +351,9 @@ export class OwnerOverrideService {
         ctx: RequestContext,
         token: string,
     ): Promise<ServiceResult<{ claims: unknown; record: OwnerOverrideRecord }>> {
-        const v = validatePreviewToken(previewSecret(ctx), token);
-        if (!v.ok) {
-            if (v.reason === 'expired') throw new ServiceError('FORBIDDEN', 'Preview expired', 403);
-            throw new ServiceError('UNAUTHENTICATED', 'Invalid preview token', 401);
-        }
-        const rec = await getOverride(v.claims.overrideId);
-        if (!rec) throw new ServiceError('NOT_FOUND', 'Override not found', 404);
-        if (rec.previewTokenHash && rec.previewTokenHash !== hashPreviewToken(token)) {
-            throw new ServiceError('FORBIDDEN', 'Preview revoked', 403);
-        }
-        if (rec.previewExpiresAt && rec.previewExpiresAt <= Date.now()) {
-            throw new ServiceError('FORBIDDEN', 'Preview expired', 403);
-        }
-        return serviceOk({ claims: v.claims, record: rec }, { requestId: ctx.requestId });
+        // Same authorization core as the anonymous route.
+        const { claims, record } = await resolveActivePreview(token);
+        return serviceOk({ claims, record }, { requestId: ctx.requestId });
     }
 
     async getCurrent(

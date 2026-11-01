@@ -46,39 +46,49 @@ function mapCommandCatalog(payload: unknown): JsonValue {
   return { commands, count: commands.length };
 }
 
-function mapSite(payload: unknown): JsonValue {
+/**
+ * Project /public/site binding fields from either legacy or canonical responses.
+ * Exported for unit tests; BindingStore uses the same pure function.
+ *
+ * Canonical sectionCount = length of document.root.slots.default
+ * (top-level children under the page root). Empty array is valid.
+ * Missing/malformed root or default slot → invalid canonical result.
+ */
+export function projectPublicSiteBinding(payload: unknown): JsonValue {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return { title: '', description: '', sectionCount: 0 };
   }
   const record = payload as Record<string, unknown>;
 
-  // Canonical public-site API: { kind: 'composition', document, ... }
   if (record['kind'] === 'composition') {
     const document = record['document'];
     if (!document || typeof document !== 'object' || Array.isArray(document)) {
-      // Malformed canonical response — do not invent a legacy empty site.
       return { title: '', description: '', sectionCount: 0, invalid: true };
     }
     const doc = document as Record<string, unknown>;
+    const root = doc['root'];
+    if (!root || typeof root !== 'object' || Array.isArray(root)) {
+      return { title: '', description: '', sectionCount: 0, invalid: true };
+    }
+    const rootObj = root as Record<string, unknown>;
+    const slots = rootObj['slots'];
+    if (!slots || typeof slots !== 'object' || Array.isArray(slots)) {
+      return { title: '', description: '', sectionCount: 0, invalid: true };
+    }
+    const slotsObj = slots as Record<string, unknown>;
+    // Required by structure.page: a default slot array (may be empty).
+    if (!Object.prototype.hasOwnProperty.call(slotsObj, 'default') || !Array.isArray(slotsObj['default'])) {
+      return { title: '', description: '', sectionCount: 0, invalid: true };
+    }
+    const defaultChildren = slotsObj['default'] as unknown[];
+
     const metadata =
       doc['metadata'] && typeof doc['metadata'] === 'object' && !Array.isArray(doc['metadata'])
         ? (doc['metadata'] as Record<string, unknown>)
         : {};
     const titleFromMeta = typeof metadata['title'] === 'string' ? metadata['title'] : '';
-    const title =
-      titleFromMeta || (typeof doc['name'] === 'string' ? doc['name'] : '');
+    const title = titleFromMeta || (typeof doc['name'] === 'string' ? doc['name'] : '');
     const description = typeof metadata['description'] === 'string' ? metadata['description'] : '';
-    // Section count: number of direct children in the root node's default slot
-    // (top-level content blocks under structure.page).
-    const root =
-      doc['root'] && typeof doc['root'] === 'object' && !Array.isArray(doc['root'])
-        ? (doc['root'] as Record<string, unknown>)
-        : null;
-    const slots =
-      root && root['slots'] && typeof root['slots'] === 'object' && !Array.isArray(root['slots'])
-        ? (root['slots'] as Record<string, unknown>)
-        : {};
-    const defaultChildren = Array.isArray(slots['default']) ? slots['default'] : [];
     return { title, description, sectionCount: defaultChildren.length };
   }
 
@@ -95,6 +105,10 @@ function mapSite(payload: unknown): JsonValue {
     (typeof record['description'] === 'string' ? record['description'] : '');
   const sections = Array.isArray(record['sections']) ? record['sections'] : [];
   return { title, description, sectionCount: sections.length };
+}
+
+function mapSite(payload: unknown): JsonValue {
+  return projectPublicSiteBinding(payload);
 }
 
 /**
