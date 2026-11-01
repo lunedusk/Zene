@@ -5,6 +5,11 @@ import { ok, guarded, HttpError } from '../lib/http.js';
 import { dashGet, dashMongo, ensureDashboardAdapter, cmdCounterCollection } from '../lib/db.js';
 import { getPublishedOverride } from '../../../dash-data/src/repositories/ownerOverrideRepository.js';
 import { normalizePublicSite, PUBLIC_SITE_TARGET, defaultPublicSite } from '../lib/publicSite.js';
+import {
+    describeCompositionIssues,
+    isCompositionPayload,
+    validateCompositionPayload,
+} from '../lib/compositionValidation.js';
 import { buildPublicCommandCatalog } from '../lib/publicCommands.js';
 
 export default class PublicRoute extends BaseRoute {
@@ -69,13 +74,37 @@ export default class PublicRoute extends BaseRoute {
             PUBLIC_SITE_TARGET.targetKind,
             PUBLIC_SITE_TARGET.targetKey,
         );
-        const config = published
-            ? normalizePublicSite(published.payload)
-            : defaultPublicSite();
+        if (!published) {
+            ok(res, {
+                ...defaultPublicSite(),
+                publishedVersion: null,
+                publishedAt: null,
+            });
+            return;
+        }
+        // Canonical composition documents must not go through legacy section normalization.
+        if (isCompositionPayload(published.payload)) {
+            const validation = validateCompositionPayload(published.payload);
+            if (!validation.ok) {
+                throw new HttpError(
+                    503,
+                    'invalid_composition',
+                    `Published composition is invalid: ${describeCompositionIssues(validation)}`,
+                );
+            }
+            ok(res, {
+                kind: 'composition' as const,
+                document: published.payload,
+                publishedVersion: published.version,
+                publishedAt: published.updatedAt,
+            });
+            return;
+        }
+        const config = normalizePublicSite(published.payload);
         ok(res, {
             ...config,
-            publishedVersion: published?.version ?? null,
-            publishedAt: published?.updatedAt ?? null,
+            publishedVersion: published.version,
+            publishedAt: published.updatedAt,
         });
     }
 
@@ -183,6 +212,24 @@ export default class PublicRoute extends BaseRoute {
         const published = await getPublishedOverride('public_page', slug);
         if (!published) {
             throw new HttpError(404, 'not_found', 'Page not found');
+        }
+        if (isCompositionPayload(published.payload)) {
+            const validation = validateCompositionPayload(published.payload);
+            if (!validation.ok) {
+                throw new HttpError(
+                    503,
+                    'invalid_composition',
+                    `Published composition is invalid: ${describeCompositionIssues(validation)}`,
+                );
+            }
+            ok(res, {
+                slug,
+                kind: 'composition' as const,
+                payload: published.payload,
+                version: published.version,
+                updatedAt: published.updatedAt,
+            });
+            return;
         }
         ok(res, {
             slug,

@@ -1,7 +1,3 @@
-
-
-
-
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Card, ErrorState, LoadingState, Stack, Button } from '../../design-system/primitives.js';
@@ -15,12 +11,19 @@ import { apiClient } from '../../api/client.js';
 import { DashApiError } from '../../api/types.js';
 import { logger } from '../../lib/logger.js';
 import { getIdentity } from '../../identity/store.js';
+import { CompositionRenderer } from '../../composition/renderer.js';
+import { isCompositionDocument } from '../../composition/schema.js';
+import type { CompositionDocument, BreakpointId } from '../../composition/types.js';
 
 function payloadToLayout(payload: unknown): LayoutBreakpointState {
   const bp = createEmptyBreakpoint('desktop');
   if (!payload || typeof payload !== 'object') return bp;
   const grid = payload as { widgets?: WidgetInstance[] };
   if (Array.isArray(grid.widgets)) bp.widgets = grid.widgets;
+  const asLayout = payload as { breakpoints?: { desktop?: { widgets?: WidgetInstance[] } } };
+  if (Array.isArray(asLayout.breakpoints?.desktop?.widgets)) {
+    bp.widgets = asLayout.breakpoints.desktop.widgets;
+  }
   return bp;
 }
 
@@ -35,7 +38,7 @@ export function PreviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<unknown>(null);
   const [meta, setMeta] = useState<{ targetKind?: string; targetKey?: string; version?: number }>({});
-  const [breakpoint, setBreakpoint] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
+  const [breakpoint, setBreakpoint] = useState<BreakpointId>('desktop');
 
   useEffect(() => {
     let el = document.querySelector('meta[name="robots"]');
@@ -81,18 +84,23 @@ export function PreviewPage() {
     })();
   }, [token]);
 
-  const publicSections: PublicSection[] = useMemo(() => {
-    if (!isPublicSite(payload)) return [];
-    return [...payload.sections].filter((s) => s.enabled).sort((a, b) => a.order - b.order);
+  const composition: CompositionDocument | null = useMemo(() => {
+    return isCompositionDocument(payload) ? payload : null;
   }, [payload]);
 
+  const publicSections: PublicSection[] = useMemo(() => {
+    if (composition) return [];
+    if (!isPublicSite(payload)) return [];
+    return [...payload.sections].filter((s) => s.enabled).sort((a, b) => a.order - b.order);
+  }, [payload, composition]);
+
   const layout = useMemo(() => {
-    if (isPublicSite(payload)) return null;
+    if (composition || isPublicSite(payload)) return null;
     const base = payloadToLayout(payload);
     if (breakpoint === 'tablet') return { ...base, columns: 8, breakpoint: 'tablet' as const };
     if (breakpoint === 'mobile') return { ...base, columns: 4, breakpoint: 'mobile' as const };
     return base;
-  }, [payload, breakpoint]);
+  }, [payload, breakpoint, composition]);
 
   if (loading) return <LoadingState label="Loading preview…" />;
   if (error) return <ErrorState title="Preview unavailable" message={error} />;
@@ -130,7 +138,9 @@ export function PreviewPage() {
         </div>
       </div>
       <Card title={`${getIdentity().botName} preview`}>
-        {publicSections.length > 0 ? (
+        {composition ? (
+          <CompositionRenderer document={composition} mode="preview" breakpoint={breakpoint} />
+        ) : publicSections.length > 0 ? (
           <Stack gap={24}>
             {publicSections.map((s) => (
               <SectionRenderer key={s.id} section={s} />

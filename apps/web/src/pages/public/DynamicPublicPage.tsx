@@ -7,6 +7,17 @@ import { applyPublicMetadata } from '../../public/metadata.js';
 import { SectionRenderer } from '../../public/SectionRenderer.js';
 import type { PublicSection, PublicSiteConfig } from '../../public/sectionTypes.js';
 import { logger } from '../../lib/logger.js';
+import { CompositionRenderer } from '../../composition/renderer.js';
+import { isCompositionDocument } from '../../composition/schema.js';
+import type { CompositionDocument } from '../../composition/types.js';
+
+type PageApiResponse = {
+  slug?: string;
+  kind?: string;
+  payload?: unknown;
+  version?: number;
+  updatedAt?: number;
+};
 
 export function DynamicPublicPage() {
   const { slug = '' } = useParams<{ slug: string }>();
@@ -14,26 +25,53 @@ export function DynamicPublicPage() {
   const [error, setError] = useState<string | null>(null);
   const [sections, setSections] = useState<PublicSection[]>([]);
   const [title, setTitle] = useState(slug);
+  const [composition, setComposition] = useState<CompositionDocument | null>(null);
 
   useEffect(() => {
     void (async () => {
       setLoading(true);
       setError(null);
+      setComposition(null);
+      setSections([]);
       try {
-        const data = (await apiClient.request<{
-          payload?: PublicSiteConfig | { title?: string; sections?: PublicSection[] };
-          version?: number;
-        }>(`/public/pages/${encodeURIComponent(slug)}`)) as {
-          payload?: PublicSiteConfig | { title?: string; sections?: PublicSection[] };
-        };
+        const data = (await apiClient.request<PageApiResponse>(
+          `/public/pages/${encodeURIComponent(slug)}`,
+        )) as PageApiResponse;
         const payload = data.payload;
-        const secs = payload && 'sections' in payload && Array.isArray(payload.sections) ? payload.sections : [];
+
+        if (data.kind === 'composition' || isCompositionDocument(payload)) {
+          const doc = isCompositionDocument(payload) ? payload : null;
+          if (!doc) {
+            setError('Published composition is invalid');
+            return;
+          }
+          setComposition(doc);
+          const t =
+            typeof doc.metadata?.title === 'string' && doc.metadata.title
+              ? doc.metadata.title
+              : typeof doc.name === 'string' && doc.name
+                ? doc.name
+                : slug;
+          setTitle(t);
+          applyPublicMetadata({
+            title: t,
+            description:
+              typeof doc.metadata?.description === 'string' ? doc.metadata.description : undefined,
+            path: `/p/${slug}`,
+          });
+          logger.debug('web.public.surface.loaded', { slug, kind: 'composition', version: data.version });
+          return;
+        }
+
+        const legacy = payload as PublicSiteConfig | { title?: string; sections?: PublicSection[] } | undefined;
+        const secs =
+          legacy && 'sections' in legacy && Array.isArray(legacy.sections) ? legacy.sections : [];
         setSections([...secs].filter((s) => s.enabled).sort((a, b) => a.order - b.order));
         const t =
-          payload && 'metadata' in payload && payload.metadata?.title
-            ? payload.metadata.title
-            : payload && 'title' in payload && typeof payload.title === 'string'
-              ? payload.title
+          legacy && 'metadata' in legacy && legacy.metadata?.title
+            ? legacy.metadata.title
+            : legacy && 'title' in legacy && typeof legacy.title === 'string'
+              ? legacy.title
               : slug;
         setTitle(t);
         applyPublicMetadata({ title: t, path: `/p/${slug}` });
@@ -48,6 +86,15 @@ export function DynamicPublicPage() {
 
   if (loading) return <LoadingState label="Loading page…" />;
   if (error) return <ErrorState title="Not found" message={error} />;
+
+  if (composition) {
+    return (
+      <Stack gap={24}>
+        <CompositionRenderer document={composition} mode="published" />
+      </Stack>
+    );
+  }
+
   if (sections.length === 0) {
     return <EmptyState title={title} description="This page has no published sections." />;
   }

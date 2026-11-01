@@ -22,9 +22,11 @@ import { breakpointFromWidth } from './schema.js';
 import { resolveNode, orderedChildren, type ResolvedNode } from './responsive.js';
 import { themeTokensToCss } from './layoutStyle.js';
 import { compositionRegistry } from './registry.js';
+import { registerBuiltinComponents } from './builtins/index.js';
 import {
   CompositionRuntimeProvider,
 } from './context.js';
+
 import {
   EMPTY_SESSION,
   type BindingResult,
@@ -36,6 +38,10 @@ import {
   type SubmitResult,
 } from './runtime.js';
 import { BindingStore } from './dataStore.js';
+
+// Deterministic built-in registration for every renderer entry point.
+registerBuiltinComponents();
+
 
 export interface CompositionRendererProps {
   document: CompositionDocument;
@@ -284,10 +290,22 @@ export function CompositionRenderer({
     (node: CompositionNode): ReactNode => {
       const def = compositionRegistry.get(node.type);
       if (!def) {
-        if (mode !== 'editor') return null;
+        if (mode === 'editor') {
+          return (
+            <div key={node.id} className="zc-render-error" data-node-id={node.id} role="alert">
+              Unknown component “{node.type}”
+            </div>
+          );
+        }
         return (
-          <div key={node.id} className="zc-render-error" data-node-id={node.id} role="alert">
-            Unknown component “{node.type}”
+          <div
+            key={node.id}
+            className="zc-unavailable"
+            data-node-id={node.id}
+            role="status"
+            aria-label="Component unavailable"
+          >
+            <span className="zc-unavailable-label">This component is unavailable.</span>
           </div>
         );
       }
@@ -295,7 +313,26 @@ export function CompositionRenderer({
       const resolved = resolveNode(node, activeBreakpoint);
       if (resolved.hidden) return null;
       const Render = def.render as ((props: NodeRenderProps) => ReactNode) | undefined;
-      if (!Render) return null;
+      if (!Render) {
+        if (mode === 'editor') {
+          return (
+            <div key={node.id} className="zc-render-error" data-node-id={node.id} role="alert">
+              Component “{node.type}” has no renderer
+            </div>
+          );
+        }
+        return (
+          <div
+            key={node.id}
+            className="zc-unavailable"
+            data-node-id={node.id}
+            role="status"
+            aria-label="Component unavailable"
+          >
+            <span className="zc-unavailable-label">This component is unavailable.</span>
+          </div>
+        );
+      }
       const props: NodeRenderProps = {
         node,
         props: resolved.props,
