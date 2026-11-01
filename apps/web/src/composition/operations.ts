@@ -539,7 +539,25 @@ export function groupNodes(
 
   // Document order (slot index), not selection order.
   const ordered = [...locations].sort((a, b) => a.location!.index - b.location!.index);
-  const minIndex = ordered[0]!.location!.index;
+  const indices = ordered.map((e) => e.location!.index);
+  const minIndex = indices[0]!;
+  const maxIndex = indices[indices.length - 1]!;
+  // Contiguous range required: otherwise ungroup cannot restore original sibling order.
+  if (maxIndex - minIndex + 1 !== ordered.length) {
+    return fail(
+      'invalid_group',
+      'Grouped nodes must form a contiguous range in their parent slot',
+    );
+  }
+  for (let i = 0; i < indices.length; i++) {
+    if (indices[i] !== minIndex + i) {
+      return fail(
+        'invalid_group',
+        'Grouped nodes must form a contiguous range in their parent slot',
+      );
+    }
+  }
+
   const nodesInDocumentOrder: CompositionNode[] = [];
   for (const entry of ordered) {
     const node = findNode(doc, entry.id);
@@ -550,14 +568,15 @@ export function groupNodes(
   const group = createDefaultNode(groupDef);
   group.slots[DEFAULT_SLOT] = nodesInDocumentOrder;
 
-  let next = doc;
-  // Remove highest indices first so earlier indices remain valid.
-  for (const entry of [...ordered].reverse()) {
-    const removed = removeNode(next, entry.id, { registry });
-    if (!removed.ok) return removed;
-    next = removed.document;
-  }
-  return insertNode(next, first.parent.id, first.slot, minIndex, group, { registry });
+  // Single immutable slot update: replace [minIndex..maxIndex] with the group node.
+  const next = updateDocument(doc, (root) =>
+    mapNode(root, first.parent.id, (p) => {
+      const children = [...(p.slots[first.slot] ?? [])];
+      children.splice(minIndex, ordered.length, group);
+      return { ...p, slots: { ...p.slots, [first.slot]: children } };
+    }),
+  );
+  return finish(next, registry);
 }
 
 export function ungroupNode(
