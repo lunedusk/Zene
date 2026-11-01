@@ -90,10 +90,22 @@ class RenderBoundary extends Component<
 
   render(): ReactNode {
     if (!this.state.failed) return this.props.children;
-    if (this.props.mode !== 'editor') return null;
+    if (this.props.mode === 'editor') {
+      return (
+        <div className="zc-render-error" role="alert" data-node-id={this.props.nodeId}>
+          This component could not render.
+        </div>
+      );
+    }
+    // Preview/published: never silently erase content on a renderer throw.
     return (
-      <div className="zc-render-error" role="alert" data-node-id={this.props.nodeId}>
-        This component could not render.
+      <div
+        className="zc-unavailable"
+        role="status"
+        aria-label="Component unavailable"
+        data-node-id={this.props.nodeId}
+      >
+        <span className="zc-unavailable-label">This component is unavailable.</span>
       </div>
     );
   }

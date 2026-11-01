@@ -35,10 +35,12 @@ function mapIntegrity(e: unknown): never {
     throw e;
 }
 
-function previewSecret(ctx: RequestContext): string {
+function previewSecret(_ctx: RequestContext): string {
+    // Tokens must verify for anonymous preview with the same secret; never use
+    // a per-user development fallback that cannot be reconstructed without a session.
     const fromEnv = process.env['DASH_PREVIEW_SECRET'] ?? process.env['BETTER_AUTH_SECRET'];
     if (fromEnv && fromEnv.length >= 16) return fromEnv;
-    return `dev-preview-secret-${ctx.actor.userId}`;
+    throw new ServiceError('UNAVAILABLE', 'Preview secret not configured (set DASH_PREVIEW_SECRET)', 503);
 }
 
 export class OwnerOverrideService {

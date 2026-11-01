@@ -47,16 +47,53 @@ function mapCommandCatalog(payload: unknown): JsonValue {
 }
 
 function mapSite(payload: unknown): JsonValue {
-  const record = asObject(payload);
-  const metadata = asObject(record['metadata']);
-  const sections = asArray(record['sections']);
-  const title = typeof record['title'] === 'string' ? record['title'] : typeof metadata['title'] === 'string' ? metadata['title'] : '';
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { title: '', description: '', sectionCount: 0 };
+  }
+  const record = payload as Record<string, unknown>;
+
+  // Canonical public-site API: { kind: 'composition', document, ... }
+  if (record['kind'] === 'composition') {
+    const document = record['document'];
+    if (!document || typeof document !== 'object' || Array.isArray(document)) {
+      // Malformed canonical response — do not invent a legacy empty site.
+      return { title: '', description: '', sectionCount: 0, invalid: true };
+    }
+    const doc = document as Record<string, unknown>;
+    const metadata =
+      doc['metadata'] && typeof doc['metadata'] === 'object' && !Array.isArray(doc['metadata'])
+        ? (doc['metadata'] as Record<string, unknown>)
+        : {};
+    const titleFromMeta = typeof metadata['title'] === 'string' ? metadata['title'] : '';
+    const title =
+      titleFromMeta || (typeof doc['name'] === 'string' ? doc['name'] : '');
+    const description = typeof metadata['description'] === 'string' ? metadata['description'] : '';
+    // Section count: number of direct children in the root node's default slot
+    // (top-level content blocks under structure.page).
+    const root =
+      doc['root'] && typeof doc['root'] === 'object' && !Array.isArray(doc['root'])
+        ? (doc['root'] as Record<string, unknown>)
+        : null;
+    const slots =
+      root && root['slots'] && typeof root['slots'] === 'object' && !Array.isArray(root['slots'])
+        ? (root['slots'] as Record<string, unknown>)
+        : {};
+    const defaultChildren = Array.isArray(slots['default']) ? slots['default'] : [];
+    return { title, description, sectionCount: defaultChildren.length };
+  }
+
+  // Legacy public-site configuration with sections[].
+  const metadata =
+    record['metadata'] && typeof record['metadata'] === 'object' && !Array.isArray(record['metadata'])
+      ? (record['metadata'] as Record<string, unknown>)
+      : {};
+  const title =
+    (typeof metadata['title'] === 'string' && metadata['title']) ||
+    (typeof record['title'] === 'string' ? record['title'] : '');
   const description =
-    typeof record['description'] === 'string'
-      ? record['description']
-      : typeof metadata['description'] === 'string'
-        ? metadata['description']
-        : '';
+    (typeof metadata['description'] === 'string' && metadata['description']) ||
+    (typeof record['description'] === 'string' ? record['description'] : '');
+  const sections = Array.isArray(record['sections']) ? record['sections'] : [];
   return { title, description, sectionCount: sections.length };
 }
 
