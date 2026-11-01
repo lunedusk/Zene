@@ -382,13 +382,15 @@ export class CompositionEditorSession {
     const result = operation(input);
 
     if (!result.ok) {
+      const frozen = freezeDiagnostics(result.diagnostics);
       if (diagnosticsEqual(this.lastDiagnostics, result.diagnostics)) {
-        return result;
+        // Still return an independently frozen copy; never the caller's array/objects.
+        return { ok: false, diagnostics: frozen };
       }
-      // Own frozen copies of diagnostic records.
+      // Own copies for internal state (unfrozen until exposed via getters/snapshot).
       this.lastDiagnostics = result.diagnostics.map((d) => ({ ...d }));
       this.notify();
-      return result;
+      return { ok: false, diagnostics: frozen };
     }
 
     // Identity no-op: same document reference — preserve history and dirty state.

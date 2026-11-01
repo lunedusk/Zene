@@ -17,7 +17,7 @@ import { compositionRegistry, createDefaultNode } from './registry.js';
 
 export type OperationResult =
   | { ok: true; document: CompositionDocument }
-  | { ok: false; diagnostics: CompositionDiagnostic[] };
+  | { ok: false; diagnostics: readonly CompositionDiagnostic[] };
 
 function fail(code: string, message: string, nodeId?: string): OperationResult {
   return { ok: false, diagnostics: [{ severity: 'error', code, message, nodeId }] };
