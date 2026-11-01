@@ -27,6 +27,25 @@ export function hashPreviewToken(token: string): string {
     return createHmac('sha256', 'preview-token-hash').update(token).digest('hex');
 }
 
+/**
+ * Choose a preview signing secret.
+ * Prefer DASH_PREVIEW_SECRET only when it is a non-empty string of length >= 16;
+ * otherwise fall back to BETTER_AUTH_SECRET under the same rule.
+ * Empty/short primary values must not block fallback.
+ */
+export function selectPreviewSecret(
+    dashPreviewSecret: string | undefined,
+    betterAuthSecret: string | undefined,
+): string | null {
+    if (typeof dashPreviewSecret === 'string' && dashPreviewSecret.length >= 16) {
+        return dashPreviewSecret;
+    }
+    if (typeof betterAuthSecret === 'string' && betterAuthSecret.length >= 16) {
+        return betterAuthSecret;
+    }
+    return null;
+}
+
 export function mintPreviewToken(secret: string, claims: Omit<PreviewClaims, 'nonce' | 'iat'> & { iat?: number }): {
     token: string;
     claims: PreviewClaims;

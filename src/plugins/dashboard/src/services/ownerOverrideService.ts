@@ -26,6 +26,7 @@ import {
     validatePreviewToken,
     hashPreviewToken,
     evaluatePreviewAuthorization,
+    selectPreviewSecret,
     type PreviewClaims,
 } from '../lib/previewToken.js';
 import {
@@ -46,9 +47,14 @@ function mapIntegrity(e: unknown): never {
  * Missing/short secrets fail closed so anonymous and authenticated paths stay aligned.
  */
 export function resolvePreviewSecret(): string {
-    const fromEnv = process.env['DASH_PREVIEW_SECRET'] ?? process.env['BETTER_AUTH_SECRET'];
-    if (fromEnv && fromEnv.length >= 16) return fromEnv;
-    throw new ServiceError('UNAVAILABLE', 'Preview secret not configured (set DASH_PREVIEW_SECRET)', 503);
+    const selected = selectPreviewSecret(
+        process.env['DASH_PREVIEW_SECRET'],
+        process.env['BETTER_AUTH_SECRET'],
+    );
+    if (!selected) {
+        throw new ServiceError('UNAVAILABLE', 'Preview secret not configured (set DASH_PREVIEW_SECRET)', 503);
+    }
+    return selected;
 }
 
 function previewSecret(_ctx: RequestContext): string {
