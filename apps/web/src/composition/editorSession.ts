@@ -131,6 +131,23 @@ function diagnosticsEqual(
   return true;
 }
 
+function freezeDiagnostic(d: CompositionDiagnostic): Readonly<CompositionDiagnostic> {
+  return Object.freeze({
+    severity: d.severity,
+    code: d.code,
+    message: d.message,
+    ...(d.nodeId !== undefined ? { nodeId: d.nodeId } : {}),
+    ...(d.path !== undefined ? { path: d.path } : {}),
+    ...(d.property !== undefined ? { property: d.property } : {}),
+  });
+}
+
+function freezeDiagnostics(
+  list: readonly CompositionDiagnostic[],
+): readonly CompositionDiagnostic[] {
+  return Object.freeze(list.map((d) => freezeDiagnostic(d)));
+}
+
 /**
  * Coordinates a canonical composition document with editor-only state.
  * Safe for useSyncExternalStore via subscribe + getSnapshot.
@@ -176,9 +193,7 @@ export class CompositionEditorSession {
     if (this.snapshotCache) return this.snapshotCache;
     const document = this.history.present;
     const selection = Object.freeze([...this.selectionIds]) as readonly string[];
-    const diagnostics = Object.freeze([
-      ...this.lastDiagnostics,
-    ]) as readonly CompositionDiagnostic[];
+    const diagnostics = freezeDiagnostics(this.lastDiagnostics);
     this.snapshotCache = Object.freeze({
       document,
       selection,
@@ -250,7 +265,7 @@ export class CompositionEditorSession {
   }
 
   get diagnostics(): readonly CompositionDiagnostic[] {
-    return Object.freeze([...this.lastDiagnostics]) as readonly CompositionDiagnostic[];
+    return freezeDiagnostics(this.lastDiagnostics);
   }
 
   get inTransaction(): boolean {
@@ -358,12 +373,11 @@ export class CompositionEditorSession {
   /* ------------------------------------------------------------------ */
 
   /**
-   * Apply a pure operation against a frozen snapshot of the current document.
-   * Successful results are re-validated and adopted (clone + freeze) before
-   * entering history so forged or mutated inputs cannot corrupt session state.
+   * Apply a pure operation against the current frozen document.
+   * Identity-preserving no-ops keep the same document reference (no history).
+   * New documents are re-validated and adopted (clone + freeze) before history.
    */
   dispatch(operation: EditorOperation, options: { coalesceKey?: string } = {}): OperationResult {
-    // Pass an independent frozen snapshot so callbacks cannot mutate present.
     const input = this.history.present;
     const result = operation(input);
 
@@ -371,9 +385,20 @@ export class CompositionEditorSession {
       if (diagnosticsEqual(this.lastDiagnostics, result.diagnostics)) {
         return result;
       }
+      // Own frozen copies of diagnostic records.
       this.lastDiagnostics = result.diagnostics.map((d) => ({ ...d }));
       this.notify();
       return result;
+    }
+
+    // Identity no-op: same document reference — preserve history and dirty state.
+    if (Object.is(result.document, input)) {
+      if (this.lastDiagnostics.length === 0) {
+        return { ok: true, document: input };
+      }
+      this.lastDiagnostics = [];
+      this.notify();
+      return { ok: true, document: input };
     }
 
     const validation = validateDocument(result.document, this.registry);
@@ -382,11 +407,11 @@ export class CompositionEditorSession {
         .filter((d) => d.severity === 'error')
         .map((d) => ({ ...d }));
       if (diagnosticsEqual(this.lastDiagnostics, diagnostics)) {
-        return { ok: false, diagnostics };
+        return { ok: false, diagnostics: freezeDiagnostics(diagnostics) };
       }
       this.lastDiagnostics = diagnostics;
       this.notify();
-      return { ok: false, diagnostics };
+      return { ok: false, diagnostics: freezeDiagnostics(diagnostics) };
     }
 
     const previousSelection = [...this.selectionIds];
@@ -403,11 +428,11 @@ export class CompositionEditorSession {
     const diagnosticsCleared = previousDiagnosticsLen > 0;
 
     if (!changed && !selectionChanged && !hoverChanged && !diagnosticsCleared) {
-      return result;
+      return { ok: true, document: this.history.present };
     }
 
     this.notify();
-    return { ok: true, document: ownedNext };
+    return { ok: true, document: this.history.present };
   }
 
   /* ------------------------------------------------------------------ */
