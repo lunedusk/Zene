@@ -4,6 +4,9 @@
  * Owns one CompositionDocument plus editor-only UI state. Document mutations
  * always go through existing validated operations + CompositionHistory.
  * Selection / hover / breakpoint / mode never enter history or dirty tracking.
+ *
+ * Document boundary: session-owned trees are deep-cloned on intake and deep-
+ * frozen before exposure so external code cannot mutate session state.
  */
 
 import type {
@@ -16,19 +19,14 @@ import { CompositionHistory, type CompositionHistoryOptions } from './history.js
 import { findNode, type OperationResult, walkNodes } from './operations.js';
 import { validateDocument } from './validate.js';
 import { compositionRegistry } from './registry.js';
+import { cloneDocument } from './schema.js';
 import type { RegistryLike } from './types.js';
 
 export type EditorMode = 'edit' | 'preview';
 
 export interface EditorSessionOptions extends CompositionHistoryOptions {
-  /** Initial breakpoint. Defaults to desktop. */
   breakpoint?: BreakpointId;
-  /** Initial editor mode. Defaults to edit. */
   mode?: EditorMode;
-  /**
-   * Registry used to re-validate successful operation results before they
-   * enter history. Defaults to the application composition registry.
-   */
   registry?: RegistryLike;
 }
 
@@ -52,6 +50,25 @@ export type EditorOperation = (document: CompositionDocument) => OperationResult
 interface TransactionCheckpoint {
   selection: string[];
   hoveredId: string | null;
+}
+
+/** Deep-freeze a JSON-compatible value. Idempotent on already-frozen trees. */
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (Object.isFrozen(value)) return value;
+  if (Array.isArray(value)) {
+    for (const item of value) deepFreeze(item);
+  } else {
+    for (const key of Object.keys(value as object)) {
+      deepFreeze((value as Record<string, unknown>)[key]);
+    }
+  }
+  return Object.freeze(value);
+}
+
+/** Clone then freeze — independent, immutable session ownership. */
+function adoptDocument(doc: CompositionDocument): CompositionDocument {
+  return deepFreeze(cloneDocument(doc));
 }
 
 function collectNodeIds(doc: CompositionDocument): Set<string> {
@@ -101,11 +118,12 @@ function diagnosticsEqual(
     const x = a[i]!;
     const y = b[i]!;
     if (
+      x.severity !== y.severity ||
       x.code !== y.code ||
       x.message !== y.message ||
-      x.severity !== y.severity ||
       x.nodeId !== y.nodeId ||
-      x.path !== y.path
+      x.path !== y.path ||
+      x.property !== y.property
     ) {
       return false;
     }
@@ -128,16 +146,16 @@ export class CompositionEditorSession {
   private revision = 0;
   private snapshotCache: EditorSessionSnapshot | null = null;
   private readonly listeners = new Set<() => void>();
-  /** Editor-only state captured at beginTransaction for cancel restore. */
   private transactionCheckpoint: TransactionCheckpoint | null = null;
   private readonly registry: RegistryLike;
 
   constructor(document: CompositionDocument, options: EditorSessionOptions = {}) {
-    this.history = new CompositionHistory(document, {
+    const owned = adoptDocument(document);
+    this.history = new CompositionHistory(owned, {
       limit: options.limit,
       coalesceWindowMs: options.coalesceWindowMs,
     });
-    this.savedDocument = document;
+    this.savedDocument = owned;
     this.activeBreakpoint = options.breakpoint ?? 'desktop';
     this.editorMode = options.mode ?? 'edit';
     this.registry = options.registry ?? compositionRegistry;
@@ -157,9 +175,10 @@ export class CompositionEditorSession {
   getSnapshot = (): EditorSessionSnapshot => {
     if (this.snapshotCache) return this.snapshotCache;
     const document = this.history.present;
-    // Defensive copies so consumers cannot mutate session-owned arrays.
     const selection = Object.freeze([...this.selectionIds]) as readonly string[];
-    const diagnostics = Object.freeze([...this.lastDiagnostics]) as readonly CompositionDiagnostic[];
+    const diagnostics = Object.freeze([
+      ...this.lastDiagnostics,
+    ]) as readonly CompositionDiagnostic[];
     this.snapshotCache = Object.freeze({
       document,
       selection,
@@ -177,31 +196,10 @@ export class CompositionEditorSession {
     return this.snapshotCache;
   };
 
-  /** Notify only when observable state actually changes. */
-  private notifyIfChanged(): void {
-    const previous = this.snapshotCache;
+  /** Invalidate cache and notify subscribers of an observable change. */
+  private notify(): void {
     this.snapshotCache = null;
     this.revision += 1;
-    // Build next snapshot so identity is stable for subsequent getSnapshot calls.
-    const next = this.getSnapshot();
-    if (
-      previous &&
-      Object.is(previous.document, next.document) &&
-      arraysEqual(previous.selection, next.selection) &&
-      previous.hoveredNodeId === next.hoveredNodeId &&
-      previous.breakpoint === next.breakpoint &&
-      previous.mode === next.mode &&
-      previous.canUndo === next.canUndo &&
-      previous.canRedo === next.canRedo &&
-      previous.dirty === next.dirty &&
-      diagnosticsEqual(previous.diagnostics, next.diagnostics) &&
-      previous.inTransaction === next.inTransaction
-    ) {
-      // Observable fields identical — restore previous identity and skip notify.
-      this.snapshotCache = previous;
-      this.revision -= 1;
-      return;
-    }
     for (const listener of this.listeners) {
       try {
         listener();
@@ -211,20 +209,8 @@ export class CompositionEditorSession {
     }
   }
 
-  private forceNotify(): void {
-    this.snapshotCache = null;
-    this.revision += 1;
-    for (const listener of this.listeners) {
-      try {
-        listener();
-      } catch {
-        // ignore
-      }
-    }
-  }
-
   /* ------------------------------------------------------------------ */
-  /* Accessors (defensive copies for collections)                         */
+  /* Accessors                                                            */
   /* ------------------------------------------------------------------ */
 
   get document(): CompositionDocument {
@@ -256,7 +242,6 @@ export class CompositionEditorSession {
   }
 
   get canRedo(): boolean {
-    // History refuses redo while a transaction is open.
     return !this.history.inTransaction && this.history.canRedo;
   }
 
@@ -279,6 +264,7 @@ export class CompositionEditorSession {
       const node = findNode(doc, id);
       if (node) nodes.push(node);
     }
+    // Nodes are already frozen as part of the session document tree.
     return nodes;
   }
 
@@ -294,7 +280,7 @@ export class CompositionEditorSession {
     );
     if (arraysEqual(this.selectionIds, next)) return;
     this.selectionIds = next;
-    this.forceNotify();
+    this.notify();
   }
 
   toggleSelection(nodeId: string): void {
@@ -305,25 +291,25 @@ export class CompositionEditorSession {
     const next = sortSelectionByDocumentOrder([...set], this.document);
     if (arraysEqual(this.selectionIds, next)) return;
     this.selectionIds = next;
-    this.forceNotify();
+    this.notify();
   }
 
   clearSelection(): void {
     if (this.selectionIds.length === 0) return;
     this.selectionIds = [];
-    this.forceNotify();
+    this.notify();
   }
 
   hover(nodeId: string | null): void {
     if (nodeId !== null && !findNode(this.document, nodeId)) {
       if (this.hoveredId === null) return;
       this.hoveredId = null;
-      this.forceNotify();
+      this.notify();
       return;
     }
     if (this.hoveredId === nodeId) return;
     this.hoveredId = nodeId;
-    this.forceNotify();
+    this.notify();
   }
 
   clearHover(): void {
@@ -333,13 +319,13 @@ export class CompositionEditorSession {
   setBreakpoint(breakpoint: BreakpointId): void {
     if (this.activeBreakpoint === breakpoint) return;
     this.activeBreakpoint = breakpoint;
-    this.forceNotify();
+    this.notify();
   }
 
   setMode(mode: EditorMode): void {
     if (this.editorMode === mode) return;
     this.editorMode = mode;
-    this.forceNotify();
+    this.notify();
   }
 
   /* ------------------------------------------------------------------ */
@@ -347,25 +333,24 @@ export class CompositionEditorSession {
   /* ------------------------------------------------------------------ */
 
   loadDocument(document: CompositionDocument): void {
-    this.history.reset(document);
-    this.savedDocument = document;
+    const owned = adoptDocument(document);
+    this.history.reset(owned);
+    this.savedDocument = owned;
     this.selectionIds = [];
     this.hoveredId = null;
     this.lastDiagnostics = [];
     this.transactionCheckpoint = null;
-    this.forceNotify();
+    this.notify();
   }
 
   markSaved(): void {
-    const already = Object.is(this.history.present, this.savedDocument);
-    this.savedDocument = this.history.present;
-    this.history.checkpoint();
-    if (already) {
-      // May still clear coalesce state inside history; only notify if dirty flipped.
-      // already true means dirty was false and stays false — no notify.
+    if (Object.is(this.history.present, this.savedDocument)) {
+      this.history.checkpoint();
       return;
     }
-    this.forceNotify();
+    this.savedDocument = this.history.present;
+    this.history.checkpoint();
+    this.notify();
   }
 
   /* ------------------------------------------------------------------ */
@@ -373,53 +358,56 @@ export class CompositionEditorSession {
   /* ------------------------------------------------------------------ */
 
   /**
-   * Apply a pure operation function against the current document.
-   * Successful results are re-validated before entering history so a forged
-   * `{ ok: true, document }` cannot install an invalid tree.
+   * Apply a pure operation against a frozen snapshot of the current document.
+   * Successful results are re-validated and adopted (clone + freeze) before
+   * entering history so forged or mutated inputs cannot corrupt session state.
    */
   dispatch(operation: EditorOperation, options: { coalesceKey?: string } = {}): OperationResult {
-    const result = operation(this.history.present);
+    // Pass an independent frozen snapshot so callbacks cannot mutate present.
+    const input = this.history.present;
+    const result = operation(input);
+
     if (!result.ok) {
       if (diagnosticsEqual(this.lastDiagnostics, result.diagnostics)) {
         return result;
       }
-      this.lastDiagnostics = [...result.diagnostics];
-      this.forceNotify();
+      this.lastDiagnostics = result.diagnostics.map((d) => ({ ...d }));
+      this.notify();
       return result;
     }
 
-    // Trust boundary: re-validate any successful result before applying.
     const validation = validateDocument(result.document, this.registry);
     if (!validation.ok) {
-      const diagnostics = validation.diagnostics.filter((d) => d.severity === 'error');
+      const diagnostics = validation.diagnostics
+        .filter((d) => d.severity === 'error')
+        .map((d) => ({ ...d }));
       if (diagnosticsEqual(this.lastDiagnostics, diagnostics)) {
         return { ok: false, diagnostics };
       }
-      this.lastDiagnostics = [...diagnostics];
-      this.forceNotify();
+      this.lastDiagnostics = diagnostics;
+      this.notify();
       return { ok: false, diagnostics };
     }
 
-    const previousDoc = this.history.present;
     const previousSelection = [...this.selectionIds];
     const previousHover = this.hoveredId;
-    const previousDiagnostics = this.lastDiagnostics;
+    const previousDiagnosticsLen = this.lastDiagnostics.length;
+    const ownedNext = adoptDocument(result.document);
 
-    const changed = this.history.apply(result.document, options.coalesceKey);
+    const changed = this.history.apply(ownedNext, options.coalesceKey);
     this.lastDiagnostics = [];
-    this.syncSelectionAfterDocumentChange(result.document);
+    this.syncSelectionAfterDocumentChange(ownedNext);
 
     const selectionChanged = !arraysEqual(previousSelection, this.selectionIds);
     const hoverChanged = previousHover !== this.hoveredId;
-    const diagnosticsChanged = previousDiagnostics.length > 0;
-    if (!changed && !selectionChanged && !hoverChanged && !diagnosticsChanged) {
-      // True no-op — restore previous diagnostics array identity if empty.
-      this.lastDiagnostics = previousDiagnostics;
+    const diagnosticsCleared = previousDiagnosticsLen > 0;
+
+    if (!changed && !selectionChanged && !hoverChanged && !diagnosticsCleared) {
       return result;
     }
 
-    this.forceNotify();
-    return result;
+    this.notify();
+    return { ok: true, document: ownedNext };
   }
 
   /* ------------------------------------------------------------------ */
@@ -433,7 +421,7 @@ export class CompositionEditorSession {
       hoveredId: this.hoveredId,
     };
     this.history.beginTransaction();
-    this.forceNotify();
+    this.notify();
   }
 
   commitTransaction(): void {
@@ -441,7 +429,7 @@ export class CompositionEditorSession {
     this.history.endTransaction();
     this.transactionCheckpoint = null;
     this.pruneSelectionAgainstDocument();
-    this.forceNotify();
+    this.notify();
   }
 
   cancelTransaction(): void {
@@ -463,11 +451,11 @@ export class CompositionEditorSession {
     } else {
       this.pruneSelectionAgainstDocument();
     }
-    this.forceNotify();
+    this.notify();
   }
 
   /**
-   * Undo policy: while a transaction is open, undo cancels the transaction only.
+   * While a transaction is open, undo cancels the transaction only.
    * It does not also unwind an earlier committed history entry.
    */
   undo(): boolean {
@@ -481,14 +469,10 @@ export class CompositionEditorSession {
     if (Object.is(before, this.history.present)) return false;
     this.lastDiagnostics = [];
     this.pruneSelectionAgainstDocument();
-    this.forceNotify();
+    this.notify();
     return true;
   }
 
-  /**
-   * Redo is a no-op (returns false) while a transaction is open, matching
-   * CompositionHistory which refuses redo during transactions.
-   */
   redo(): boolean {
     if (this.history.inTransaction) return false;
     if (!this.history.canRedo) return false;
@@ -497,7 +481,7 @@ export class CompositionEditorSession {
     if (Object.is(before, this.history.present)) return false;
     this.lastDiagnostics = [];
     this.pruneSelectionAgainstDocument();
-    this.forceNotify();
+    this.notify();
     return true;
   }
 
