@@ -51,6 +51,7 @@ export interface CompositionRendererProps {
   actions?: Partial<CompositionActions>;
   initialLocalState?: Record<string, JsonValue>;
   selectedNodeId?: string;
+  selectedNodeIds?: readonly string[];
   onSelectNode?: (nodeId: string, mode?: 'replace' | 'toggle') => void;
   onHoverNode?: (nodeId: string | null) => void;
   onSubmit?: (actionId: string, formData: FormData) => Promise<SubmitResult>;
@@ -202,6 +203,7 @@ export function CompositionRenderer({
   actions,
   initialLocalState,
   selectedNodeId,
+  selectedNodeIds,
   onSelectNode,
   onHoverNode,
   onSubmit,
@@ -275,7 +277,14 @@ export function CompositionRenderer({
         },
         ...actions,
       },
-      selectedNodeId: mode === 'editor' ? selectedNodeId : undefined,
+      selectedNodeId:
+        mode === 'editor'
+          ? (selectedNodeId ?? selectedNodeIds?.[0])
+          : undefined,
+      selectedNodeIds:
+        mode === 'editor'
+          ? (selectedNodeIds ?? (selectedNodeId ? [selectedNodeId] : undefined))
+          : undefined,
       onSelectNode: mode === 'editor' ? onSelectNode : undefined,
       onHoverNode: mode === 'editor' ? onHoverNode : undefined,
       interactive,
@@ -292,6 +301,7 @@ export function CompositionRenderer({
     interactive,
     actions,
     selectedNodeId,
+    selectedNodeIds,
     onSelectNode,
     onHoverNode,
     onSubmit,

@@ -46,8 +46,10 @@ export interface CompositionRuntime {
   localState: Record<string, JsonValue>;
   setLocalState(key: string, value: JsonValue): void;
   actions: CompositionActions;
-  /** Editor-only: whether a node is selected. */
+  /** Editor-only: primary selected node (first in selection). */
   selectedNodeId?: string;
+  /** Editor-only: all selected node ids. */
+  selectedNodeIds?: readonly string[];
   /** Editor-only: selection callback used by NodeFrame. */
   onSelectNode?: (nodeId: string, mode?: 'replace' | 'toggle') => void;
   /** Editor-only: hover callback used for layer highlighting. */

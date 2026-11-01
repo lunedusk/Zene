@@ -94,7 +94,10 @@ export function NodeFrame({
   };
   if (editor) {
     props['data-zc-editor'] = 'true';
-    props['data-selected'] = runtime.selectedNodeId === nodeId ? 'true' : undefined;
+    const selected =
+      runtime.selectedNodeIds?.includes(nodeId) === true ||
+      runtime.selectedNodeId === nodeId;
+    props['data-selected'] = selected ? 'true' : undefined;
     props['onPointerDown'] = (event: React.PointerEvent<HTMLElement>) => {
       event.stopPropagation();
       runtime.onSelectNode?.(nodeId, event.shiftKey ? 'toggle' : 'replace');
