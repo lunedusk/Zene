@@ -25,6 +25,7 @@ import {
     mintPreviewToken,
     validatePreviewToken,
     hashPreviewToken,
+    evaluatePreviewAuthorization,
     type PreviewClaims,
 } from '../lib/previewToken.js';
 import {
@@ -63,59 +64,40 @@ export async function resolveActivePreview(token: string): Promise<{
     record: OwnerOverrideRecord;
 }> {
     const secret = resolvePreviewSecret();
-    const v = validatePreviewToken(secret, token);
-    if (!v.ok) {
-        if (v.reason === 'expired') throw new ServiceError('FORBIDDEN', 'Preview expired', 403);
-        throw new ServiceError('UNAUTHENTICATED', 'Invalid preview token', 401);
+    const nowMs = Date.now();
+    const tokenValidation = validatePreviewToken(secret, token, Math.floor(nowMs / 1000));
+    const claimsHint =
+        tokenValidation.ok && typeof tokenValidation.claims.overrideId === 'string'
+            ? tokenValidation.claims.overrideId
+            : null;
+    const rec = claimsHint ? await getOverride(claimsHint) : null;
+    const policy = evaluatePreviewAuthorization({
+        tokenValidation,
+        record: rec,
+        tokenHash: hashPreviewToken(token),
+        nowMs,
+    });
+    if (!policy.ok) {
+        switch (policy.reason) {
+            case 'expired_token':
+            case 'expired_session':
+            case 'missing_stored_expiry':
+                throw new ServiceError('FORBIDDEN', 'Preview expired', 403);
+            case 'revoked':
+            case 'identity_mismatch':
+                throw new ServiceError('FORBIDDEN', policy.reason === 'revoked' ? 'Preview revoked' : 'Preview invalid', 403);
+            case 'missing_record':
+                throw new ServiceError('NOT_FOUND', 'Override not found', 404);
+            case 'bad_signature':
+            case 'malformed_token':
+            default:
+                throw new ServiceError('UNAUTHENTICATED', 'Invalid preview token', 401);
+        }
     }
-    const claims = v.claims;
-    if (
-        typeof claims.overrideId !== 'string' ||
-        !claims.overrideId ||
-        typeof claims.targetKind !== 'string' ||
-        !claims.targetKind ||
-        typeof claims.targetKey !== 'string' ||
-        !claims.targetKey ||
-        typeof claims.exp !== 'number'
-    ) {
-        throw new ServiceError('UNAUTHENTICATED', 'Invalid preview token', 401);
-    }
-
-    const rec = await getOverride(claims.overrideId);
+    // Record was loaded and identity-checked by policy; non-null is guaranteed.
     if (!rec) throw new ServiceError('NOT_FOUND', 'Override not found', 404);
-
-    if (
-        rec.overrideId !== claims.overrideId ||
-        rec.targetKind !== claims.targetKind ||
-        rec.targetKey !== claims.targetKey
-    ) {
-        throw new ServiceError('FORBIDDEN', 'Preview invalid', 403);
-    }
-
-    // Absent hash means revoked (clearPreviewSession clears the field). Never treat as open.
-    if (typeof rec.previewTokenHash !== 'string' || !rec.previewTokenHash) {
-        throw new ServiceError('FORBIDDEN', 'Preview revoked', 403);
-    }
-    if (rec.previewTokenHash !== hashPreviewToken(token)) {
-        throw new ServiceError('FORBIDDEN', 'Preview revoked', 403);
-    }
-
-    // Absent stored expiry fails closed — an active preview always has both session fields.
-    if (typeof rec.previewExpiresAt !== 'number' || !Number.isFinite(rec.previewExpiresAt)) {
-        throw new ServiceError('FORBIDDEN', 'Preview expired', 403);
-    }
-
-    // Effective end is the earlier of signed exp (sec→ms) and stored previewExpiresAt (ms).
-    // Disagreement cannot extend validity past the stored session end.
-    const signedEndsAtMs = claims.exp * 1000;
-    const endsAtMs = Math.min(signedEndsAtMs, rec.previewExpiresAt);
-    if (Date.now() >= endsAtMs) {
-        throw new ServiceError('FORBIDDEN', 'Preview expired', 403);
-    }
-
-    return { claims, record: rec };
+    return { claims: policy.claims, record: rec };
 }
-
 export class OwnerOverrideService {
     async saveDraft(
         ctx: RequestContext,

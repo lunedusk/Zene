@@ -77,3 +77,87 @@ export function validatePreviewToken(secret: string, token: string, nowSec: numb
     }
     return { ok: true, claims };
 }
+
+
+/** Subset of override fields required for preview authorization policy. */
+export interface PreviewRecordIdentity {
+    readonly overrideId: string;
+    readonly targetKind: string;
+    readonly targetKey: string;
+    readonly previewTokenHash?: string;
+    readonly previewExpiresAt?: number;
+}
+
+export type PreviewAuthorizationFailure =
+    | 'malformed_token'
+    | 'bad_signature'
+    | 'expired_token'
+    | 'missing_record'
+    | 'identity_mismatch'
+    | 'revoked'
+    | 'missing_stored_expiry'
+    | 'expired_session';
+
+export type PreviewAuthorizationResult =
+    | { ok: true; claims: PreviewClaims; endsAtMs: number }
+    | { ok: false; reason: PreviewAuthorizationFailure };
+
+/**
+ * Pure authorization policy shared by anonymous and authenticated preview paths.
+ * Production resolveActivePreview delegates here so tests can exercise the same rules.
+ */
+export function evaluatePreviewAuthorization(input: {
+    tokenValidation: PreviewValidation;
+    record: PreviewRecordIdentity | null;
+    tokenHash: string;
+    nowMs?: number;
+}): PreviewAuthorizationResult {
+    const nowMs = input.nowMs ?? Date.now();
+    if (!input.tokenValidation.ok) {
+        if (input.tokenValidation.reason === 'expired') return { ok: false, reason: 'expired_token' };
+        if (input.tokenValidation.reason === 'bad_signature') return { ok: false, reason: 'bad_signature' };
+        return { ok: false, reason: 'malformed_token' };
+    }
+    const claims = input.tokenValidation.claims;
+    if (
+        typeof claims.overrideId !== 'string' ||
+        !claims.overrideId ||
+        typeof claims.targetKind !== 'string' ||
+        !claims.targetKind ||
+        typeof claims.targetKey !== 'string' ||
+        !claims.targetKey ||
+        typeof claims.exp !== 'number'
+    ) {
+        return { ok: false, reason: 'malformed_token' };
+    }
+
+    const rec = input.record;
+    if (!rec) return { ok: false, reason: 'missing_record' };
+
+    if (
+        rec.overrideId !== claims.overrideId ||
+        rec.targetKind !== claims.targetKind ||
+        rec.targetKey !== claims.targetKey
+    ) {
+        return { ok: false, reason: 'identity_mismatch' };
+    }
+
+    if (typeof rec.previewTokenHash !== 'string' || !rec.previewTokenHash) {
+        return { ok: false, reason: 'revoked' };
+    }
+    if (rec.previewTokenHash !== input.tokenHash) {
+        return { ok: false, reason: 'revoked' };
+    }
+
+    if (typeof rec.previewExpiresAt !== 'number' || !Number.isFinite(rec.previewExpiresAt)) {
+        return { ok: false, reason: 'missing_stored_expiry' };
+    }
+
+    const signedEndsAtMs = claims.exp * 1000;
+    const endsAtMs = Math.min(signedEndsAtMs, rec.previewExpiresAt);
+    if (nowMs >= endsAtMs) {
+        return { ok: false, reason: 'expired_session' };
+    }
+
+    return { ok: true, claims, endsAtMs };
+}

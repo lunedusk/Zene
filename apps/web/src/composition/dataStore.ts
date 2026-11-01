@@ -66,21 +66,61 @@ export function projectPublicSiteBinding(payload: unknown): JsonValue {
       return { title: '', description: '', sectionCount: 0, invalid: true };
     }
     const doc = document as Record<string, unknown>;
+
+    // Envelope: align with isCompositionDocument / schema v1.
+    if (doc['kind'] !== 'composition') {
+      return { title: '', description: '', sectionCount: 0, invalid: true };
+    }
+    if (doc['schemaVersion'] !== 1) {
+      return { title: '', description: '', sectionCount: 0, invalid: true };
+    }
+    if (typeof doc['id'] !== 'string' || !doc['id']) {
+      return { title: '', description: '', sectionCount: 0, invalid: true };
+    }
+    if (typeof doc['name'] !== 'string') {
+      return { title: '', description: '', sectionCount: 0, invalid: true };
+    }
+    const surface = doc['surface'];
+    if (!surface || typeof surface !== 'object' || Array.isArray(surface)) {
+      return { title: '', description: '', sectionCount: 0, invalid: true };
+    }
+    const surfaceObj = surface as Record<string, unknown>;
+    if (typeof surfaceObj['kind'] !== 'string' || typeof surfaceObj['key'] !== 'string') {
+      return { title: '', description: '', sectionCount: 0, invalid: true };
+    }
+
     const root = doc['root'];
     if (!root || typeof root !== 'object' || Array.isArray(root)) {
       return { title: '', description: '', sectionCount: 0, invalid: true };
     }
     const rootObj = root as Record<string, unknown>;
+    if (typeof rootObj['id'] !== 'string' || !rootObj['id']) {
+      return { title: '', description: '', sectionCount: 0, invalid: true };
+    }
+    if (typeof rootObj['type'] !== 'string' || !rootObj['type']) {
+      return { title: '', description: '', sectionCount: 0, invalid: true };
+    }
+    if (!rootObj['props'] || typeof rootObj['props'] !== 'object' || Array.isArray(rootObj['props'])) {
+      return { title: '', description: '', sectionCount: 0, invalid: true };
+    }
     const slots = rootObj['slots'];
     if (!slots || typeof slots !== 'object' || Array.isArray(slots)) {
       return { title: '', description: '', sectionCount: 0, invalid: true };
     }
     const slotsObj = slots as Record<string, unknown>;
-    // Required by structure.page: a default slot array (may be empty).
     if (!Object.prototype.hasOwnProperty.call(slotsObj, 'default') || !Array.isArray(slotsObj['default'])) {
       return { title: '', description: '', sectionCount: 0, invalid: true };
     }
     const defaultChildren = slotsObj['default'] as unknown[];
+    for (const child of defaultChildren) {
+      if (!child || typeof child !== 'object' || Array.isArray(child)) {
+        return { title: '', description: '', sectionCount: 0, invalid: true };
+      }
+      const node = child as Record<string, unknown>;
+      if (typeof node['id'] !== 'string' || !node['id'] || typeof node['type'] !== 'string' || !node['type']) {
+        return { title: '', description: '', sectionCount: 0, invalid: true };
+      }
+    }
 
     const metadata =
       doc['metadata'] && typeof doc['metadata'] === 'object' && !Array.isArray(doc['metadata'])
